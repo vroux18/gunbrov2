@@ -39,8 +39,45 @@ func _drag(index: int, pos: Vector2) -> void:
 	ev.position = _win(pos)
 	Input.parse_input_event(ev)
 
+var _screen_done := false
+
+## Options de capture : --screen=loge|arsenal ouvre l'écran et ne touche à rien ; --stuff équipe des objets d'essai.
+func _capture_screen() -> bool:
+	var mode := ""
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--screen="):
+			mode = a.trim_prefix("--screen=")
+	if mode == "":
+		return false
+	if not _screen_done:
+		_screen_done = true
+		if "--stuff" in OS.get_cmdline_user_args():
+			_give_stuff()
+		match mode:
+			"loge":
+				main.show_loge()
+			"arsenal":
+				main.show_arsenal()
+			_:
+				main.show_base()
+	return true
+
+func _give_stuff() -> void:
+	var Data = load("res://scripts/data.gd")
+	var Save = load("res://scripts/save.gd")
+	var picks := [["casque_garde", 2], ["plastron", 1], ["bottes", 3], ["pile", 1], ["fusil_impulsion", 2], ["module_canon", 0], ["visiere", 0], ["aimant", 1]]
+	for pr in picks:
+		var it := {"id": pr[0], "rarity": pr[1], "uid": "test_" + String(pr[0])}
+		if Save.find_item(main.profile, it["uid"]).is_empty():
+			main.profile["inventory"].append(it)
+	for pr in picks.slice(0, 6):
+		Save.equip(main.profile, "test_" + String(pr[0]))
+	main._apply_profile_to_hero()
+
 func _process(dt: float) -> void:
 	t += dt
+	if _capture_screen():
+		return
 	if main.overlay != null or main.screen != null:
 		click_t += dt
 		if click_t > 0.6:

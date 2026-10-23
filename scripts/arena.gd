@@ -377,6 +377,7 @@ func _spawn(spec: String) -> void:
 	ents.add_child(e)
 	enemies.append(e)
 	enemy_spawned.emit(e)
+	sfx.play("spawn", randf_range(0.9, 1.2), -16.0)
 	_burst(e.position, CYAN, 8, 180.0, 3.0)
 
 func boss_summon(pos: Vector2, n: int) -> void:
@@ -434,6 +435,8 @@ func spawn_bullet(pos: Vector2, vel: Vector2, dmg: float, hero_shot: bool, pierc
 	shots.add_child(b)
 	bullets.append(b)
 	fired.emit(pos, vel, hero_shot, color, radius)
+	if not hero_shot:
+		sfx.play("eshoot", randf_range(0.9, 1.1), -14.0)
 
 ## Direction corrigée pour contourner les caisses : si le point devant est bloqué, on tourne.
 func steer(pos: Vector2, dir: Vector2, r: float) -> Vector2:

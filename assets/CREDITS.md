@@ -6,6 +6,7 @@
 | Space Station Kit (sols, murs, consoles, conteneurs) | Kenney (kenney.nl) | CC0 1.0 | `assets/models/station/` (palette retouchée en acier sombre) |
 | Space Kit (vaisseau, tourelles, machines) | Kenney (kenney.nl) | CC0 1.0 | `assets/models/space/` |
 | Blaster Kit (armes, caisses) | Kenney (kenney.nl) | CC0 1.0 | `assets/models/blaster/` |
+| Sci-Fi Sounds, Impact Sounds, Interface Sounds | Kenney (kenney.nl) | CC0 1.0 | `assets/sfx/` |
 | Russo One | Jovanny Lemonad | SIL Open Font License 1.1 | `assets/fonts/RussoOne-Regular.ttf` |
 | Rajdhani | Indian Type Foundry | SIL Open Font License 1.1 | `assets/fonts/Rajdhani-*.ttf` |
 | Ciel étoilé et nébuleuse | généré pour Passeurs | — | `assets/env/space.jpg` |

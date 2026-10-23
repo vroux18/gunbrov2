@@ -47,6 +47,7 @@ func setup(char_path: String, gun_path: String, tint: Color = Color.WHITE) -> vo
 		att.bone_name = "arm-right"
 		skel.add_child(att)
 		gun = Models.scene(gun_path).instantiate()
+		_gun_path = gun_path
 		gun.scale = Vector3.ONE * 0.55
 		# l'arme Kenney pointe vers -Z ; le bras tendu de « holding-right » pointe vers +Z (l'avant du personnage)
 		gun.rotation_degrees = Vector3(0, 180, 0)
@@ -107,6 +108,145 @@ func _build_tree() -> void:
 	tree.active = true
 	tree.set("parameters/upper/blend_amount", 1.0)
 
+# ---------------------------------------------------------------- butin visible (le « patchwork » des Passeurs)
+const RARITY_GLOW := [Color("#9FB3C8"), Color("#3CF2D8"), Color("#C77DFF"), Color("#FFB347")]
+const GUNS := {"blaster_garde": "res://assets/models/blaster/blaster-c.glb", "fusil_impulsion": "res://assets/models/blaster/blaster-f.glb"}
+var _gear: Array = []
+var _gun_path := ""
+
+func _bone(name: String) -> BoneAttachment3D:
+	var att := BoneAttachment3D.new()
+	att.bone_name = name
+	skel.add_child(att)
+	_gear.append(att)
+	return att
+
+func _gun_swap(path: String) -> void:
+	if gun == null or path == _gun_path:
+		return
+	var parent := gun.get_parent()
+	var keep_xf := gun.transform
+	parent.remove_child(gun)
+	gun.queue_free()
+	gun = Models.scene(path).instantiate()
+	gun.transform = keep_xf
+	parent.add_child(gun)
+	muzzle = Node3D.new()
+	muzzle.position = Vector3(0, 0.05, -0.38)
+	gun.add_child(muzzle)
+	_gun_path = path
+	meshes = Models.meshes(model)
+
+## Équipement de base des Passeurs : sac de saut à lumière cyan et oreillette (silhouette reconnaissable).
+var _kit: Array = []
+func passeur_kit() -> void:
+	var t := BoneAttachment3D.new()
+	t.bone_name = "torso"
+	skel.add_child(t)
+	var pack := Models.box(Vector3(0.22, 0.2, 0.1), Models.toon(Color("#F4F1EA"), 0.45))
+	pack.position = Vector3(0, 0.07, -0.14)
+	t.add_child(pack)
+	var stripe := Models.box(Vector3(0.23, 0.04, 0.105), Models.toon(Color("#FF7A2F"), 0.3))
+	stripe.position = Vector3(0, 0.12, -0.14)
+	t.add_child(stripe)
+	for x in [-0.06, 0.06]:
+		var jet := Models.cyl(0.035, 0.04, 0.08, Models.glow_mat(Color("#3CF2D8"), 2.4), 10)
+		jet.position = Vector3(x, -0.04, -0.19)
+		t.add_child(jet)
+	var h := BoneAttachment3D.new()
+	h.bone_name = "head"
+	skel.add_child(h)
+	var ear := Models.box(Vector3(0.05, 0.09, 0.08), Models.toon(Color("#2C3350"), 0.3))
+	ear.position = Vector3(0.18, 0.12, 0.0)
+	h.add_child(ear)
+	var mic := Models.box(Vector3(0.02, 0.02, 0.12), Models.glow_mat(Color("#3CF2D8"), 2.0))
+	mic.position = Vector3(0.17, 0.07, 0.08)
+	h.add_child(mic)
+	_kit = [t, h]
+	meshes = Models.meshes(model)
+
+## Équipe visuellement les objets (instances {id, rarity}) : casque, plastron, bottes, sac, module, arme.
+func apply_items(items: Array, default_gun: String) -> void:
+	for g in _gear:
+		var gn: Node = g
+		gn.get_parent().remove_child(gn)
+		gn.queue_free()
+	_gear.clear()
+	var gun_path := default_gun
+	for it in items:
+		var id := String(it["id"])
+		var glow: Color = RARITY_GLOW[clampi(int(it["rarity"]), 0, 3)]
+		var gm := Models.glow_mat(glow, 2.2)
+		match id:
+			"blaster_garde", "fusil_impulsion":
+				gun_path = GUNS[id]
+			"visiere":
+				var h := _bone("head")
+				var band := Models.box(Vector3(0.36, 0.08, 0.36), Models.toon(Color("#2C3350"), 0.3))
+				band.position = Vector3(0, 0.2, 0.0)
+				h.add_child(band)
+				var vis := Models.box(Vector3(0.3, 0.07, 0.05), gm)
+				vis.position = Vector3(0, 0.2, 0.19)
+				h.add_child(vis)
+			"casque_garde":
+				var h := _bone("head")
+				var dome := Models.sphere(0.21, Models.toon(Color("#E8ECF2"), 0.5))
+				dome.scale = Vector3(1.05, 0.9, 1.05)
+				dome.position = Vector3(0, 0.2, -0.01)
+				h.add_child(dome)
+				var vis := Models.box(Vector3(0.3, 0.06, 0.06), gm)
+				vis.position = Vector3(0, 0.17, 0.2)
+				h.add_child(vis)
+			"plastron":
+				var t := _bone("torso")
+				var plate := Models.box(Vector3(0.3, 0.17, 0.06), Models.toon(Color("#8A939E"), 0.45))
+				plate.position = Vector3(0, 0.08, 0.13)
+				t.add_child(plate)
+				var trim := Models.box(Vector3(0.31, 0.03, 0.065), gm)
+				trim.position = Vector3(0, 0.14, 0.13)
+				t.add_child(trim)
+			"veste":
+				var t := _bone("torso")
+				var collar := Models.box(Vector3(0.32, 0.06, 0.26), Models.toon(Color("#FF7A2F"), 0.35))
+				collar.position = Vector3(0, 0.16, 0.0)
+				t.add_child(collar)
+				var stripe := Models.box(Vector3(0.04, 0.16, 0.27), gm)
+				stripe.position = Vector3(0.1, 0.06, 0.0)
+				t.add_child(stripe)
+			"bottes", "jambieres":
+				for b in ["leg-left", "leg-right"]:
+					var l := _bone(b)
+					var boot := Models.box(Vector3(0.12, 0.08, 0.15), Models.toon(Color("#2C3350") if id == "bottes" else Color("#C8D0DA"), 0.4))
+					boot.position = Vector3(0, -0.13 if id == "bottes" else -0.07, 0.02)
+					l.add_child(boot)
+					var led := Models.box(Vector3(0.125, 0.025, 0.155), gm)
+					led.position = Vector3(0, -0.1 if id == "bottes" else -0.04, 0.02)
+					l.add_child(led)
+			"pile", "aimant":
+				var t := _bone("torso")
+				var pack := Models.box(Vector3(0.24, 0.24, 0.12), Models.toon(Color("#3A4670"), 0.35))
+				pack.position = Vector3(0, 0.06, -0.15)
+				t.add_child(pack)
+				if id == "pile":
+					var cell := Models.cyl(0.05, 0.05, 0.2, gm, 10)
+					cell.position = Vector3(0.0, 0.07, -0.23)
+					t.add_child(cell)
+				else:
+					var ring := Models.torus(0.07, 0.1, gm)
+					ring.rotation.x = PI * 0.5
+					ring.position = Vector3(0, 0.08, -0.23)
+					t.add_child(ring)
+			"module_canon", "cellule":
+				var sh := _bone("arm-left")
+				var mod := Models.box(Vector3(0.12, 0.12, 0.16), Models.toon(Color("#5A6470"), 0.4))
+				mod.position = Vector3(0.04, 0.02, 0.0)
+				sh.add_child(mod)
+				var tip := Models.box(Vector3(0.05, 0.05, 0.06), gm)
+				tip.position = Vector3(0.04, 0.02, 0.1)
+				sh.add_child(tip)
+	_gun_swap(gun_path)
+	meshes = Models.meshes(model)
+
 func set_motion(spd: float, shoot_amount: float) -> void:
 	speed = lerpf(speed, spd, 0.25)
 	shooting = shoot_amount
@@ -116,7 +256,8 @@ func set_motion(spd: float, shoot_amount: float) -> void:
 func flash(t: float = 0.09) -> void:
 	_flash_t = t
 	for mi in meshes:
-		(mi as MeshInstance3D).material_overlay = _flash_mat
+		if is_instance_valid(mi):
+			(mi as MeshInstance3D).material_overlay = _flash_mat
 
 func die() -> void:
 	if dead:
@@ -134,4 +275,5 @@ func _process(dt: float) -> void:
 		_flash_mat.albedo_color = Color(1.6, 1.6, 1.6, clampf(_flash_t * 10.0, 0.0, 0.85))
 		if _flash_t <= 0.0:
 			for mi in meshes:
-				(mi as MeshInstance3D).material_overlay = null
+				if is_instance_valid(mi):
+					(mi as MeshInstance3D).material_overlay = null

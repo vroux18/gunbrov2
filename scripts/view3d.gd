@@ -41,6 +41,7 @@ var hero: Actor3D
 var hero_root: Node3D
 var hero_light: OmniLight3D
 var hero_shield: MeshInstance3D
+var hero_ring: MeshInstance3D
 var aim_line: MeshInstance3D
 var aim_mat: StandardMaterial3D
 var pads3d: Array = []
@@ -262,6 +263,7 @@ func _build_level() -> void:
 		_bput(SP + "barrels.glb", c, rng.randf() * TAU, Vector3.ONE * 0.9, true)
 	for c in [Vector3(WALL + 0.4, 0, H - WALL - 0.5), Vector3(W - WALL - 0.4, 0, H - WALL - 0.5)]:
 		_bput(SP + "machine_barrel.glb", c, 0.0, Vector3.ONE * 0.9, true)
+	_build_details(W, H, WALL, TOP)
 	_flush_batch()
 	# lumières d'ambiance colorées (peu nombreuses : chaque lumière coûte sur téléphone)
 	var lights := [[Vector3(W * 0.5, 2.5, 1.8), ORANGE, 9.0, 1.4], [Vector3(W * 0.2, 2.2, (TOP + H) * 0.5), CYAN, 9.0, 0.6], [Vector3(W * 0.8, 2.2, (TOP + H) * 0.5), Color("#8E6BFF"), 9.0, 0.6]]
@@ -273,6 +275,71 @@ func _build_level() -> void:
 		ol.light_energy = L[3]
 		ol.omni_attenuation = 1.4
 		level.add_child(ol)
+
+## Habillage : flaques de lumière au sol, bandes de danger le long des murs, barres lumineuses, emblème central.
+func _build_details(W: float, H: float, WALL: float, TOP: float) -> void:
+	# flaques de lumière des plafonniers (un seul MultiMesh additif)
+	var pool := PlaneMesh.new()
+	pool.size = Vector2(5.5, 5.5)
+	var pm := StandardMaterial3D.new()
+	pm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	pm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	pm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	pm.albedo_texture = Models.radial()
+	pm.albedo_color = Color(0.55, 0.65, 1.0, 0.16)
+	pool.material = pm
+	var pools := []
+	var x := 4.5
+	while x < W - 3.0:
+		var z := TOP + 3.2
+		while z < H - 2.0:
+			pools.append(Transform3D(Basis(), Vector3(x, 0.015, z)))
+			z += 6.0
+		x += 7.0
+	_mm(pool, pools)
+	# bandes de danger au pied des murs ouest, est et sud
+	var hz := StandardMaterial3D.new()
+	hz.albedo_texture = load("res://assets/env/hazard.png")
+	hz.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	hz.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	hz.albedo_color = Color(0.75, 0.75, 0.75, 0.85)
+	hz.texture_repeat = true
+	var strips := [
+		[Vector3(W * 0.5, 0.014, H - WALL - 0.25), Vector2(W - 2 * WALL, 0.42), 0.0, (W - 2 * WALL) / 1.7],
+		[Vector3(WALL + 0.25, 0.014, (TOP + H - WALL) * 0.5), Vector2(H - WALL - TOP, 0.42), PI * 0.5, (H - WALL - TOP) / 1.7],
+		[Vector3(W - WALL - 0.25, 0.014, (TOP + H - WALL) * 0.5), Vector2(H - WALL - TOP, 0.42), PI * 0.5, (H - WALL - TOP) / 1.7],
+	]
+	for st in strips:
+		var mi := MeshInstance3D.new()
+		var plane := PlaneMesh.new()
+		plane.size = st[1]
+		mi.mesh = plane
+		var m: StandardMaterial3D = hz.duplicate()
+		m.uv1_scale = Vector3(st[3], 1, 1)
+		mi.material_override = m
+		mi.position = st[0]
+		mi.rotation.y = st[2]
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		level.add_child(mi)
+	# barres lumineuses verticales sur les piliers des murs latéraux
+	var bar := Models.glow_mat(CYAN, 1.8)
+	for iz in range(int(TOP) - 1, int(ceil(H))):
+		if iz % 5 == 0:
+			_bbox("wall_bar", bar, Vector3(WALL + 0.02, 1.0, iz + 0.5), Vector3(0.04, 1.2, 0.12))
+			_bbox("wall_bar", bar, Vector3(W - WALL - 0.02, 1.0, iz + 0.5), Vector3(0.04, 1.2, 0.12))
+	# bandeau orange en haut du mur nord
+	_bbox("north_strip", Models.glow_mat(ORANGE, 1.6), Vector3(W * 0.5, 2.15, 0.33), Vector3(W, 0.06, 0.04))
+	# emblème du Relais peint au centre de l'arène
+	var c := Vector3(W * 0.5, 0.016, (TOP + H - WALL) * 0.5)
+	for r in [[2.6, 2.68, 0.28], [1.7, 1.74, 0.18]]:
+		var ring := Models.torus(r[0], r[1], Models.glow_mat(CYAN, r[2]), 64)
+		ring.scale = Vector3(1, 0.05, 1)
+		ring.position = c
+		ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		level.add_child(ring)
+	for k in range(4):
+		var a := TAU * k / 4.0 + PI * 0.25
+		_bbox("emblem_tick", Models.glow_mat(ORANGE, 0.6), c + Vector3(cos(a), 0, sin(a)) * 3.0, Vector3(0.36, 0.01, 0.1), -a)
 
 func _build_pad(pos: Vector3) -> void:
 	var root := Node3D.new()
@@ -378,6 +445,7 @@ func _build_hero() -> void:
 	hero_root.add_child(hero)
 	hero.setup(JO_MODEL, JO_GUN)
 	hero.scale = Vector3.ONE * HERO_SCALE
+	hero.passeur_kit()
 	hero_root.add_child(Models.shadow_blob(1.1))
 	# anneau de sélection au sol (lisible même en pleine mêlée)
 	var ring := MeshInstance3D.new()
@@ -393,6 +461,7 @@ func _build_hero() -> void:
 	ring.material_override = rm
 	ring.position.y = 0.03
 	hero_root.add_child(ring)
+	hero_ring = ring
 	# ligne de visée (s'affiche quand le stick droit est poussé)
 	aim_line = MeshInstance3D.new()
 	var q := PlaneMesh.new()
@@ -539,12 +608,18 @@ func _process(dt: float) -> void:
 	_tick_pads(dt)
 	_place_camera(dt)
 
+var boss_cam := 0.0  # > 0 : la caméra regarde le boss qui arrive
+
 func _place_camera(dt: float) -> void:
 	var hp := p3(hero2d.position)
 	var look := Vector3.ZERO
 	if joy != null and joy.aim_active:
 		look = Vector3(joy.aim.x, 0, joy.aim.y) * 1.2
 	var target := hp + look
+	if boss_cam > 0.0:
+		boss_cam -= dt
+		if arena.boss != null:
+			target = target.lerp(p3(arena.boss.position), clampf(boss_cam / 0.6, 0.0, 1.0) * 0.85)
 	var W: float = arena.W * K
 	var H: float = arena.H * K
 	target.x = clampf(target.x, 6.5, W - 6.5)
@@ -593,6 +668,17 @@ func _sync_hero(dt: float) -> void:
 	if hero_shield.visible:
 		hero_shield.scale = Vector3.ONE * (1.0 + sin(t * 4.0) * 0.03)
 	hero_light.light_energy = maxf(0.0, hero_light.light_energy - dt * 30.0)
+	# anneau : doré et pulsé quand l'énergie est pleine
+	var full: bool = arena.energy >= arena.energy_need
+	var rmat: ShaderMaterial = hero_ring.material_override
+	rmat.set_shader_parameter("color", GOLD.lerp(Color.WHITE, 0.3 + 0.3 * sin(t * 10.0)) if full else CYAN)
+	hero_ring.scale = Vector3.ONE * ((1.15 + 0.08 * sin(t * 10.0)) if full else 1.0)
+
+func set_hero_items(items: Array) -> void:
+	hero.apply_items(items, JO_GUN)
+	if relais != null:
+		var rh: Actor3D = relais.get_meta("hero")
+		rh.apply_items(items, JO_GUN)
 
 func _rebuild_hero_anim() -> void:
 	hero.dead = false
@@ -680,7 +766,9 @@ func _sync_pickups(dt: float) -> void:
 		spin.position.y = 0.35 + sin(t * 4.0 + float(k % 100)) * 0.06
 	for k in pickup_nodes.keys():
 		if not seen.has(k):
-			(pickup_nodes[k] as Node).queue_free()
+			var gone: Node3D = pickup_nodes[k]
+			_spawn_flash(gone.position + Vector3(0, 0.4, 0), GOLD, 0.6, 0.12)
+			gone.queue_free()
 			pickup_nodes.erase(k)
 
 func _make_pickup(pk: Dictionary) -> Node3D:
@@ -941,7 +1029,7 @@ func _damage_number(pos: Vector3, dmg: float, crit: bool) -> void:
 	l.text = str(int(round(dmg)))
 	l.modulate = Color("#FFF2A8") if crit else Color.WHITE
 	l.font_size = 84 if crit else 60
-	l.position = pos + Vector3(randf_range(-0.2, 0.2), 1.0, 0)
+	l.position = pos + Vector3(randf_range(-0.5, 0.5), randf_range(0.9, 1.4), randf_range(-0.2, 0.2))
 	l.visible = true
 	best["t"] = 0.0
 	best["life"] = 0.6
@@ -1027,6 +1115,7 @@ func _on_enemy_spawned(e: Node2D) -> void:
 	_spawn_ring(pos + Vector3(0, 0.05, 0), CYAN if e.kind != "boss" else MAGENTA, 2.2 if e.kind != "boss" else 6.0, 0.4)
 	if e.kind == "boss":
 		add_shake(0.8)
+		boss_cam = 2.0
 
 func _on_chest_opened(pos: Vector2) -> void:
 	if not active:
@@ -1036,6 +1125,14 @@ func _on_chest_opened(pos: Vector2) -> void:
 	_spawn_ring(p + Vector3(0, 0.05, 0), GOLD, 4.0, 0.5)
 	_spawn_flash(p + Vector3(0, 0.7, 0), GOLD, 2.0, 0.25)
 	_flash_light(p + Vector3(0, 1.2, 0), GOLD, 3.0, 6.0)
+
+## Pouvoir choisi : colonne et onde orange autour de Jo.
+func power_fx() -> void:
+	var p := p3(hero2d.position)
+	_spawn_column(p, ORANGE, 4.5, 0.6)
+	_spawn_ring(p + Vector3(0, 0.05, 0), ORANGE, 3.5, 0.5)
+	_spawn_ring(p + Vector3(0, 0.05, 0), GOLD, 2.0, 0.35)
+	_flash_light(p + Vector3(0, 1.2, 0), ORANGE, 3.0, 5.0)
 
 func _on_hero_damaged() -> void:
 	if not active:
@@ -1055,16 +1152,22 @@ func show_relais(items: Array) -> void:
 	relais.visible = true
 	var rh: Actor3D = relais.get_meta("hero")
 	rh.set_motion(0.0, 0.0)
+	rh.apply_items(items, JO_GUN)
+	relais_focus = 0.0
 
 func _build_relais() -> void:
 	relais = Node3D.new()
 	relais.position = Vector3(0, 0, -80)
 	add_child(relais)
 	# plateforme ronde de dalles, anneau du portail derrière la héroïne
-	var plat := Models.cyl(4.2, 4.5, 0.35, Models.toon(Color("#2A3558"), 0.25), 48)
+	var plat := Models.cyl(4.2, 4.5, 0.35, Models.toon(Color("#182042"), 0.25), 48)
 	plat.position.y = -0.175
 	relais.add_child(plat)
-	var plat_top := Models.cyl(3.6, 3.6, 0.02, Models.toon(Color("#34416B"), 0.1), 48)
+	var plat_top := Models.cyl(3.6, 3.6, 0.02, Models.toon(Color("#1F2A52"), 0.1), 48)
+	for k in range(3):
+		var tr := Models.torus(1.2 + k * 0.8, 1.24 + k * 0.8, Models.glow_mat(Color("#3CF2D8"), 0.6 + 0.3 * (2 - k)), 64)
+		tr.position.y = 0.025
+		relais.add_child(tr)
 	plat_top.position.y = 0.01
 	relais.add_child(plat_top)
 	var rim := Models.torus(4.15, 4.3, Models.glow_mat(CYAN, 1.6), 64)
@@ -1113,25 +1216,43 @@ func _build_relais() -> void:
 	# consoles autour
 	for c in [[Vector3(-3.0, 0, -0.6), 0.6], [Vector3(3.0, 0, -0.6), -0.6], [Vector3(-3.4, 0, 1.4), 1.2]]:
 		_put(ST + "computer-wide.glb", c[0], c[1], Vector3.ONE * 1.5, relais)
-	_put(ST + "container-tall.glb", Vector3(3.3, 0, 1.6), -0.4, Vector3.ONE * 1.6, relais)
-	_put(ST + "container.glb", Vector3(3.9, 0, 0.9), 0.3, Vector3.ONE * 1.4, relais)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var keep := level
+	level = relais
+	_crate(Vector3(3.4, 0, 1.2), Vector3(1.1, 0.9, 1.1), -0.4, rng)
+	_crate(Vector3(3.6, 0.9, 1.2), Vector3(0.8, 0.6, 0.8), -0.2, rng)
+	_crate(Vector3(-3.6, 0, -1.6), Vector3(1.2, 1.0, 1.0), 0.3, rng)
+	_flush_batch()
+	level = keep
 	# Jo
 	var rh := Actor3D.new()
 	relais.add_child(rh)
 	rh.setup(JO_MODEL, JO_GUN)
-	rh.scale = Vector3.ONE * 2.2
-	rh.position = Vector3(0, 0, 0.4)
+	rh.passeur_kit()
+	rh.scale = Vector3.ONE * 2.6
+	rh.position = Vector3(0, 0, 0.6)
 	rh.rotation.y = 0.35
 	relais.set_meta("hero", rh)
 	relais.add_child(Models.shadow_blob(1.6))
+
+var relais_focus := 0.0  # 0 : vue large du Relais, 1 : gros plan sur Jo (Loge)
+var _focus := 0.0
 
 func _tick_relais(dt: float) -> void:
 	if relais == null or not relais.visible:
 		return
 	var portal: Node3D = relais.get_meta("portal")
 	portal.rotation.z += dt * 0.15
+	var rh: Actor3D = relais.get_meta("hero")
+	_focus = lerpf(_focus, relais_focus, clampf(dt * 4.0, 0.0, 1.0))
+	rh.rotation.y = lerpf(0.35, 0.35 + sin(t * 0.6) * 0.5, _focus)
 	var base := relais.position
-	var a := sin(t * 0.25) * 0.25
-	cam.position = base + Vector3(sin(a) * 9.5 + 3.2, 3.4, cos(a) * 9.5)
-	cam.look_at(base + Vector3(3.4, 1.6, 0), Vector3.UP)
+	var a := sin(t * 0.25) * 0.25 * (1.0 - _focus)
+	var wide_pos := base + Vector3(sin(a) * 9.5 + 3.2, 3.4, cos(a) * 9.5)
+	var wide_look := base + Vector3(3.4, 1.6, 0)
+	var close_pos := base + Vector3(1.5, 2.7, 7.8)
+	var close_look := base + Vector3(2.1, 1.25, 0.6)
+	cam.position = wide_pos.lerp(close_pos, _focus)
+	cam.look_at(wide_look.lerp(close_look, _focus), Vector3.UP)
 	cam.make_current()
