@@ -159,6 +159,25 @@ func _build_trooper(r: float) -> void:
 	crest.position = Vector3(0, 0.36, 0.0)
 	att.add_child(crest)
 	parts["visor"] = visor
+	# armure de faction : plastron sombre à bande rouge, épaulières
+	var t := BoneAttachment3D.new()
+	t.bone_name = "torso"
+	actor.skel.add_child(t)
+	var chest := Models.box(Vector3(0.3, 0.18, 0.28), Models.toon(METAL, 0.4))
+	chest.position = Vector3(0, 0.08, 0.0)
+	t.add_child(chest)
+	var stripe := Models.box(Vector3(0.31, 0.035, 0.285), Models.glow_mat(RED if not elite else GOLD, 2.0))
+	stripe.position = Vector3(0, 0.1, 0.0)
+	t.add_child(stripe)
+	for b in ["arm-left", "arm-right"]:
+		var a2 := BoneAttachment3D.new()
+		a2.bone_name = b
+		actor.skel.add_child(a2)
+		var pad := Models.box(Vector3(0.13, 0.08, 0.14), Models.toon(PLATE if not elite else GOLD, 0.45))
+		pad.position = Vector3(0, 0.03, 0)
+		a2.add_child(pad)
+	actor.meshes = Models.meshes(actor.model)
+	_meshes = Models.meshes(body)
 
 func _build_brute(r: float) -> void:
 	var s := r * 1.6
@@ -266,6 +285,7 @@ func _build_boss(r: float) -> void:
 	parts["band"] = band
 	# tourelle double (Space Kit) sur le dos, tournée vers la cible
 	var turret := Models.inst("res://assets/models/space/turret_double.glb", true)
+	Models.tint_node(turret, 0.6)
 	turret.scale = Vector3.ONE * s * 1.1
 	turret.position.y = s * 0.4
 	turret.rotation.y = PI

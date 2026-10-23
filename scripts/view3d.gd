@@ -156,6 +156,8 @@ func _bput(path: String, pos: Vector3, rot_y: float = 0.0, scl: Vector3 = Vector
 	var xf := Transform3D(Basis(Vector3.UP, rot_y) * Basis.from_scale(scl), pos)
 	for part in Models.parts_of(path, center):
 		var m: Mesh = part[0]
+		if path.begins_with(SP):
+			m = Models.tinted_mesh(m, 0.55)
 		if not _batch.has(m):
 			_batch[m] = []
 		(_batch[m] as Array).append(xf * (part[1] as Transform3D))
@@ -412,6 +414,7 @@ func _build_crate_block(o: Rect2, rng: RandomNumberGenerator) -> void:
 func _build_bay(W: float, TOP: float, rng: RandomNumberGenerator) -> void:
 	# vaisseau du Relais garé au centre du quai
 	var ship := _put(SP + "craft_cargoA.glb", Vector3(W * 0.5, 0.0, TOP * 0.5 + 0.1), PI * 0.5, Vector3.ONE * 2.3, null, true)
+	Models.tint_node(ship, 0.5)
 	var eng := _ground_quad(3.5, CYAN, 0.6)
 	eng.position = Vector3(W * 0.5 - 3.4, 0.6, TOP * 0.5 + 0.1)
 	level.add_child(eng)
@@ -593,6 +596,9 @@ func _clear_dynamic() -> void:
 
 func _process(dt: float) -> void:
 	t += dt
+	if _stop_until > 0 and Time.get_ticks_msec() >= _stop_until:
+		Engine.time_scale = 1.0
+		_stop_until = 0
 	if not active or arena == null:
 		_tick_relais(dt)
 		return
@@ -635,6 +641,14 @@ func _place_camera(dt: float) -> void:
 	cam.position = cam_target + off + sh
 	cam.look_at(cam_target + sh * 0.5, Vector3.UP)
 	cam.make_current()
+
+## Arrêt sur image : le temps ralentit un instant (durée en secondes réelles).
+var _stop_until := 0
+func hit_stop(real_s: float, scale: float) -> void:
+	if "--fixed-fps" in OS.get_cmdline_args():
+		return
+	Engine.time_scale = scale
+	_stop_until = Time.get_ticks_msec() + int(real_s * 1000.0)
 
 func add_shake(v: float) -> void:
 	shake = minf(1.0, shake + v)
@@ -827,6 +841,38 @@ func _beam(col: Color, h: float, r: float) -> MeshInstance3D:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
 
+func _make_chest() -> Node3D:
+	var n := Node3D.new()
+	var body := Node3D.new()
+	n.add_child(body)
+	var navy := Models.toon(Color("#1F2A52"), 0.4)
+	var gold := Models.toon(Color("#FFB347"), 0.5, Color("#FFB347"), 0.4)
+	var base := Models.box(Vector3(1.0, 0.5, 0.7), navy)
+	base.position.y = 0.25
+	body.add_child(base)
+	for x in [-0.42, 0.42]:
+		var band := Models.box(Vector3(0.1, 0.52, 0.72), gold)
+		band.position = Vector3(x, 0.26, 0)
+		body.add_child(band)
+	var seam := Models.box(Vector3(1.02, 0.05, 0.72), Models.glow_mat(Color("#FFD98A"), 3.0))
+	seam.position.y = 0.5
+	body.add_child(seam)
+	var hinge := Node3D.new()
+	hinge.position = Vector3(0, 0.5, -0.35)
+	body.add_child(hinge)
+	var lid := Models.box(Vector3(1.02, 0.22, 0.72), navy)
+	lid.position = Vector3(0, 0.11, 0.35)
+	hinge.add_child(lid)
+	var lid_band := Models.box(Vector3(0.12, 0.24, 0.74), gold)
+	lid_band.position = Vector3(0, 0.11, 0.35)
+	hinge.add_child(lid_band)
+	var lock := Models.box(Vector3(0.2, 0.2, 0.06), Models.glow_mat(Color("#FFB347"), 2.4))
+	lock.position = Vector3(0, 0.04, 0.72)
+	hinge.add_child(lock)
+	n.set_meta("body", body)
+	n.set_meta("hinge", hinge)
+	return n
+
 func _sync_chest(dt: float) -> void:
 	if arena.chest.is_empty():
 		if chest_node != null:
@@ -836,29 +882,31 @@ func _sync_chest(dt: float) -> void:
 	if chest_node == null:
 		chest_node = Node3D.new()
 		add_child(chest_node)
-		var crate := Models.inst("res://assets/models/blaster/crate-medium.glb", true)
-		crate.scale = Vector3.ONE * 1.6
+		var crate := _make_chest()
 		chest_node.add_child(crate)
 		chest_node.set_meta("crate", crate)
-		var trim := Models.box(Vector3(0.95, 0.06, 0.65), Models.glow_mat(GOLD, 2.0))
-		trim.position.y = 0.42
-		chest_node.add_child(trim)
 		chest_beam = _beam(GOLD, 4.0, 0.5)
 		chest_node.add_child(chest_beam)
 		var g := _ground_quad(2.4, GOLD, 0.8)
 		g.position.y = 0.04
 		chest_node.add_child(g)
 		chest_node.set_meta("glow", g)
-		chest_node.add_child(Models.shadow_blob(1.3))
+		chest_node.add_child(Models.shadow_blob(1.4))
 		chest_node.scale = Vector3.ONE * 0.01
 		_spawn_ring(p3(arena.chest["pos"], 0.05), GOLD, 3.0, 0.5)
+		_spawn_column(p3(arena.chest["pos"]), GOLD, 5.0, 0.5)
 	chest_node.position = p3(arena.chest["pos"])
 	var opened: bool = arena.chest["open"]
 	chest_node.scale = chest_node.scale.lerp(Vector3.ONE, clampf(dt * 8.0, 0.0, 1.0))
+	var crate: Node3D = chest_node.get_meta("crate")
+	var hinge: Node3D = crate.get_meta("hinge")
+	var body: Node3D = crate.get_meta("body")
 	if not opened:
-		var crate: Node3D = chest_node.get_meta("crate")
-		crate.position.y = absf(sin(t * 3.0)) * 0.08
+		body.position.y = absf(sin(t * 3.0)) * 0.08
 		crate.rotation.y = sin(t * 1.5) * 0.15
+	else:
+		hinge.rotation.x = lerpf(hinge.rotation.x, -1.9, clampf(dt * 10.0, 0.0, 1.0))
+		body.position.y = lerpf(body.position.y, 0.0, clampf(dt * 10.0, 0.0, 1.0))
 	chest_beam.visible = not opened
 	(chest_node.get_meta("glow") as Node3D).visible = not opened
 
@@ -866,6 +914,7 @@ func _sync_turrets(dt: float) -> void:
 	while turret_nodes.size() < arena.turrets.size():
 		var n := Node3D.new()
 		var tm := Models.inst(SP + "turret_single.glb", true)
+		Models.tint_node(tm, 0.7)
 		tm.scale = Vector3.ONE * 1.1
 		n.add_child(tm)
 		n.add_child(Models.shadow_blob(1.0))
@@ -1101,8 +1150,11 @@ func _on_enemy_killed(e: Node2D) -> void:
 		shell.material_override = (shell.material_override as StandardMaterial3D).duplicate()
 		_add_fx(shell, 0.3 if not big else 0.45, "shell", {"size": 1.6 if not big else 3.2, "col": Color(1.0, 0.55, 0.25)})
 	add_shake(0.25 if not big else 0.6)
+	if e.elite or e.kind == "brute":
+		hit_stop(0.07, 0.25)
 	if e.kind == "boss":
 		add_shake(1.0)
+		hit_stop(0.7, 0.2)
 		for k in range(6):
 			_spawn_ring(pos + Vector3(randf_range(-1, 1), 0.05, randf_range(-1, 1)), MAGENTA, 6.0, 0.6 + k * 0.1)
 		_spawn_debris(pos, Color("#C8D0DA"), 18, 6.0)

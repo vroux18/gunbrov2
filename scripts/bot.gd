@@ -9,6 +9,7 @@ var dir := Vector2.RIGHT
 var click_t := 0.0
 
 var _room_jump_done := false
+var _chest_done := false
 var touch_test := false  # --touchtest : simule de vrais doigts sur les sticks au lieu de piloter le joystick
 var _touch_t := 0.0
 var _touch_started := false
@@ -99,6 +100,21 @@ func _process(dt: float) -> void:
 				main.view.start_room()
 	if "--god" in OS.get_cmdline_user_args():
 		hero.hp = hero.hp_max
+	# --hero=x,y : place Jo (px) et la laisse immobile, pour filmer un coin du décor
+	for a2 in OS.get_cmdline_user_args():
+		if a2.begins_with("--hero="):
+			var xy := a2.trim_prefix("--hero=").split(",")
+			hero.position = Vector2(float(xy[0]), float(xy[1]))
+			main.joy.bot_move = Vector2.ZERO
+			main.joy.bot_aim_active = false
+			return
+	# --chest : vide la salle d'un coup pour filmer le coffre, l'objet et les portails
+	if "--chest" in OS.get_cmdline_user_args() and not _chest_done and t > 3.0:
+		_chest_done = true
+		arena.spawn_queue.clear()
+		arena.wave_i = arena.waves.size() - 1
+		for e in arena.enemies.duplicate():
+			e.hit(99999.0)
 	if touch_test:
 		_touch_t += dt
 		if not _touch_started:

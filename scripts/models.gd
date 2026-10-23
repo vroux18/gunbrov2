@@ -78,6 +78,29 @@ static func _collect(n: Node, xf: Transform3D, out: Array) -> void:
 		if c is Node3D:
 			_collect(c, xf * (c as Node3D).transform, out)
 
+## Copie d'un maillage dont les matériaux de surface sont assombris (les modèles du Space Kit sortent trop clairs).
+static var _tinted := {}
+static func tinted_mesh(m: Mesh, k: float) -> Mesh:
+	var key := str(m.get_instance_id()) + ":" + str(k)
+	if _tinted.has(key):
+		return _tinted[key]
+	var d: Mesh = m.duplicate()
+	for i in range(d.get_surface_count()):
+		var mat := d.surface_get_material(i)
+		if mat is StandardMaterial3D:
+			var dm: StandardMaterial3D = mat.duplicate()
+			dm.albedo_color = Color(dm.albedo_color.r * k, dm.albedo_color.g * k, dm.albedo_color.b * k * 1.08, dm.albedo_color.a)
+			d.surface_set_material(i, dm)
+	_tinted[key] = d
+	return d
+
+## Assombrit tous les maillages d'une instance (matériaux dupliqués).
+static func tint_node(n: Node, k: float) -> void:
+	for mi in meshes(n):
+		var m: MeshInstance3D = mi
+		if m.mesh != null:
+			m.mesh = tinted_mesh(m.mesh, k)
+
 ## Matériau émissif simple (projectiles, lueurs) : couleur > 1 pour passer le seuil du glow.
 static func glow_mat(col: Color, energy: float = 3.0, alpha: float = 1.0) -> StandardMaterial3D:
 	var key := "g%s%.2f%.2f" % [col.to_html(), energy, alpha]

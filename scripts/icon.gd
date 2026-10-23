@@ -144,8 +144,14 @@ func _draw() -> void:
 			_c(V.call(0.5, 0.5), 0.34)
 			_c(V.call(0.5, 0.5), 0.18)
 		"skull":
-			_c(V.call(0.5, 0.44), 0.32, true)
-			_poly([V.call(0.32, 0.6), V.call(0.68, 0.6), V.call(0.62, 0.86), V.call(0.38, 0.86)])
+			_c(V.call(0.5, 0.42), 0.32, true)
+			_poly([V.call(0.3, 0.56), V.call(0.7, 0.56), V.call(0.64, 0.86), V.call(0.36, 0.86)])
+			var keep := color
+			color = Color(0.03, 0.05, 0.1, 0.9)
+			_c(V.call(0.38, 0.44), 0.09, true)
+			_c(V.call(0.62, 0.44), 0.09, true)
+			_poly([V.call(0.5, 0.58), V.call(0.45, 0.68), V.call(0.55, 0.68)])
+			color = keep
 		"chest":
 			_poly([V.call(0.14, 0.4), V.call(0.86, 0.4), V.call(0.86, 0.82), V.call(0.14, 0.82)])
 			_arc(V.call(0.5, 0.42), 0.36, PI, TAU)

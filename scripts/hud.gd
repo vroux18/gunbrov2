@@ -22,6 +22,7 @@ var enemies_left := 0
 var boss_hp := -1.0
 var boss_name := ""
 var hurt := 0.0  # 0..1, posé par main au moment d'un coup
+var fade := 0.0  # 1 : éclair de portail plein écran au début d'une salle
 var message := ""
 var message_col := Color.WHITE
 var _message_t := 0.0
@@ -64,6 +65,7 @@ func _process(dt: float) -> void:
 	if _message_t > 0.0:
 		_message_t -= dt
 	hurt = maxf(0.0, hurt - dt * 2.2)
+	fade = maxf(0.0, fade - dt * 1.8)
 	_hp_ghost = move_toward(_hp_ghost, hp, dt * 0.5) if _hp_ghost > hp else hp
 	if boss_hp >= 0.0:
 		_boss_ghost = move_toward(_boss_ghost, boss_hp, dt * 0.35) if _boss_ghost > boss_hp else boss_hp
@@ -137,6 +139,9 @@ func _draw_hud() -> void:
 			var a := v * 0.09 * (1.0 - k / 10.0)
 			var g := 8.0 + k * 9.0
 			_c.draw_rect(Rect2(0, 0, W, H).grow(-g * 0.5), Color(1.0, 0.1, 0.25, a), false, g)
+	# éclair de portail (début de salle)
+	if fade > 0.0:
+		_c.draw_rect(Rect2(0, 0, W, H), Color(0.75, 1.0, 0.97, fade * fade * 0.85))
 	# vie
 	var hp_rect := Rect2(78, 26, 300, 26)
 	_c.draw_circle(Vector2(50, 39), 30, UI.INK)

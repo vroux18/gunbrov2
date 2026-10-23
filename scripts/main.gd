@@ -364,10 +364,12 @@ func start_run() -> void:
 	joy.reset()
 	arena.start_room(1, "combat")
 	view.start_room()
+	hud.fade = 1.0
 	hud.flash(Data.WORLD_NAME.to_upper(), 2.0, UI.ACCENT)
 	sfx.play("portal")
 
 func _pause_for_overlay() -> void:
+	hud.flash("", 0.0)
 	get_tree().paused = true
 	joy.enabled = false
 	joy.reset()
@@ -495,6 +497,7 @@ func _show_doors() -> void:
 			_resume()
 			arena.start_room(next, String(d[2]))
 			view.start_room()
+			hud.fade = 1.0
 			hud.flash(("SALLE %d" % next) if next < Data.ROOMS else "LE PORTIQUE", 1.8, UI.DANGER if next >= Data.ROOMS else UI.TEXT)
 			sfx.play("portal"))
 		row.add_child(b)
@@ -514,8 +517,15 @@ func _show_pause() -> void:
 func _on_hero_died() -> void:
 	if get_tree().paused:
 		return
-	_pause_for_overlay()
 	sfx.play("boom", 0.6)
+	view.add_shake(0.8)
+	hud.flash("K.O.", 1.2, UI.DANGER)
+	# l'animation de chute de Jo se voit avant l'écran de fin
+	joy.enabled = false
+	await get_tree().create_timer(1.1, true, false, true).timeout
+	if state != "arena":
+		return
+	_pause_for_overlay()
 	var box := _card_overlay("RAPPEL AU RELAIS", "Salle %d  ·  %d ennemis  ·  %d tickets\nLe butin reste, les pouvoirs partent." % [arena.room, arena.kills, arena.tickets])
 	var b := UI.primary("RETOUR AU RELAIS", 30, 400)
 	b.pressed.connect(func(): _end_run(false))
