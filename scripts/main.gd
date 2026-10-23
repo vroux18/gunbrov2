@@ -11,6 +11,7 @@ const HudScript = preload("res://scripts/hud.gd")
 const JoyScript = preload("res://scripts/joystick.gd")
 const SfxScript = preload("res://scripts/sfx.gd")
 const Art = preload("res://scripts/art.gd")
+const View3D = preload("res://scripts/view3d.gd")
 
 var profile: Dictionary
 var sfx: Node
@@ -24,6 +25,7 @@ var screen: Control = null
 var overlay: Control = null
 var preview_hero: Node2D = null
 var version := ""
+var view: Node3D
 
 func _ready() -> void:
 	randomize()
@@ -43,6 +45,11 @@ func _ready() -> void:
 	joy.enabled = false
 	ctl.add_child(joy)
 	arena.joy = joy
+	# rendu 3D : la simulation 2D reste invisible, la 3D la met en scène
+	view = View3D.new()
+	add_child(view)
+	move_child(view, 0)
+	view.build(arena, hero, joy)
 	hud = HudScript.new()
 	hud.visible = false
 	hud.pause_pressed.connect(_show_pause)
@@ -121,6 +128,26 @@ func _full(bg: bool = true) -> Control:
 		root.add_child(shade)
 	return root
 
+## Voile sombre en dégradé sur la droite de l'écran : le Relais 3D reste visible à gauche, le texte reste lisible.
+func _side_shade(from_x: float) -> TextureRect:
+	var g := Gradient.new()
+	g.set_color(0, Color(UI.BG, 0.0))
+	g.set_color(1, Color(UI.BG, 0.92))
+	g.add_point(0.35, Color(UI.BG, 0.75))
+	var gt := GradientTexture2D.new()
+	gt.gradient = g
+	gt.width = 256
+	gt.height = 4
+	var tr := TextureRect.new()
+	tr.texture = gt
+	tr.stretch_mode = TextureRect.STRETCH_SCALE
+	tr.anchor_left = from_x
+	tr.anchor_right = 1.0
+	tr.anchor_top = 0.0
+	tr.anchor_bottom = 1.0
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return tr
+
 func _add_preview_hero(pos: Vector2, scale_f: float) -> void:
 	preview_hero = HeroScript.new()
 	preview_hero.preview = true
@@ -139,34 +166,12 @@ func show_base() -> void:
 	arena.visible = false
 	arena.cam.enabled = false
 	arena.running = false
+	view.show_relais(Save.equipped_items(profile))
 	hud.visible = false
 	joy.enabled = false
-	screen = _full()
+	screen = _full(false)
 	ui_layer.add_child(screen)
-	var vp := get_viewport().get_visible_rect().size
-	# décor : anneau du portail
-	var deco := Control.new()
-	deco.set_anchors_preset(Control.PRESET_FULL_RECT)
-	deco.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	deco.draw.connect(func():
-		var c := Vector2(vp.x * 0.28, vp.y * 0.52)
-		deco.draw_circle(c, 190, Color(UI.ACCENT, 0.06))
-		deco.draw_arc(c, 180, 0, TAU, 64, Color(UI.ACCENT, 0.5), 6.0, true)
-		deco.draw_arc(c, 150, 0, TAU, 64, Color(UI.ACCENT, 0.18), 2.0, true)
-		for i in range(12):
-			var a := TAU * i / 12.0
-			deco.draw_line(c + Vector2.RIGHT.rotated(a) * 182, c + Vector2.RIGHT.rotated(a) * 200, Color(UI.ACCENT, 0.7), 4.0)
-	)
-	var ship := TextureRect.new()
-	ship.texture = Art.SHIP
-	ship.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	ship.position = Vector2(vp.x * 0.56, vp.y * 0.60)
-	ship.size = Vector2(vp.x * 0.42, vp.y * 0.40)
-	ship.modulate = Color(0.6, 0.65, 0.8, 0.35)
-	ship.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	screen.add_child(ship)
-	screen.add_child(deco)
-	_add_preview_hero(Vector2(vp.x * 0.28, vp.y * 0.52), 3.2)
+	screen.add_child(_side_shade(0.42))
 	var right := UI.vbox(14)
 	right.anchor_left = 0.52
 	right.anchor_right = 0.96
@@ -216,10 +221,9 @@ func show_base() -> void:
 func show_loge() -> void:
 	_clear_screen()
 	state = "loge"
-	screen = _full()
+	screen = _full(false)
 	ui_layer.add_child(screen)
-	var vp := get_viewport().get_visible_rect().size
-	_add_preview_hero(Vector2(vp.x * 0.17, vp.y * 0.5), 2.6)
+	screen.add_child(_side_shade(0.22))
 	var left := UI.vbox(8)
 	left.anchor_left = 0.30
 	left.anchor_right = 0.60
@@ -337,14 +341,14 @@ func start_run() -> void:
 	state = "arena"
 	hero.reset_run()
 	arena.reset_run()
-	arena.visible = true
-	arena.cam.enabled = true
-	arena.cam.make_current()
+	arena.visible = false
+	arena.cam.enabled = false
 	hud.visible = true
 	hud.world = Data.WORLD_NAME
 	joy.enabled = true
 	joy.reset()
 	arena.start_room(1, "combat")
+	view.start_room()
 	hud.flash("Salle 1 · " + Data.WORLD_NAME, 2.0)
 	sfx.play("portal")
 
@@ -462,6 +466,7 @@ func _show_doors() -> void:
 		b.pressed.connect(func():
 			_resume()
 			arena.start_room(next, String(d[2]))
+			view.start_room()
 			hud.flash("Salle %d" % next + (" · BOSS" if next >= Data.ROOMS else ""), 1.8)
 			sfx.play("portal"))
 		row.add_child(b)
@@ -502,4 +507,5 @@ func _end_run(_won: bool) -> void:
 	profile["best_room"] = maxi(int(profile["best_room"]), arena.room)
 	Save.save_profile(profile)
 	arena.stop()
+	view.stop()
 	show_base()

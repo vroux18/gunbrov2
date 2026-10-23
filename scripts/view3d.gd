@@ -1,0 +1,1137 @@
+extends Node3D
+## Rendu 3D du monde 1 (Nébuleuse 7). La simulation reste en 2D dans arena.gd ; ce nœud la met en scène :
+## hangar de station (modèles Kenney CC0), ciel étoilé, lumière, caméra inclinée qui suit Jo, personnages
+## et ennemis animés, projectiles lumineux, particules, effets de mort, butin, coffre, tourelles, drones.
+## 1 unité 3D = 64 px de simulation. Axe x 2D -> x 3D, axe y 2D -> z 3D.
+
+const Models = preload("res://scripts/models.gd")
+const Actor3D = preload("res://scripts/actor3d.gd")
+const Mob3D = preload("res://scripts/mob3d.gd")
+const Data = preload("res://scripts/data.gd")
+
+const K := 1.0 / 64.0
+const ST := "res://assets/models/station/"
+const SP := "res://assets/models/space/"
+const JO_MODEL := "res://assets/models/chars/character-female-c.glb"
+const JO_GUN := "res://assets/models/blaster/blaster-b.glb"
+
+const CYAN := Color("#3CF2D8")
+const ORANGE := Color("#FF7A2F")
+const GOLD := Color("#FFB347")
+const RED := Color("#FF4D6D")
+const MAGENTA := Color("#F23CB8")
+
+# caméra
+const CAM_PITCH := 56.0
+const CAM_DIST := 11.5
+const CAM_FOV := 38.0
+const HERO_SCALE := 1.75
+
+var arena: Node
+var hero2d: Node2D
+var joy: Node
+var active := false
+
+var cam: Camera3D
+var env: Environment
+var sun: DirectionalLight3D
+var level: Node3D
+var relais: Node3D
+var hero: Actor3D
+var hero_root: Node3D
+var hero_light: OmniLight3D
+var hero_shield: MeshInstance3D
+var aim_line: MeshInstance3D
+var aim_mat: StandardMaterial3D
+var pads3d: Array = []
+
+var mobs := {}  # id d'instance de l'ennemi -> Mob3D
+var dying: Array = []  # Mob3D en train de mourir
+var fx: Array = []  # effets temporaires {node, t, life, kind, ...}
+var turret_nodes: Array = []
+var ally_nodes: Array = []
+var pickup_nodes := {}  # id du dictionnaire de ramassage -> Node3D
+var chest_node: Node3D = null
+var chest_beam: MeshInstance3D = null
+
+var bolt_mm: MultiMeshInstance3D
+var halo_mm: MultiMeshInstance3D
+var part_mm: MultiMeshInstance3D
+var _glow_shader: Shader
+var _ring_shader: Shader
+var _dmg_labels: Array = []
+var _font: Font
+
+var cam_target := Vector3.ZERO
+var shake := 0.0
+var t := 0.0
+var _flash_lights: Array = []
+var _batch := {}  # Mesh -> Array[Transform3D] : décor statique regroupé en MultiMesh au montage
+var _box_meshes := {}  # clé -> BoxMesh unité avec son matériau
+var _flash_i := 0
+
+func build(arena_node: Node, hero_node: Node2D, joy_node: Node) -> void:
+	arena = arena_node
+	hero2d = hero_node
+	joy = joy_node
+	_glow_shader = load("res://shaders/glow_billboard.gdshader")
+	_ring_shader = load("res://shaders/ground_ring.gdshader")
+	_font = load("res://assets/fonts/RussoOne-Regular.ttf")
+	_build_env()
+	_build_level()
+	_build_hero()
+	_build_pools()
+	arena.fired.connect(_on_fired)
+	arena.enemy_hit.connect(_on_enemy_hit)
+	arena.enemy_killed.connect(_on_enemy_killed)
+	arena.enemy_spawned.connect(_on_enemy_spawned)
+	arena.chest_opened.connect(_on_chest_opened)
+	arena.bullet_blocked.connect(_on_blocked)
+	hero2d.damaged.connect(_on_hero_damaged)
+
+static func p3(v: Vector2, h: float = 0.0) -> Vector3:
+	return Vector3(v.x * K, h, v.y * K)
+
+# ---------------------------------------------------------------- ambiance
+func _build_env() -> void:
+	var we := WorldEnvironment.new()
+	env = Environment.new()
+	var sky := Sky.new()
+	var pano := PanoramaSkyMaterial.new()
+	pano.panorama = load("res://assets/env/space.jpg")
+	pano.energy_multiplier = 1.0
+	sky.sky_material = pano
+	env.background_mode = Environment.BG_SKY
+	env.sky = sky
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.5, 0.58, 0.9)
+	env.ambient_light_energy = 0.36
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 1.05
+	env.glow_enabled = true
+	env.glow_intensity = 0.7
+	env.glow_strength = 1.0
+	env.glow_bloom = 0.04
+	env.glow_hdr_threshold = 1.0
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+	env.adjustment_enabled = true
+	env.adjustment_saturation = 1.12
+	env.adjustment_contrast = 1.05
+	we.environment = env
+	add_child(we)
+	sun = DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-58, 28, 0)
+	sun.light_color = Color(1.0, 0.95, 0.88)
+	sun.light_energy = 0.82
+	sun.shadow_enabled = true
+	sun.shadow_bias = 0.04
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance = 26.0
+	add_child(sun)
+	cam = Camera3D.new()
+	cam.fov = CAM_FOV
+	cam.near = 0.5
+	cam.far = 120.0
+	add_child(cam)
+	for i in range(3):
+		var l := OmniLight3D.new()
+		l.omni_range = 4.0
+		l.light_energy = 0.0
+		l.shadow_enabled = false
+		add_child(l)
+		_flash_lights.append(l)
+
+# ---------------------------------------------------------------- hangar
+func _put(path: String, pos: Vector3, rot_y: float = 0.0, scl: Vector3 = Vector3.ONE, parent: Node3D = null, center: bool = false) -> Node3D:
+	var n := Models.inst(path, center)
+	n.position = pos
+	n.rotation.y = rot_y
+	n.scale = scl
+	(parent if parent != null else level).add_child(n)
+	return n
+
+## Décor statique : ajouté au lot, dessiné en un seul MultiMesh par maillage.
+func _bput(path: String, pos: Vector3, rot_y: float = 0.0, scl: Vector3 = Vector3.ONE, center: bool = false) -> void:
+	var xf := Transform3D(Basis(Vector3.UP, rot_y) * Basis.from_scale(scl), pos)
+	for part in Models.parts_of(path, center):
+		var m: Mesh = part[0]
+		if not _batch.has(m):
+			_batch[m] = []
+		(_batch[m] as Array).append(xf * (part[1] as Transform3D))
+
+## Boîte du décor (caisses) : maillage unité partagé par clé, mis à l'échelle par instance.
+func _bbox(key: String, mat: Material, center: Vector3, size: Vector3, rot_y: float = 0.0) -> void:
+	if not _box_meshes.has(key):
+		var bm := BoxMesh.new()
+		bm.size = Vector3.ONE
+		bm.material = mat
+		_box_meshes[key] = bm
+	var m: Mesh = _box_meshes[key]
+	if not _batch.has(m):
+		_batch[m] = []
+	(_batch[m] as Array).append(Transform3D(Basis(Vector3.UP, rot_y) * Basis.from_scale(size), center))
+
+func _flush_batch() -> void:
+	for m in _batch.keys():
+		_mm(m, _batch[m], true)
+	_batch.clear()
+
+func _mm(mesh: Mesh, xforms: Array, cast: bool = false) -> MultiMeshInstance3D:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = mesh
+	mm.instance_count = xforms.size()
+	for i in range(xforms.size()):
+		mm.set_instance_transform(i, xforms[i])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if cast else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	level.add_child(mmi)
+	return mmi
+
+func _build_level() -> void:
+	level = Node3D.new()
+	add_child(level)
+	var W: float = arena.W * K
+	var H: float = arena.H * K
+	var WALL: float = arena.WALL * K
+	var TOP: float = arena.TOP * K
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1977
+	# sol : dalles 1×1, dessus à y = 0 (les dalles Kenney font 0,3 d'épaisseur)
+	var plain := []
+	var panel := []
+	var detail := []
+	var bay := []
+	for ix in range(int(ceil(W))):
+		for iz in range(int(ceil(H))):
+			var xf := Transform3D(Basis(), Vector3(ix + 0.5, -0.3, iz + 0.5))
+			if iz + 0.5 < TOP:
+				bay.append(xf)
+				continue
+			var r := rng.randf()
+			if (ix + iz) % 2 == 0 and r < 0.7:
+				panel.append(xf)
+			elif r < 0.08:
+				detail.append(xf)
+			else:
+				plain.append(xf)
+	_mm(Models.mesh_of(ST + "floor.glb"), plain)
+	_mm(Models.mesh_of(ST + "floor-panel.glb"), panel)
+	_mm(Models.mesh_of(ST + "floor-detail.glb"), detail)
+	_mm(Models.mesh_of(ST + "floor-panel-straight.glb"), bay)
+	# bandes lumineuses au sol (croix centrale et bord du quai)
+	var strip_mat := Models.glow_mat(CYAN, 1.6)
+	var s1 := Models.box(Vector3(W - 2 * WALL, 0.02, 0.06), strip_mat)
+	s1.position = Vector3(W * 0.5, 0.012, (TOP + H) * 0.5)
+	level.add_child(s1)
+	var s2 := Models.box(Vector3(0.06, 0.02, H - TOP - WALL), strip_mat)
+	s2.position = Vector3(W * 0.5, 0.012, (TOP + H - WALL) * 0.5)
+	level.add_child(s2)
+	var edge := Models.box(Vector3(W - 2 * WALL, 0.03, 0.08), Models.glow_mat(ORANGE, 1.8))
+	edge.position = Vector3(W * 0.5, 0.015, TOP + 0.05)
+	level.add_child(edge)
+	# murs : ouest, est (hauts), quai nord (fenêtres), sud (garde-corps bas pour ne pas masquer le jeu)
+	var wall_scale := Vector3(1.0, 1.7, 1.0)
+	for iz in range(int(TOP) - 1, int(ceil(H))):
+		var z := iz + 0.5
+		var piece := ST + ("wall-window.glb" if iz % 5 == 2 else ("wall-pillar.glb" if iz % 5 == 0 else "wall.glb"))
+		_bput(piece, Vector3(WALL - 0.15, 0, z), PI * 0.5, wall_scale)
+		_bput(piece, Vector3(W - WALL + 0.15, 0, z), -PI * 0.5, wall_scale)
+	for ix in range(int(ceil(W))):
+		var x := ix + 0.5
+		var piece := ST + ("wall-window.glb" if ix % 3 != 0 else "wall-pillar.glb")
+		_bput(piece, Vector3(x, 0, 0.15), 0.0, Vector3(1.0, 2.2, 1.0))
+		_bput(ST + "rail.glb", Vector3(x, 0, H - WALL + 0.1), PI)
+	# garde-corps du quai (bord nord de l'arène), interrompu au centre devant le sas
+	for ix in range(int(ceil(W))):
+		var x := ix + 0.5
+		if absf(x - W * 0.5) < 1.6:
+			continue
+		_bput(ST + "rail.glb", Vector3(x, 0, TOP - 0.05), 0.0)
+	# sas d'apparition
+	for p in arena.pads:
+		_build_pad(p3(p))
+	# conteneurs (obstacles de la simulation)
+	for o in arena.obstacles:
+		_build_crate_block(o, rng)
+	# quai nord : vaisseau garé, consoles, machines
+	_build_bay(W, TOP, rng)
+	# décor des coins de l'arène (non bloquant, au ras des murs)
+	for c in [Vector3(WALL + 0.45, 0, TOP + 0.6), Vector3(W - WALL - 0.45, 0, TOP + 0.6)]:
+		_bput(SP + "barrels.glb", c, rng.randf() * TAU, Vector3.ONE * 0.9, true)
+	for c in [Vector3(WALL + 0.4, 0, H - WALL - 0.5), Vector3(W - WALL - 0.4, 0, H - WALL - 0.5)]:
+		_bput(SP + "machine_barrel.glb", c, 0.0, Vector3.ONE * 0.9, true)
+	_flush_batch()
+	# lumières d'ambiance colorées (peu nombreuses : chaque lumière coûte sur téléphone)
+	var lights := [[Vector3(W * 0.5, 2.5, 1.8), ORANGE, 9.0, 1.4], [Vector3(W * 0.2, 2.2, (TOP + H) * 0.5), CYAN, 9.0, 0.6], [Vector3(W * 0.8, 2.2, (TOP + H) * 0.5), Color("#8E6BFF"), 9.0, 0.6]]
+	for L in lights:
+		var ol := OmniLight3D.new()
+		ol.position = L[0]
+		ol.light_color = L[1]
+		ol.omni_range = L[2]
+		ol.light_energy = L[3]
+		ol.omni_attenuation = 1.4
+		level.add_child(ol)
+
+func _build_pad(pos: Vector3) -> void:
+	var root := Node3D.new()
+	root.position = pos
+	level.add_child(root)
+	var base := Models.cyl(0.95, 1.0, 0.08, Models.toon(Color("#1B2440"), 0.2), 24)
+	base.position.y = 0.04
+	root.add_child(base)
+	var ring := Models.torus(0.72, 0.82, Models.glow_mat(CYAN, 2.0), 32)
+	ring.position.y = 0.09
+	root.add_child(ring)
+	var inner := Models.torus(0.35, 0.4, Models.glow_mat(CYAN, 1.2), 24)
+	inner.position.y = 0.09
+	root.add_child(inner)
+	var glow := _ground_quad(2.6, CYAN, 0.0)
+	glow.position.y = 0.1
+	root.add_child(glow)
+	pads3d.append({"root": root, "ring": ring, "glow": glow})
+
+func _ground_quad(size: float, col: Color, alpha: float) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(size, size)
+	mi.mesh = pm
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.albedo_texture = Models.radial()
+	m.albedo_color = Color(col.r * 1.3, col.g * 1.3, col.b * 1.3, alpha)
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return mi
+
+## Une caisse de fret faite en code (pièces ajoutées au lot) : coque acier, couvercle clair, montants
+## sombres, bande orange, voyant.
+func _crate(base: Vector3, size: Vector3, rot: float, rng: RandomNumberGenerator) -> void:
+	var b := Basis(Vector3.UP, rot)
+	var steel := Models.toon(Color("#28325A"), 0.3)
+	var lid := Models.toon(Color("#3A4778"), 0.25)
+	var post := Models.toon(Color("#1C2238"), 0.2)
+	_bbox("crate_body", steel, base + Vector3(0, size.y * 0.5, 0), size - Vector3(0.06, 0.06, 0.06), rot)
+	_bbox("crate_lid", lid, base + Vector3(0, size.y, 0), Vector3(size.x - 0.16, 0.06, size.z - 0.16), rot)
+	for cx in [-1, 1]:
+		for cz in [-1, 1]:
+			var off := b * Vector3(cx * (size.x * 0.5 - 0.05), 0, cz * (size.z * 0.5 - 0.05))
+			_bbox("crate_post", post, base + off + Vector3(0, size.y * 0.5, 0), Vector3(0.1, size.y, 0.1), rot)
+	_bbox("crate_band", Models.toon(Color("#FF7A2F"), 0.2, Color("#FF7A2F"), 0.35), base + Vector3(0, size.y * 0.78, 0), Vector3(size.x + 0.01, 0.08, size.z + 0.01), rot)
+	_bbox("crate_ribs", post, base + Vector3(0, size.y * 0.36, 0), Vector3(size.x * 0.6, size.y * 0.42, size.z + 0.02), rot)
+	var red := rng.randf() < 0.3
+	_bbox("crate_led_r" if red else "crate_led_c", Models.glow_mat(Color("#FF4D6D") if red else Color("#3CF2D8"), 2.5), base + b * Vector3(size.x * 0.28, size.y * 0.62, size.z * 0.5 + 0.02), Vector3(0.1, 0.06, 0.03), rot)
+
+func _build_crate_block(o: Rect2, rng: RandomNumberGenerator) -> void:
+	var c := p3(o.get_center())
+	var sx := o.size.x * K
+	var sz := o.size.y * K
+	var cols := maxi(1, int(round(sx / 1.15)))
+	var rows := maxi(1, int(round(sz / 1.15)))
+	var cw := sx / cols
+	var ch := sz / rows
+	for ix in range(cols):
+		for iz in range(rows):
+			var h := 0.85 + rng.randf() * 0.4
+			var pos := c + Vector3(-sx * 0.5 + cw * (ix + 0.5), 0, -sz * 0.5 + ch * (iz + 0.5))
+			_crate(pos, Vector3(cw - 0.04, h, ch - 0.04), rng.randf_range(-0.03, 0.03), rng)
+			if rng.randf() < 0.16:
+				_bput(ST + ("container-tall.glb" if rng.randf() < 0.5 else "container.glb"), pos + Vector3(rng.randf_range(-0.15, 0.15), h, rng.randf_range(-0.15, 0.15)), rng.randf() * TAU, Vector3.ONE * 1.2, true)
+	_bbox("crate_rim", Models.glow_mat(Color("#FF7A2F"), 1.1), c + Vector3(0, 0.015, 0), Vector3(sx + 0.14, 0.03, sz + 0.14))
+
+func _build_bay(W: float, TOP: float, rng: RandomNumberGenerator) -> void:
+	# vaisseau du Relais garé au centre du quai
+	var ship := _put(SP + "craft_cargoA.glb", Vector3(W * 0.5, 0.0, TOP * 0.5 + 0.1), PI * 0.5, Vector3.ONE * 2.3, null, true)
+	var eng := _ground_quad(3.5, CYAN, 0.6)
+	eng.position = Vector3(W * 0.5 - 3.4, 0.6, TOP * 0.5 + 0.1)
+	level.add_child(eng)
+	# consoles et machines le long du mur nord
+	var x := 1.6
+	while x < W - 1.4:
+		if absf(x - W * 0.5) > 4.2:
+			var r := rng.randf()
+			if r < 0.3:
+				_bput(ST + "computer-wide.glb", Vector3(x, 0, 0.65), 0.0, Vector3.ONE * 1.4)
+			elif r < 0.5:
+				_bput(ST + "computer-system.glb", Vector3(x, 0, 0.6), 0.0, Vector3.ONE * 1.4)
+			elif r < 0.65:
+				_bput(SP + "machine_generator.glb", Vector3(x, 0, 1.0), rng.randf() * TAU, Vector3.ONE * 1.1, true)
+			elif r < 0.8:
+				_bput(ST + "container-tall.glb", Vector3(x, 0, 0.75), rng.randf_range(-0.3, 0.3), Vector3.ONE * 1.5)
+				_bput(ST + "container.glb", Vector3(x + 0.7, 0, 1.4), rng.randf_range(-0.3, 0.3), Vector3.ONE * 1.3)
+			else:
+				_bput(SP + "barrels.glb", Vector3(x, 0, 1.1), rng.randf() * TAU, Vector3.ONE * 1.1, true)
+		x += rng.randf_range(1.6, 2.4)
+	# caisses et tonneaux devant le vaisseau
+	for side in [-1, 1]:
+		_bput(ST + "container-wide.glb", Vector3(W * 0.5 + side * 5.0, 0, TOP - 1.2), side * 0.2, Vector3.ONE * 1.4)
+		_bput(SP + "satelliteDish.glb", Vector3(W * 0.5 + side * 7.0, 0, 1.3), side * 0.6, Vector3.ONE * 1.2, true)
+
+# ---------------------------------------------------------------- héroïne
+func _build_hero() -> void:
+	hero_root = Node3D.new()
+	add_child(hero_root)
+	hero = Actor3D.new()
+	hero_root.add_child(hero)
+	hero.setup(JO_MODEL, JO_GUN)
+	hero.scale = Vector3.ONE * HERO_SCALE
+	hero_root.add_child(Models.shadow_blob(1.1))
+	# anneau de sélection au sol (lisible même en pleine mêlée)
+	var ring := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(1.25, 1.25)
+	ring.mesh = pm
+	var rm := ShaderMaterial.new()
+	rm.shader = _ring_shader
+	rm.set_shader_parameter("color", CYAN)
+	rm.set_shader_parameter("width", 0.14)
+	rm.set_shader_parameter("fill", 0.06)
+	rm.render_priority = 5
+	ring.material_override = rm
+	ring.position.y = 0.03
+	hero_root.add_child(ring)
+	# ligne de visée (s'affiche quand le stick droit est poussé)
+	aim_line = MeshInstance3D.new()
+	var q := PlaneMesh.new()
+	q.size = Vector2(0.22, 1.0)
+	aim_line.mesh = q
+	aim_mat = StandardMaterial3D.new()
+	aim_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	aim_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	aim_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	aim_mat.albedo_texture = Models.beam()
+	aim_mat.albedo_color = Color(1.0, 0.55, 0.3, 0.32)
+	aim_line.material_override = aim_mat
+	aim_line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	hero_root.add_child(aim_line)
+	# bulle de bouclier
+	hero_shield = Models.sphere(0.62, Models.add_mat(Color(CYAN, 0.18), 1.0))
+	hero_shield.position.y = 0.5
+	hero_shield.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	hero_root.add_child(hero_shield)
+	hero_light = OmniLight3D.new()
+	hero_light.omni_range = 3.5
+	hero_light.light_energy = 0.0
+	hero_light.light_color = Color(1.0, 0.7, 0.4)
+	hero_root.add_child(hero_light)
+
+# ---------------------------------------------------------------- réserves (projectiles, halos, particules, chiffres)
+func _billboard_mm(max_count: int, energy: float) -> MultiMeshInstance3D:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	var q := QuadMesh.new()
+	q.size = Vector2(1, 1)
+	mm.mesh = q
+	mm.instance_count = max_count
+	mm.visible_instance_count = 0
+	var m := ShaderMaterial.new()
+	m.shader = _glow_shader
+	m.set_shader_parameter("tex", Models.radial())
+	m.set_shader_parameter("energy", energy)
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	mmi.material_override = m
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mmi.extra_cull_margin = 200.0
+	add_child(mmi)
+	return mmi
+
+func _build_pools() -> void:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	var cap := CapsuleMesh.new()
+	cap.radius = 0.5
+	cap.height = 3.0
+	cap.radial_segments = 8
+	cap.rings = 2
+	mm.mesh = cap
+	mm.instance_count = 400
+	mm.visible_instance_count = 0
+	var bm := ShaderMaterial.new()
+	bm.shader = load("res://shaders/bolt.gdshader")
+	bolt_mm = MultiMeshInstance3D.new()
+	bolt_mm.multimesh = mm
+	bolt_mm.material_override = bm
+	bolt_mm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	bolt_mm.extra_cull_margin = 200.0
+	add_child(bolt_mm)
+	halo_mm = _billboard_mm(400, 1.3)
+	part_mm = _billboard_mm(900, 1.8)
+	for i in range(28):
+		var l := Label3D.new()
+		l.font = _font
+		l.font_size = 64
+		l.pixel_size = 0.005
+		l.outline_size = 14
+		l.outline_modulate = Color(0.05, 0.05, 0.12, 0.9)
+		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		l.no_depth_test = true
+		l.visible = false
+		l.render_priority = 10
+		l.outline_render_priority = 9
+		add_child(l)
+		_dmg_labels.append({"node": l, "t": 0.0, "life": 0.0, "vel": Vector3.ZERO})
+
+# ---------------------------------------------------------------- partie
+func start_room() -> void:
+	active = true
+	visible = true
+	if relais != null:
+		relais.visible = false
+	level.visible = true
+	hero_root.visible = true
+	_clear_dynamic()
+	var hp: Vector3 = p3(hero2d.position)
+	cam_target = hp
+	_place_camera(1.0)
+
+func stop() -> void:
+	active = false
+	_clear_dynamic()
+
+func _clear_dynamic() -> void:
+	for k in mobs.keys():
+		(mobs[k] as Node).queue_free()
+	mobs.clear()
+	for m in dying:
+		(m as Node).queue_free()
+	dying.clear()
+	for f in fx:
+		(f["node"] as Node).queue_free()
+	fx.clear()
+	for k in pickup_nodes.keys():
+		(pickup_nodes[k] as Node).queue_free()
+	pickup_nodes.clear()
+	for n in turret_nodes:
+		(n as Node).queue_free()
+	turret_nodes.clear()
+	for n in ally_nodes:
+		(n as Node).queue_free()
+	ally_nodes.clear()
+	if chest_node != null:
+		chest_node.queue_free()
+		chest_node = null
+	bolt_mm.multimesh.visible_instance_count = 0
+	halo_mm.multimesh.visible_instance_count = 0
+	part_mm.multimesh.visible_instance_count = 0
+	for d in _dmg_labels:
+		(d["node"] as Label3D).visible = false
+
+func _process(dt: float) -> void:
+	t += dt
+	if not active or arena == null:
+		_tick_relais(dt)
+		return
+	_sync_hero(dt)
+	_sync_mobs(dt)
+	_sync_bullets()
+	_sync_particles()
+	_sync_pickups(dt)
+	_sync_chest(dt)
+	_sync_turrets(dt)
+	_tick_fx(dt)
+	_tick_labels(dt)
+	_tick_pads(dt)
+	_place_camera(dt)
+
+func _place_camera(dt: float) -> void:
+	var hp := p3(hero2d.position)
+	var look := Vector3.ZERO
+	if joy != null and joy.aim_active:
+		look = Vector3(joy.aim.x, 0, joy.aim.y) * 1.2
+	var target := hp + look
+	var W: float = arena.W * K
+	var H: float = arena.H * K
+	target.x = clampf(target.x, 6.5, W - 6.5)
+	target.z = clampf(target.z, 2.6, H - 3.2)
+	cam_target = cam_target.lerp(target, clampf(dt * 6.0, 0.0, 1.0))
+	var pitch := deg_to_rad(CAM_PITCH)
+	var off := Vector3(0, sin(pitch), cos(pitch)) * CAM_DIST
+	var sh := Vector3.ZERO
+	if shake > 0.0:
+		shake = maxf(0.0, shake - dt * 2.5)
+		var a := shake * shake * 0.35
+		sh = Vector3(randf_range(-a, a), randf_range(-a, a), randf_range(-a, a))
+	cam.position = cam_target + off + sh
+	cam.look_at(cam_target + sh * 0.5, Vector3.UP)
+	cam.make_current()
+
+func add_shake(v: float) -> void:
+	shake = minf(1.0, shake + v)
+
+func _sync_hero(dt: float) -> void:
+	hero_root.position = p3(hero2d.position)
+	var aim: Vector2 = hero2d.aim_dir
+	var target_yaw := atan2(aim.x, aim.y)
+	hero.rotation.y = lerp_angle(hero.rotation.y, target_yaw, clampf(dt * 16.0, 0.0, 1.0))
+	var moving: bool = hero2d.moving
+	var shooting: bool = joy != null and joy.aim_active
+	var spd: float = 0.0
+	if moving:
+		spd = 0.55 + 0.35 * (hero2d.move_dir as Vector2).length()
+	hero.set_motion(spd, 1.0 if shooting else 0.0)
+	# clignote pendant l'invulnérabilité
+	var inv: float = hero2d.invuln
+	hero.visible = not (inv > 0.0 and int(inv * 20.0) % 2 == 0)
+	if hero2d.dead and not hero.dead:
+		hero.die()
+	elif not hero2d.dead and hero.dead:
+		_rebuild_hero_anim()
+	aim_line.visible = shooting
+	if shooting:
+		var len: float = hero2d.rng * K * 0.9
+		var ad := Vector3(aim.x, 0, aim.y).normalized()
+		aim_line.position = ad * (len * 0.5 + 0.4) + Vector3(0, 0.04, 0)
+		aim_line.rotation = Vector3(0, atan2(ad.x, ad.z), 0)
+		aim_line.scale = Vector3(1, 1, len)
+	hero_shield.visible = hero2d.shield_max > 0 and hero2d.shield_ready
+	if hero_shield.visible:
+		hero_shield.scale = Vector3.ONE * (1.0 + sin(t * 4.0) * 0.03)
+	hero_light.light_energy = maxf(0.0, hero_light.light_energy - dt * 30.0)
+
+func _rebuild_hero_anim() -> void:
+	hero.dead = false
+	hero.tree.active = true
+
+func _sync_mobs(dt: float) -> void:
+	var seen := {}
+	for e in arena.enemies:
+		var id: int = e.get_instance_id()
+		seen[id] = true
+		var m: Mob3D = mobs.get(id)
+		if m == null:
+			m = _make_mob(e)
+		m.sync(e, dt)
+	for id in mobs.keys():
+		if not seen.has(id):
+			(mobs[id] as Node).queue_free()
+			mobs.erase(id)
+	var i := 0
+	while i < dying.size():
+		var dm: Mob3D = dying[i]
+		if dm.tick_death(dt):
+			dm.queue_free()
+			dying.remove_at(i)
+		else:
+			i += 1
+
+func _make_mob(e: Node2D) -> Mob3D:
+	var m := Mob3D.new()
+	add_child(m)
+	m.setup(e.kind, e.elite, e.radius)
+	m.position = p3(e.position)
+	mobs[e.get_instance_id()] = m
+	return m
+
+func _sync_bullets() -> void:
+	var mm := bolt_mm.multimesh
+	var hm := halo_mm.multimesh
+	var n := mini(arena.bullets.size(), mm.instance_count)
+	for i in range(n):
+		var b: Node2D = arena.bullets[i]
+		var v: Vector2 = b.vel
+		var yaw := atan2(v.x, v.y)
+		var r: float = b.radius * K
+		var basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, PI * 0.5)
+		basis = basis.scaled(Vector3(r * 1.6, r * 2.2, r * 1.6))
+		var h := 0.55 if b.hero_shot else 0.6
+		var pos := p3(b.position, h)
+		mm.set_instance_transform(i, Transform3D(basis, pos))
+		mm.set_instance_color(i, b.color)
+		var hs := r * 9.0
+		hm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3(hs, hs, hs)), pos))
+		hm.set_instance_color(i, Color(b.color, 0.55))
+	mm.visible_instance_count = n
+	hm.visible_instance_count = n
+
+func _sync_particles() -> void:
+	var mm := part_mm.multimesh
+	var n := mini(arena.particles.size(), mm.instance_count)
+	for i in range(n):
+		var pa: Dictionary = arena.particles[i]
+		var a: float = clampf(pa["life"] / pa["max"], 0.0, 1.0)
+		var s: float = pa["r"] * K * 9.0 * (0.4 + a)
+		var h := 0.35 + (1.0 - a) * 0.5
+		mm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3(s, s, s)), p3(pa["pos"], h)))
+		var c: Color = pa["col"]
+		mm.set_instance_color(i, Color(c.r, c.g, c.b, a))
+	mm.visible_instance_count = n
+
+func _sync_pickups(dt: float) -> void:
+	var seen := {}
+	for pk in arena.pickups:
+		var k: int = int(pk.get("vid", 0))
+		if k == 0:
+			k = randi() + 1
+			pk["vid"] = k
+		seen[k] = true
+		var n: Node3D = pickup_nodes.get(k)
+		if n == null:
+			n = _make_pickup(pk)
+			pickup_nodes[k] = n
+		n.position = p3(pk["pos"], 0.0)
+		var spin: Node3D = n.get_child(0)
+		spin.rotation.y += dt * 3.0
+		spin.position.y = 0.35 + sin(t * 4.0 + float(k % 100)) * 0.06
+	for k in pickup_nodes.keys():
+		if not seen.has(k):
+			(pickup_nodes[k] as Node).queue_free()
+			pickup_nodes.erase(k)
+
+func _make_pickup(pk: Dictionary) -> Node3D:
+	var root := Node3D.new()
+	add_child(root)
+	var spin := Node3D.new()
+	root.add_child(spin)
+	match String(pk["kind"]):
+		"ticket":
+			var coin := Models.cyl(0.13, 0.13, 0.04, Models.glow_mat(GOLD, 1.6), 16)
+			coin.rotation.x = PI * 0.5
+			spin.add_child(coin)
+			var hole := Models.cyl(0.06, 0.06, 0.05, Models.toon(Color("#B07A20"), 0.0), 12)
+			hole.rotation.x = PI * 0.5
+			spin.add_child(hole)
+			root.add_child(Models.shadow_blob(0.35))
+		"hp":
+			var box := Models.box(Vector3(0.32, 0.24, 0.32), Models.toon(Color("#F4F1EA"), 0.5))
+			spin.add_child(box)
+			var c1 := Models.box(Vector3(0.22, 0.26, 0.07), Models.glow_mat(RED, 2.0))
+			spin.add_child(c1)
+			var c2 := Models.box(Vector3(0.07, 0.26, 0.22), Models.glow_mat(RED, 2.0))
+			spin.add_child(c2)
+			root.add_child(Models.shadow_blob(0.5))
+		"item":
+			var col: Color = Data.RARITY_COLORS[int(pk["item"]["rarity"])]
+			var gem := MeshInstance3D.new()
+			var sm := SphereMesh.new()
+			sm.radius = 0.2
+			sm.height = 0.55
+			sm.radial_segments = 4
+			sm.rings = 2
+			gem.mesh = sm
+			gem.material_override = Models.glow_mat(col, 1.8)
+			spin.add_child(gem)
+			var beam := _beam(col, 3.2, 0.32)
+			root.add_child(beam)
+			var g := _ground_quad(1.6, col, 0.7)
+			g.position.y = 0.04
+			root.add_child(g)
+	return root
+
+func _beam(col: Color, h: float, r: float) -> MeshInstance3D:
+	var mi := Models.cyl(r * 0.6, r, h, null, 16)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.albedo_texture = Models.beam()
+	m.albedo_color = Color(col.r * 1.2, col.g * 1.2, col.b * 1.2, 0.55)
+	m.uv1_scale = Vector3(1, -1, 1)
+	m.uv1_offset = Vector3(0, 1, 0)
+	mi.material_override = m
+	mi.position.y = h * 0.5
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return mi
+
+func _sync_chest(dt: float) -> void:
+	if arena.chest.is_empty():
+		if chest_node != null:
+			chest_node.queue_free()
+			chest_node = null
+		return
+	if chest_node == null:
+		chest_node = Node3D.new()
+		add_child(chest_node)
+		var crate := Models.inst("res://assets/models/blaster/crate-medium.glb", true)
+		crate.scale = Vector3.ONE * 1.6
+		chest_node.add_child(crate)
+		chest_node.set_meta("crate", crate)
+		var trim := Models.box(Vector3(0.95, 0.06, 0.65), Models.glow_mat(GOLD, 2.0))
+		trim.position.y = 0.42
+		chest_node.add_child(trim)
+		chest_beam = _beam(GOLD, 4.0, 0.5)
+		chest_node.add_child(chest_beam)
+		var g := _ground_quad(2.4, GOLD, 0.8)
+		g.position.y = 0.04
+		chest_node.add_child(g)
+		chest_node.set_meta("glow", g)
+		chest_node.add_child(Models.shadow_blob(1.3))
+		chest_node.scale = Vector3.ONE * 0.01
+		_spawn_ring(p3(arena.chest["pos"], 0.05), GOLD, 3.0, 0.5)
+	chest_node.position = p3(arena.chest["pos"])
+	var opened: bool = arena.chest["open"]
+	chest_node.scale = chest_node.scale.lerp(Vector3.ONE, clampf(dt * 8.0, 0.0, 1.0))
+	if not opened:
+		var crate: Node3D = chest_node.get_meta("crate")
+		crate.position.y = absf(sin(t * 3.0)) * 0.08
+		crate.rotation.y = sin(t * 1.5) * 0.15
+	chest_beam.visible = not opened
+	(chest_node.get_meta("glow") as Node3D).visible = not opened
+
+func _sync_turrets(dt: float) -> void:
+	while turret_nodes.size() < arena.turrets.size():
+		var n := Node3D.new()
+		var tm := Models.inst(SP + "turret_single.glb", true)
+		tm.scale = Vector3.ONE * 1.1
+		n.add_child(tm)
+		n.add_child(Models.shadow_blob(1.0))
+		var ring := _ground_quad(1.4, GOLD, 0.5)
+		ring.position.y = 0.03
+		n.add_child(ring)
+		add_child(n)
+		turret_nodes.append(n)
+		n.scale = Vector3.ONE * 0.01
+		_spawn_ring(p3(arena.turrets[turret_nodes.size() - 1]["pos"], 0.05), GOLD, 2.0, 0.4)
+	for i in range(arena.turrets.size()):
+		var tr: Dictionary = arena.turrets[i]
+		var n: Node3D = turret_nodes[i]
+		n.position = p3(tr["pos"])
+		n.scale = n.scale.lerp(Vector3.ONE, clampf(dt * 10.0, 0.0, 1.0))
+		var ang: float = tr["ang"]
+		(n.get_child(0) as Node3D).rotation.y = lerp_angle((n.get_child(0) as Node3D).rotation.y, atan2(cos(ang), sin(ang)) + PI, clampf(dt * 12.0, 0.0, 1.0))
+	while ally_nodes.size() < arena.allies.size():
+		var d := Node3D.new()
+		var core := Models.sphere(0.16, Models.toon(Color("#F4F1EA"), 0.5))
+		d.add_child(core)
+		var eye := Models.sphere(0.07, Models.glow_mat(CYAN, 3.0))
+		eye.position = Vector3(0, 0, 0.13)
+		d.add_child(eye)
+		var ring := Models.torus(0.18, 0.22, Models.glow_mat(CYAN, 1.8))
+		d.add_child(ring)
+		add_child(d)
+		ally_nodes.append(d)
+	for i in range(arena.allies.size()):
+		var al: Dictionary = arena.allies[i]
+		var p: Vector2 = hero2d.position + Vector2.RIGHT.rotated(al["ang"]) * 74.0
+		var d: Node3D = ally_nodes[i]
+		d.position = p3(p, 1.0 + sin(t * 4.0 + i) * 0.08)
+		d.rotation.y = hero.rotation.y
+
+func _tick_pads(dt: float) -> void:
+	var spawning: bool = not arena.spawn_queue.is_empty()
+	for pd in pads3d:
+		var g: MeshInstance3D = pd["glow"]
+		var m: StandardMaterial3D = g.material_override
+		var target := 0.55 + 0.3 * sin(t * 8.0) if spawning else 0.12
+		m.albedo_color.a = lerpf(m.albedo_color.a, target, clampf(dt * 5.0, 0.0, 1.0))
+		(pd["ring"] as Node3D).rotation.y += dt * (3.0 if spawning else 0.6)
+
+# ---------------------------------------------------------------- effets
+func _flash_light(pos: Vector3, col: Color, energy: float, rng: float) -> void:
+	var l: OmniLight3D = _flash_lights[_flash_i]
+	_flash_i = (_flash_i + 1) % _flash_lights.size()
+	l.position = pos
+	l.light_color = col
+	l.light_energy = energy
+	l.omni_range = rng
+
+func _add_fx(node: Node3D, life: float, kind: String, extra: Dictionary = {}) -> void:
+	add_child(node)
+	var d := {"node": node, "t": 0.0, "life": life, "kind": kind}
+	d.merge(extra)
+	fx.append(d)
+
+func _spawn_ring(pos: Vector3, col: Color, size: float, life: float, width: float = 0.1) -> void:
+	var mi := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(1, 1)
+	mi.mesh = pm
+	var m := ShaderMaterial.new()
+	m.shader = _ring_shader
+	m.set_shader_parameter("color", col)
+	m.set_shader_parameter("width", width)
+	m.set_shader_parameter("fill", 0.0)
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = pos
+	_add_fx(mi, life, "ring", {"size": size})
+
+func _spawn_flash(pos: Vector3, col: Color, size: float, life: float) -> void:
+	var mi := MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(1, 1)
+	mi.mesh = q
+	var m := ShaderMaterial.new()
+	m.shader = _glow_shader
+	m.set_shader_parameter("tex", Models.radial())
+	m.set_shader_parameter("energy", 2.2)
+	mi.material_override = m
+	m.set_shader_parameter("tint", col)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = pos
+	mi.set_meta("col", col)
+	_add_fx(mi, life, "flash", {"size": size, "col": col})
+
+func _spawn_debris(pos: Vector3, col: Color, n: int, spd: float) -> void:
+	for i in range(n):
+		var s := randf_range(0.06, 0.14)
+		var b := Models.box(Vector3(s, s, s), Models.toon(col, 0.3))
+		b.position = pos + Vector3(0, 0.4, 0)
+		var v := Vector3(randf_range(-1, 1), randf_range(0.8, 1.6), randf_range(-1, 1)).normalized() * spd * randf_range(0.6, 1.2)
+		_add_fx(b, randf_range(0.6, 0.9), "debris", {"vel": v, "spin": Vector3(randf(), randf(), randf()) * 12.0})
+
+func _spawn_column(pos: Vector3, col: Color, h: float, life: float) -> void:
+	var b := _beam(col, h, 0.55)
+	var root := Node3D.new()
+	root.position = pos
+	root.add_child(b)
+	_add_fx(root, life, "column")
+
+func _tick_fx(dt: float) -> void:
+	var i := 0
+	while i < fx.size():
+		var f: Dictionary = fx[i]
+		f["t"] += dt
+		var p: float = f["t"] / f["life"]
+		var node: Node3D = f["node"]
+		if p >= 1.0:
+			node.queue_free()
+			fx.remove_at(i)
+			continue
+		match String(f["kind"]):
+			"ring":
+				var s: float = f["size"] * (0.2 + 0.8 * sqrt(p))
+				node.scale = Vector3(s, 1, s)
+				var mat: ShaderMaterial = (node as MeshInstance3D).material_override
+				var c: Color = mat.get_shader_parameter("color")
+				mat.set_shader_parameter("color", Color(c.r, c.g, c.b, 1.0 - p))
+			"flash":
+				var s: float = f["size"] * (0.6 + 0.6 * p)
+				node.scale = Vector3(s, s, s)
+				var mat: ShaderMaterial = (node as MeshInstance3D).material_override
+				mat.set_shader_parameter("energy", 2.6 * (1.0 - p))
+			"debris":
+				var v: Vector3 = f["vel"]
+				v.y -= 9.0 * dt
+				node.position += v * dt
+				if node.position.y < 0.05:
+					node.position.y = 0.05
+					v *= Vector3(0.6, -0.3, 0.6)
+				f["vel"] = v
+				node.rotation += (f["spin"] as Vector3) * dt
+				node.scale = Vector3.ONE * (1.0 - p * p)
+			"column":
+				node.scale = Vector3(1.0 - p, 1.0 + p * 0.4, 1.0 - p)
+			"shell":
+				var s: float = f["size"] * (0.3 + 0.7 * sqrt(p))
+				node.scale = Vector3(s, s, s)
+				var mat: StandardMaterial3D = (node as MeshInstance3D).material_override
+				var c: Color = f["col"]
+				mat.albedo_color = Color(c.r * 2.0, c.g * 2.0, c.b * 2.0, (1.0 - p) * 0.8)
+		i += 1
+	for l in _flash_lights:
+		var ol: OmniLight3D = l
+		ol.light_energy = maxf(0.0, ol.light_energy - dt * 18.0)
+
+func _damage_number(pos: Vector3, dmg: float, crit: bool) -> void:
+	var best: Dictionary = _dmg_labels[0]
+	for d in _dmg_labels:
+		if not (d["node"] as Label3D).visible:
+			best = d
+			break
+		if float(d["t"]) > float(best["t"]):
+			best = d
+	var l: Label3D = best["node"]
+	l.text = str(int(round(dmg)))
+	l.modulate = Color("#FFF2A8") if crit else Color.WHITE
+	l.font_size = 84 if crit else 60
+	l.position = pos + Vector3(randf_range(-0.2, 0.2), 1.0, 0)
+	l.visible = true
+	best["t"] = 0.0
+	best["life"] = 0.6
+	best["vel"] = Vector3(randf_range(-0.4, 0.4), 2.4, 0)
+
+func _tick_labels(dt: float) -> void:
+	for d in _dmg_labels:
+		var l: Label3D = d["node"]
+		if not l.visible:
+			continue
+		d["t"] += dt
+		var p: float = d["t"] / d["life"]
+		if p >= 1.0:
+			l.visible = false
+			continue
+		var v: Vector3 = d["vel"]
+		v.y -= 6.0 * dt
+		d["vel"] = v
+		l.position += v * dt
+		l.modulate.a = 1.0 - p * p
+		l.scale = Vector3.ONE * (1.0 + (0.5 * (1.0 - p * 6.0) if p < 0.16 else 0.0))
+
+# ---------------------------------------------------------------- événements de la simulation
+func _on_fired(pos: Vector2, vel: Vector2, hero_shot: bool, color: Color, radius: float) -> void:
+	if not active:
+		return
+	var p := p3(pos, 0.55)
+	if hero_shot and (pos - hero2d.position).length() < 60.0:
+		p = hero.muzzle_position() if hero.muzzle else p
+		hero_light.light_energy = 2.2
+		_spawn_flash(p, Color(1.0, 0.75, 0.4), 0.7, 0.06)
+	elif not hero_shot:
+		_spawn_flash(p, color, 0.6, 0.08)
+
+func _on_enemy_hit(e: Node2D, pos: Vector2, dmg: float, crit: bool) -> void:
+	if not active:
+		return
+	var m: Mob3D = mobs.get(e.get_instance_id())
+	if m != null:
+		m.flash()
+	var p := p3(pos, 0.6)
+	_spawn_flash(p, Color(1.0, 0.95, 0.8), 0.55 if not crit else 0.9, 0.08)
+	_damage_number(p3(e.position), dmg, crit)
+
+func _on_blocked(pos: Vector2, color: Color) -> void:
+	if active:
+		_spawn_flash(p3(pos, 0.55), color, 0.45, 0.07)
+
+func _on_enemy_killed(e: Node2D) -> void:
+	if not active:
+		return
+	var id: int = e.get_instance_id()
+	var m: Mob3D = mobs.get(id)
+	var pos := p3(e.position)
+	var big: bool = e.kind == "brute" or e.kind == "boss" or e.elite
+	var col := MAGENTA if e.kind == "boss" else (GOLD if e.elite else RED)
+	if m != null:
+		mobs.erase(id)
+		m.start_death()
+		dying.append(m)
+	_spawn_flash(pos + Vector3(0, 0.6, 0), Color(1.0, 0.8, 0.5), 1.8 if big else 1.1, 0.18)
+	_spawn_ring(pos + Vector3(0, 0.05, 0), col, 3.5 if big else 2.0, 0.35)
+	_flash_light(pos + Vector3(0, 1.0, 0), Color(1.0, 0.6, 0.35), 3.0 if big else 1.6, 5.0 if big else 3.5)
+	_spawn_debris(pos, Color("#8A939E") if e.kind != "trooper" else Color("#5A6170"), 10 if big else 5, 4.0)
+	if e.kind != "trooper":
+		var shell := Models.sphere(0.5, Models.add_mat(Color(1, 0.6, 0.3, 0.8), 1.0))
+		shell.position = pos + Vector3(0, 0.5, 0)
+		shell.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		shell.material_override = (shell.material_override as StandardMaterial3D).duplicate()
+		_add_fx(shell, 0.3 if not big else 0.45, "shell", {"size": 1.6 if not big else 3.2, "col": Color(1.0, 0.55, 0.25)})
+	add_shake(0.25 if not big else 0.6)
+	if e.kind == "boss":
+		add_shake(1.0)
+		for k in range(6):
+			_spawn_ring(pos + Vector3(randf_range(-1, 1), 0.05, randf_range(-1, 1)), MAGENTA, 6.0, 0.6 + k * 0.1)
+		_spawn_debris(pos, Color("#C8D0DA"), 18, 6.0)
+
+func _on_enemy_spawned(e: Node2D) -> void:
+	if not active:
+		return
+	var pos := p3(e.position)
+	_spawn_column(pos, CYAN if e.kind != "boss" else MAGENTA, 3.5 if e.kind != "boss" else 7.0, 0.45)
+	_spawn_ring(pos + Vector3(0, 0.05, 0), CYAN if e.kind != "boss" else MAGENTA, 2.2 if e.kind != "boss" else 6.0, 0.4)
+	if e.kind == "boss":
+		add_shake(0.8)
+
+func _on_chest_opened(pos: Vector2) -> void:
+	if not active:
+		return
+	var p := p3(pos)
+	_spawn_column(p, GOLD, 6.0, 0.7)
+	_spawn_ring(p + Vector3(0, 0.05, 0), GOLD, 4.0, 0.5)
+	_spawn_flash(p + Vector3(0, 0.7, 0), GOLD, 2.0, 0.25)
+	_flash_light(p + Vector3(0, 1.2, 0), GOLD, 3.0, 6.0)
+
+func _on_hero_damaged() -> void:
+	if not active:
+		return
+	hero.flash(0.12)
+	add_shake(0.35)
+
+# ---------------------------------------------------------------- Relais (base)
+func show_relais(items: Array) -> void:
+	active = false
+	_clear_dynamic()
+	visible = true
+	level.visible = false
+	hero_root.visible = false
+	if relais == null:
+		_build_relais()
+	relais.visible = true
+	var rh: Actor3D = relais.get_meta("hero")
+	rh.set_motion(0.0, 0.0)
+
+func _build_relais() -> void:
+	relais = Node3D.new()
+	relais.position = Vector3(0, 0, -80)
+	add_child(relais)
+	# plateforme ronde de dalles, anneau du portail derrière la héroïne
+	var plat := Models.cyl(4.2, 4.5, 0.35, Models.toon(Color("#2A3558"), 0.25), 48)
+	plat.position.y = -0.175
+	relais.add_child(plat)
+	var plat_top := Models.cyl(3.6, 3.6, 0.02, Models.toon(Color("#34416B"), 0.1), 48)
+	plat_top.position.y = 0.01
+	relais.add_child(plat_top)
+	var rim := Models.torus(4.15, 4.3, Models.glow_mat(CYAN, 1.6), 64)
+	rim.position.y = 0.02
+	relais.add_child(rim)
+	var portal := Node3D.new()
+	portal.position = Vector3(0, 2.6, -2.2)
+	relais.add_child(portal)
+	var ring := Models.torus(2.0, 2.35, Models.toon(Color("#C8D0DA"), 0.5), 64)
+	ring.rotation.x = PI * 0.5
+	portal.add_child(ring)
+	var ring_glow := Models.torus(1.92, 2.02, Models.glow_mat(CYAN, 2.5), 64)
+	ring_glow.rotation.x = PI * 0.5
+	portal.add_child(ring_glow)
+	for i in range(12):
+		var a := TAU * i / 12.0
+		var stud := Models.box(Vector3(0.22, 0.42, 0.3), Models.toon(Color("#2C3350"), 0.3))
+		stud.position = Vector3(cos(a), sin(a), 0) * 2.18
+		stud.rotation.z = a
+		portal.add_child(stud)
+		var led := Models.box(Vector3(0.08, 0.16, 0.32), Models.glow_mat(ORANGE if i % 3 == 0 else CYAN, 2.4))
+		led.position = Vector3(cos(a), sin(a), 0) * 2.18
+		led.rotation.z = a
+		portal.add_child(led)
+	var disk := MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(4.0, 4.0)
+	disk.mesh = q
+	var pm := ShaderMaterial.new()
+	pm.shader = load("res://shaders/portal.gdshader")
+	disk.material_override = pm
+	portal.add_child(disk)
+	relais.set_meta("portal", portal)
+	var plight := OmniLight3D.new()
+	plight.position = Vector3(0, 2.4, -1.4)
+	plight.light_color = CYAN
+	plight.omni_range = 7.0
+	plight.light_energy = 1.8
+	relais.add_child(plight)
+	var warm := OmniLight3D.new()
+	warm.position = Vector3(3.5, 2.0, 2.5)
+	warm.light_color = ORANGE
+	warm.omni_range = 7.0
+	warm.light_energy = 0.9
+	relais.add_child(warm)
+	# consoles autour
+	for c in [[Vector3(-3.0, 0, -0.6), 0.6], [Vector3(3.0, 0, -0.6), -0.6], [Vector3(-3.4, 0, 1.4), 1.2]]:
+		_put(ST + "computer-wide.glb", c[0], c[1], Vector3.ONE * 1.5, relais)
+	_put(ST + "container-tall.glb", Vector3(3.3, 0, 1.6), -0.4, Vector3.ONE * 1.6, relais)
+	_put(ST + "container.glb", Vector3(3.9, 0, 0.9), 0.3, Vector3.ONE * 1.4, relais)
+	# Jo
+	var rh := Actor3D.new()
+	relais.add_child(rh)
+	rh.setup(JO_MODEL, JO_GUN)
+	rh.scale = Vector3.ONE * 2.2
+	rh.position = Vector3(0, 0, 0.4)
+	rh.rotation.y = 0.35
+	relais.set_meta("hero", rh)
+	relais.add_child(Models.shadow_blob(1.6))
+
+func _tick_relais(dt: float) -> void:
+	if relais == null or not relais.visible:
+		return
+	var portal: Node3D = relais.get_meta("portal")
+	portal.rotation.z += dt * 0.15
+	var base := relais.position
+	var a := sin(t * 0.25) * 0.25
+	cam.position = base + Vector3(sin(a) * 9.5 + 3.2, 3.4, cos(a) * 9.5)
+	cam.look_at(base + Vector3(3.4, 1.6, 0), Vector3.UP)
+	cam.make_current()

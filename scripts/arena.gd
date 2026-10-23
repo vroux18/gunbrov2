@@ -13,6 +13,13 @@ signal hero_died
 signal energy_full
 signal item_found(item: Dictionary)
 signal wave_changed
+# événements pour le rendu 3D (view3d.gd) : la simulation ne dépend jamais d'eux
+signal fired(pos: Vector2, vel: Vector2, hero_shot: bool, color: Color, radius: float)
+signal enemy_hit(e: Node2D, pos: Vector2, dmg: float, crit: bool)
+signal enemy_killed(e: Node2D)
+signal enemy_spawned(e: Node2D)
+signal chest_opened(pos: Vector2)
+signal bullet_blocked(pos: Vector2, color: Color)
 
 const W := 2400.0
 const H := 1400.0
@@ -251,6 +258,7 @@ func _process(dt: float) -> void:
 				if e.dead or e in b.hits:
 					continue
 				if (e.position - b.position).length() < e.radius + b.radius:
+					enemy_hit.emit(e, b.position, b.dmg, b.radius > 6.0)
 					e.hit(b.dmg)
 					sfx.play("hit", randf_range(0.8, 1.2), -10.0)
 					_burst(b.position, b.color, 4, 140.0, 2.0)
@@ -323,6 +331,7 @@ func _process(dt: float) -> void:
 			if room >= Data.ROOMS:
 				bonus = 2
 			sfx.play("chest")
+			chest_opened.emit(chest["pos"])
 			_burst(chest["pos"], GOLD, 24, 260.0, 4.0)
 			item_found.emit(Data.roll_item(bonus))
 	# particules
@@ -367,6 +376,7 @@ func _spawn(spec: String) -> void:
 	e.position = pad + Vector2(randf_range(-30, 30), randf_range(-30, 30))
 	ents.add_child(e)
 	enemies.append(e)
+	enemy_spawned.emit(e)
 	_burst(e.position, CYAN, 8, 180.0, 3.0)
 
 func boss_summon(pos: Vector2, n: int) -> void:
@@ -378,6 +388,7 @@ func boss_summon(pos: Vector2, n: int) -> void:
 		e.position = pos + Vector2.RIGHT.rotated(TAU * i / n) * 90.0
 		ents.add_child(e)
 		enemies.append(e)
+		enemy_spawned.emit(e)
 		_burst(e.position, RED, 8, 180.0, 3.0)
 	sfx.play("portal", 0.8)
 
@@ -403,6 +414,7 @@ func on_enemy_died(e: Node2D) -> void:
 		sfx.play("boom", 1.2, -6.0)
 	if e.kind == "boss":
 		boss = null
+	enemy_killed.emit(e)
 	enemies.erase(e)
 	e.queue_free()
 	if energy >= energy_need and not cleared:
@@ -421,6 +433,7 @@ func spawn_bullet(pos: Vector2, vel: Vector2, dmg: float, hero_shot: bool, pierc
 	b.life = 1.4 if hero_shot else 3.2
 	shots.add_child(b)
 	bullets.append(b)
+	fired.emit(pos, vel, hero_shot, color, radius)
 
 ## Direction corrigée pour contourner les caisses : si le point devant est bloqué, on tourne.
 func steer(pos: Vector2, dir: Vector2, r: float) -> Vector2:
@@ -490,6 +503,7 @@ func _bullet_walls(b: Node2D) -> bool:
 			hit = true
 	if hit:
 		_burst(p, b.color, 3, 100.0, 2.0)
+		bullet_blocked.emit(p, b.color)
 		return true
 	for o in obstacles:
 		if o.has_point(p):
@@ -506,6 +520,7 @@ func _bullet_walls(b: Node2D) -> bool:
 					b.position.y += signf(b.vel.y) * (dy + 2.0)
 				return false
 			_burst(p, b.color, 3, 100.0, 2.0)
+			bullet_blocked.emit(p, b.color)
 			return true
 	return false
 

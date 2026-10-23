@@ -8,6 +8,7 @@ var think := 0.0
 var dir := Vector2.RIGHT
 var click_t := 0.0
 
+var _room_jump_done := false
 var touch_test := false  # --touchtest : simule de vrais doigts sur les sticks au lieu de piloter le joystick
 var _touch_t := 0.0
 var _touch_started := false
@@ -51,6 +52,16 @@ func _process(dt: float) -> void:
 		return
 	var arena: Node = main.arena
 	var hero: Node2D = main.hero
+	# options de capture : --room=N démarre à la salle N, --god rend Jo invulnérable
+	if not _room_jump_done:
+		_room_jump_done = true
+		for a in OS.get_cmdline_user_args():
+			if a.begins_with("--room="):
+				var n := int(a.trim_prefix("--room="))
+				arena.start_room(n, "elite" if n == 5 else "combat")
+				main.view.start_room()
+	if "--god" in OS.get_cmdline_user_args():
+		hero.hp = hero.hp_max
 	if touch_test:
 		_touch_t += dt
 		if not _touch_started:
@@ -85,6 +96,7 @@ func _process(dt: float) -> void:
 	else:
 		main.joy.bot_aim_active = false
 	if int(t) % 10 == 0 and fmod(t, 1.0) < dt:
+		print("PERF : appels de dessin %d, objets %d, primitives %d, nœuds %d" % [Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME), Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME), Performance.get_monitor(Performance.OBJECT_NODE_COUNT)])
 		print("BOT : salle %d, vague %d, PV %d, kills %d, ennemis %d" % [arena.room, arena.wave_i + 1, int(hero.hp), arena.kills, arena.enemies.size()])
 
 func _click_something() -> void:
