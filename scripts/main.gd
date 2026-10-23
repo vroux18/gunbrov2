@@ -177,6 +177,7 @@ func show_base() -> void:
 	arena.cam.enabled = false
 	arena.running = false
 	view.show_relais(Save.equipped_items(profile))
+	view.set_shards(int(profile["shards"]))
 	hud.visible = false
 	joy.enabled = false
 	screen = _full(false)
@@ -200,7 +201,7 @@ func show_base() -> void:
 	right.add_child(sp)
 	var go := UI.primary("PARTIR", 40)
 	go.custom_minimum_size = Vector2(0, 86)
-	go.pressed.connect(start_run)
+	go.pressed.connect(_depart)
 	right.add_child(go)
 	var row := UI.hbox(12)
 	right.add_child(row)
@@ -348,6 +349,18 @@ func show_arsenal() -> void:
 		grid.add_child(b)
 
 # ---------------------------------------------------------------- partie
+## PARTIR : l'interface s'efface, Jo court dans le portail, puis la partie commence.
+func _depart() -> void:
+	if state != "base":
+		return
+	state = "depart"
+	sfx.play("portal", 0.8)
+	var tw := screen.create_tween()
+	tw.tween_property(screen, "modulate:a", 0.0, 0.25)
+	view.launch(func():
+		hud.fade = 1.0
+		start_run())
+
 func start_run() -> void:
 	profile["runs"] = int(profile["runs"]) + 1
 	Save.save_profile(profile)

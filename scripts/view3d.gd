@@ -1205,7 +1205,10 @@ func show_relais(items: Array) -> void:
 	var rh: Actor3D = relais.get_meta("hero")
 	rh.set_motion(0.0, 0.0)
 	rh.apply_items(items, JO_GUN)
+	rh.position = Vector3(0, 0, 0.6)
+	rh.visible = true
 	relais_focus = 0.0
+	launch_t = -1.0
 
 func _build_relais() -> void:
 	relais = Node3D.new()
@@ -1277,6 +1280,25 @@ func _build_relais() -> void:
 	_crate(Vector3(-3.6, 0, -1.6), Vector3(1.2, 1.0, 1.0), 0.3, rng)
 	_flush_batch()
 	level = keep
+	# dix socles d'éclats en arc derrière la plateforme : allumés selon la progression
+	var shards := []
+	for i in range(10):
+		var a := lerpf(-1.25, 1.25, i / 9.0)
+		var pos := Vector3(sin(a) * 5.6, 0, -cos(a) * 5.6 + 1.0)
+		var ped := Models.cyl(0.32, 0.4, 0.5, Models.toon(Color("#1F2A52"), 0.35), 8)
+		ped.position = pos + Vector3(0, 0.25, 0)
+		relais.add_child(ped)
+		var gem := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.2
+		sm.height = 0.62
+		sm.radial_segments = 6
+		sm.rings = 2
+		gem.mesh = sm
+		gem.position = pos + Vector3(0, 0.95, 0)
+		relais.add_child(gem)
+		shards.append(gem)
+	relais.set_meta("shards", shards)
 	# Jo
 	var rh := Actor3D.new()
 	relais.add_child(rh)
@@ -1291,12 +1313,54 @@ func _build_relais() -> void:
 var relais_focus := 0.0  # 0 : vue large du Relais, 1 : gros plan sur Jo (Loge)
 var _focus := 0.0
 
+## Éclats du Cœur récupérés : allume les socles correspondants.
+func set_shards(n: int) -> void:
+	if relais == null:
+		_build_relais()
+	var gems: Array = relais.get_meta("shards")
+	for i in range(gems.size()):
+		var g: MeshInstance3D = gems[i]
+		g.material_override = Models.glow_mat(CYAN, 2.6) if i < n else Models.toon(Color("#2A3558"), 0.2)
+
+var launch_t := -1.0  # >= 0 : départ en cours (Jo court dans le portail)
+
+## Départ : Jo se tourne, court vers le portail, la caméra plonge dedans ; `done` est appelé à la fin.
+func launch(done: Callable) -> void:
+	launch_t = 0.0
+	_launch_done = done
+	relais_focus = 0.0
+
+var _launch_done: Callable
+
 func _tick_relais(dt: float) -> void:
 	if relais == null or not relais.visible:
 		return
 	var portal: Node3D = relais.get_meta("portal")
-	portal.rotation.z += dt * 0.15
+	portal.rotation.z += dt * (0.15 if launch_t < 0.0 else 2.5)
 	var rh: Actor3D = relais.get_meta("hero")
+	var gems: Array = relais.get_meta("shards")
+	for i in range(gems.size()):
+		(gems[i] as Node3D).rotation.y = t * 1.2 + i
+	if launch_t >= 0.0:
+		launch_t += dt
+		rh.rotation.y = lerp_angle(rh.rotation.y, PI, clampf(dt * 10.0, 0.0, 1.0))
+		rh.set_motion(1.0, 0.0)
+		rh.position = rh.position.move_toward(Vector3(0, 0, -2.0), dt * 3.2)
+		if rh.position.z < -1.6:
+			rh.visible = false
+		var k := clampf(launch_t / 1.2, 0.0, 1.0)
+		var base := relais.position
+		var from := base + Vector3(3.2, 3.4, 9.5)
+		var to := base + Vector3(0, 2.6, 1.0)
+		cam.position = from.lerp(to, k * k)
+		cam.look_at(base + Vector3(3.4, 1.6, 0).lerp(Vector3(0, 2.6, -2.2), k), Vector3.UP)
+		cam.make_current()
+		if launch_t >= 1.25 and _launch_done.is_valid():
+			var cb := _launch_done
+			_launch_done = Callable()
+			launch_t = -1.0
+			cb.call()
+		return
 	_focus = lerpf(_focus, relais_focus, clampf(dt * 4.0, 0.0, 1.0))
 	rh.rotation.y = lerpf(0.35, 0.35 + sin(t * 0.6) * 0.5, _focus)
 	var base := relais.position

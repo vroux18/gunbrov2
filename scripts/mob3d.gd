@@ -303,8 +303,11 @@ func _build_boss(r: float) -> void:
 	hull.add_child(core)
 
 # ---------------------------------------------------------------- animation
+var _punch := 0.0
+
 func flash() -> void:
 	_flash_t = 0.09
+	_punch = 1.0
 	if actor != null:
 		actor.flash()
 		return
@@ -319,6 +322,9 @@ func sync(e: Node2D, dt: float) -> void:
 		var target := atan2(f.x, f.y)
 		yaw = lerp_angle(yaw, target, clampf(dt * 12.0, 0.0, 1.0))
 	body.rotation.y = yaw
+	# petit sursaut à l'impact
+	_punch = maxf(0.0, _punch - dt * 9.0)
+	body.scale = Vector3(1.0 + _punch * 0.12, 1.0 - _punch * 0.08, 1.0 + _punch * 0.12)
 	var st: String = e.state
 	var moving := true
 	match kind:

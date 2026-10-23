@@ -297,6 +297,8 @@ func _process(dt: float) -> void:
 			spawn_bullet(p + d * 14.0, d * 700.0, hero.dmg * 0.6, true, 0, 0, CYAN, 4.0)
 	# ramassages
 	var attract: float = 90.0 * hero.magnet * hero.pickup_mult
+	if cleared:
+		attract = 5000.0  # salle vidée : tout le butin au sol file vers Jo
 	var taken := []
 	for pk in pickups:
 		pk["t"] += dt
