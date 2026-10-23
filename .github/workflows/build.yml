@@ -1,0 +1,129 @@
+# À chaque envoi sur main : Godot (sans interface) exporte l'APK et la version web.
+#   APK (lien fixe)  : https://github.com/vroux18/gunbrov2/releases/latest/download/Passeurs.apk
+#   Web (Pages)      : https://vroux18.github.io/gunbrov2/
+name: Build
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Cache Godot
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot-bin
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}
+
+      - name: Godot + modèles d'export
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          base=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable
+          mkdir -p ~/godot-bin ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          cd /tmp
+          wget -q $base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          wget -q $base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          unzip -q Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          mv Godot_v${GODOT_VERSION}-stable_linux.x86_64 ~/godot-bin/godot
+          unzip -q Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          mv templates/* ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/
+
+      - name: Réglages Android (SDK + clé de test fixe)
+        run: |
+          echo "$HOME/godot-bin" >> $GITHUB_PATH
+          mkdir -p ~/.config/godot
+          minor=${GODOT_VERSION%.*}
+          cat > ~/.config/godot/editor_settings-$minor.tres <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$GITHUB_WORKSPACE/tools/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          cp ~/.config/godot/editor_settings-$minor.tres ~/.config/godot/editor_settings-4.tres
+          # numéro de version croissant : l'APK s'installe par-dessus le précédent
+          sed -i -E "s/^version\/code=.*/version\/code=${{ github.run_number }}/; s/^version\/name=.*/version\/name=\"0.1.${{ github.run_number }}\"/" export_presets.cfg
+          sed -i -E 's/^config\/name="Passeurs"/config\/name="Passeurs"\nconfig\/version="0.1.${{ github.run_number }}"/' project.godot
+
+      - name: Import du projet
+        run: godot --headless --path . --import || true
+
+      - name: Vérification des scripts (robot testeur)
+        run: |
+          timeout 300 godot --headless --path . --quit-after 120 2>&1 | tee run.log
+          timeout 600 godot --headless --path . --quit-after 2400 -- --autoplay 2>&1 | tee -a run.log
+          ! grep -E "SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid access|Invalid get index|Invalid set index|Nonexistent function" run.log
+
+      - name: Export APK
+        env:
+          GODOT_ANDROID_KEYSTORE_RELEASE_PATH: ${{ github.workspace }}/tools/debug.keystore
+          GODOT_ANDROID_KEYSTORE_RELEASE_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD: android
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ github.workspace }}/tools/debug.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+        run: |
+          mkdir -p build
+          godot --headless --path . --export-release "Android" build/Passeurs.apk
+          test -s build/Passeurs.apk
+          ls -la build/Passeurs.apk
+
+      - name: Export web
+        run: |
+          mkdir -p build/web
+          godot --headless --path . --export-release "Web" build/web/index.html
+          test -s build/web/index.html
+          ls -la build/web
+
+      - name: Publication (release)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test-${{ github.run_number }}
+          name: Passeurs — test ${{ github.run_number }}
+          body: "Version de test générée automatiquement depuis ${{ github.sha }} (${{ github.ref_name }})."
+          files: build/Passeurs.apk
+          make_latest: true
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  pages:
+    needs: export
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
