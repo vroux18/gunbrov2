@@ -6,13 +6,14 @@ extends Node3D
 
 const Models = preload("res://scripts/models.gd")
 const Actor3D = preload("res://scripts/actor3d.gd")
+const Rig3D = preload("res://scripts/rig3d.gd")
 const Mob3D = preload("res://scripts/mob3d.gd")
 const Data = preload("res://scripts/data.gd")
 
 const K := 1.0 / 64.0
 const ST := "res://assets/models/station/"
 const SP := "res://assets/models/space/"
-const JO_MODEL := "res://assets/models/chars/character-female-c.glb"
+const JO_MODEL := "res://assets/chars3d/jo.glb"  # sculptée de zéro (tools/chars/jo.py)
 const JO_GUN := "res://assets/models/blaster/blaster-b.glb"
 
 const CYAN := Color("#3CF2D8")
@@ -37,7 +38,7 @@ var env: Environment
 var sun: DirectionalLight3D
 var level: Node3D
 var relais: Node3D
-var hero: Actor3D
+var hero: Rig3D
 var hero_root: Node3D
 var hero_light: OmniLight3D
 var hero_shield: MeshInstance3D
@@ -444,11 +445,10 @@ func _build_bay(W: float, TOP: float, rng: RandomNumberGenerator) -> void:
 func _build_hero() -> void:
 	hero_root = Node3D.new()
 	add_child(hero_root)
-	hero = Actor3D.new()
+	hero = Rig3D.new()
 	hero_root.add_child(hero)
-	hero.setup(JO_MODEL, JO_GUN)
+	hero.setup(JO_MODEL, Color(1, 1, 1), 1.7)
 	hero.scale = Vector3.ONE * HERO_SCALE
-	hero.passeur_kit()
 	hero_root.add_child(Models.shadow_blob(1.1))
 	# anneau de sélection au sol (lisible même en pleine mêlée)
 	var ring := MeshInstance3D.new()
@@ -689,14 +689,13 @@ func _sync_hero(dt: float) -> void:
 	hero_ring.scale = Vector3.ONE * ((1.15 + 0.08 * sin(t * 10.0)) if full else 1.0)
 
 func set_hero_items(items: Array) -> void:
-	hero.apply_items(items, JO_GUN)
+	hero.apply_items(items)
 	if relais != null:
-		var rh: Actor3D = relais.get_meta("hero")
-		rh.apply_items(items, JO_GUN)
+		var rh: Rig3D = relais.get_meta("hero")
+		rh.apply_items(items)
 
 func _rebuild_hero_anim() -> void:
-	hero.dead = false
-	hero.tree.active = true
+	hero.revive()
 
 func _sync_mobs(dt: float) -> void:
 	var seen := {}
@@ -1107,7 +1106,7 @@ func _on_fired(pos: Vector2, vel: Vector2, hero_shot: bool, color: Color, radius
 		return
 	var p := p3(pos, 0.55)
 	if hero_shot and (pos - hero2d.position).length() < 60.0:
-		p = hero.muzzle_position() if hero.muzzle else p
+		p = hero.muzzle_position()
 		hero_light.light_energy = 2.2
 		_spawn_flash(p, Color(1.0, 0.75, 0.4), 0.7, 0.06)
 	elif not hero_shot:
@@ -1202,9 +1201,9 @@ func show_relais(items: Array) -> void:
 	if relais == null:
 		_build_relais()
 	relais.visible = true
-	var rh: Actor3D = relais.get_meta("hero")
+	var rh: Rig3D = relais.get_meta("hero")
 	rh.set_motion(0.0, 0.0)
-	rh.apply_items(items, JO_GUN)
+	rh.apply_items(items)
 	rh.position = Vector3(0, 0, 0.6)
 	rh.visible = true
 	relais_focus = 0.0
@@ -1300,11 +1299,10 @@ func _build_relais() -> void:
 		shards.append(gem)
 	relais.set_meta("shards", shards)
 	# Jo
-	var rh := Actor3D.new()
+	var rh := Rig3D.new()
 	relais.add_child(rh)
-	rh.setup(JO_MODEL, JO_GUN)
-	rh.passeur_kit()
-	rh.scale = Vector3.ONE * 2.6
+	rh.setup(JO_MODEL, Color(1, 1, 1), 1.7)
+	rh.scale = Vector3.ONE * 2.4
 	rh.position = Vector3(0, 0, 0.6)
 	rh.rotation.y = 0.35
 	relais.set_meta("hero", rh)
@@ -1337,7 +1335,7 @@ func _tick_relais(dt: float) -> void:
 		return
 	var portal: Node3D = relais.get_meta("portal")
 	portal.rotation.z += dt * (0.15 if launch_t < 0.0 else 2.5)
-	var rh: Actor3D = relais.get_meta("hero")
+	var rh: Rig3D = relais.get_meta("hero")
 	var gems: Array = relais.get_meta("shards")
 	for i in range(gems.size()):
 		(gems[i] as Node3D).rotation.y = t * 1.2 + i
@@ -1368,7 +1366,7 @@ func _tick_relais(dt: float) -> void:
 	var wide_pos := base + Vector3(sin(a) * 9.5 + 3.2, 3.4, cos(a) * 9.5)
 	var wide_look := base + Vector3(3.4, 1.6, 0)
 	var close_pos := base + Vector3(1.5, 2.7, 7.8)
-	var close_look := base + Vector3(2.9, 1.25, 0.6)
+	var close_look := base + Vector3(2.55, 1.3, 0.6)
 	cam.position = wide_pos.lerp(close_pos, _focus)
 	cam.look_at(wide_look.lerp(close_look, _focus), Vector3.UP)
 	cam.make_current()

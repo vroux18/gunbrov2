@@ -74,6 +74,69 @@ func setup(path: String, tint: Color = Color(1, 1, 1), glow_energy: float = 3.0)
 	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	_flash_mat.albedo_color = Color(1, 1, 1, 0)
 
+## Lumière teintée (équipement : couleur de rareté) — les pièces lumineuses de l'équipement sont blanches.
+static func tint_glow_mat(col: Color, energy: float) -> StandardMaterial3D:
+	var key := col.to_html() + "%.2f" % energy
+	if _glow_mats.has(key):
+		return _glow_mats[key]
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.vertex_color_use_as_albedo = true
+	m.vertex_color_is_srgb = true
+	m.albedo_color = Color(col.r * energy, col.g * energy, col.b * energy)
+	_glow_mats[key] = m
+	return m
+
+# ---------------------------------------------------------------- équipement (Jo)
+const RARITY_GLOW := [Color("#9FB3C8"), Color("#3CF2D8"), Color("#C77DFF"), Color("#FFB347")]
+## Bout du canon dans le repère de la part « gun », selon l'arme portée.
+const MUZZLE := {"": Vector3(0, -0.2, 0.06), "blaster_garde": Vector3(0, -0.26, 0.06), "fusil_impulsion": Vector3(0, -0.3, 0.056)}
+var _gear: Array = []
+var _gun_id := ""
+var _gun_meshes := {}  # MeshInstance3D -> Mesh d'origine (blaster de base)
+
+## Équipe les objets {id, rarity} : chaque objet est un GLB sculpté (tools/chars/gear.py) dont les parts
+## « cible__id » se rangent dans la part cible de Jo. Une arme remplace le blaster de base.
+func apply_items(items: Array) -> void:
+	for g in _gear:
+		if is_instance_valid(g):
+			(g as Node).get_parent().remove_child(g)
+			(g as Node).queue_free()
+	_gear.clear()
+	var gun_id := ""
+	for it in items:
+		var id := String(it["id"])
+		var path := "res://assets/chars3d/gear_%s.glb" % id
+		if not ResourceLoader.exists(path):
+			continue
+		var glow: Color = RARITY_GLOW[clampi(int(it["rarity"]), 0, 3)]
+		var inst: Node3D = Models.scene(path).instantiate()
+		for n in inst.find_children("*__*", "Node3D", true, false):
+			var nd: Node3D = n
+			var target := p(String(nd.name).get_slice("__", 0))
+			if target == null:
+				continue
+			nd.get_parent().remove_child(nd)
+			nd.owner = null
+			target.add_child(nd)
+			nd.transform = Transform3D.IDENTITY
+			_gear.append(nd)
+			for mi in Models.meshes(nd):
+				(mi as MeshInstance3D).material_override = tint_glow_mat(glow, 1.5) if "_glow" in String(mi.name) + String(mi.get_parent().name) else body_mat(Color(1, 1, 1))
+		inst.queue_free()
+		if id in MUZZLE:
+			gun_id = id
+	# arme de base masquée quand une arme est équipée
+	if _gun_meshes.is_empty():
+		for nm in ["gun", "gun_glow"]:
+			var gn := p(nm)
+			if gn is MeshInstance3D:
+				_gun_meshes[gn] = (gn as MeshInstance3D).mesh
+	for mi in _gun_meshes:
+		(mi as MeshInstance3D).mesh = _gun_meshes[mi] if gun_id == "" else null
+	_gun_id = gun_id
+	meshes = Models.meshes(model)
+
 func p(name: String) -> Node3D:
 	return parts.get(name)
 
@@ -99,14 +162,14 @@ func revive() -> void:
 	_die_t = 0.0
 	model.rotation = Vector3.ZERO
 	model.position = Vector3.ZERO
+	for nm in rest:
+		(parts[nm] as Node3D).transform = rest[nm]
 
 func muzzle_position() -> Vector3:
-	var g := p("gun_glow")
-	if g == null:
-		g = p("gun")
+	var g := p("gun")
 	if g == null:
 		return global_position + Vector3(0, 0.5, 0)
-	return g.global_transform * Vector3(0, -0.2, 0.06)
+	return g.global_transform * (MUZZLE[_gun_id] as Vector3)
 
 func _pose(name: String, rot: Vector3, off: Vector3 = Vector3.ZERO) -> void:
 	var n := p(name)

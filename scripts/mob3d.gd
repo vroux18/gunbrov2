@@ -5,6 +5,11 @@ extends Node3D
 
 const Models = preload("res://scripts/models.gd")
 const Actor3D = preload("res://scripts/actor3d.gd")
+const Rig3D = preload("res://scripts/rig3d.gd")
+## Échelle des modèles sculptés (conçus à l'échelle de Jo, qui est affichée à 1,75).
+const RIG_SCALE := {"drone": 1.75, "trooper": 1.75, "brute": 1.75, "boss": 1.05}
+## Durée de l'animation de mort avant suppression du nœud.
+const DEATH_T := {"drone": 0.35, "trooper": 1.3, "brute": 1.0, "boss": 1.6}
 
 const METAL := Color("#2C3350")
 const METAL_D := Color("#1C2238")
@@ -22,6 +27,9 @@ var kind := "drone"
 var elite := false
 var body: Node3D  # partie qui tourne vers la cible
 var actor: Actor3D = null
+var rig: Rig3D = null  # modèle sculpté (assets/chars3d/<kind>.glb + scripts/mobs/<kind>.gd)
+var _last_state := ""
+var _state_el := 0.0
 var parts := {}
 var t := 0.0
 var _flash_t := 0.0
@@ -42,6 +50,30 @@ func setup(k: String, is_elite: bool, radius_px: float) -> void:
 	body = Node3D.new()
 	add_child(body)
 	var r := radius_px * K * VIS
+	if _build_rig(k, is_elite):
+		pass
+	else:
+		_build_legacy(k, r)
+	add_child(Models.shadow_blob(r * 3.2))
+	_finish_setup(r)
+
+## Modèle sculpté s'il existe, sinon ancien assemblage de primitives.
+func _build_rig(k: String, is_elite: bool) -> bool:
+	var scr := "res://scripts/mobs/%s.gd" % k
+	var glb := "res://assets/chars3d/%s.glb" % k
+	if not (ResourceLoader.exists(scr) and ResourceLoader.exists(glb)):
+		return false
+	var eglb := "res://assets/chars3d/%s_elite.glb" % k
+	if is_elite and ResourceLoader.exists(eglb):
+		glb = eglb
+	rig = load(scr).new()
+	rig.elite = is_elite
+	body.add_child(rig)
+	rig.setup(glb)
+	rig.scale = Vector3.ONE * float(RIG_SCALE.get(k, 1.75)) * (1.12 if is_elite else 1.0)
+	return true
+
+func _build_legacy(k: String, r: float) -> void:
 	match k:
 		"drone":
 			_build_drone(r)
@@ -51,7 +83,8 @@ func setup(k: String, is_elite: bool, radius_px: float) -> void:
 			_build_brute(r)
 		"boss":
 			_build_boss(r)
-	add_child(Models.shadow_blob(r * 3.2))
+
+func _finish_setup(r: float) -> void:
 	_meshes = Models.meshes(body)
 	_flash_mat = StandardMaterial3D.new()
 	_flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -308,6 +341,9 @@ var _punch := 0.0
 func flash() -> void:
 	_flash_t = 0.09
 	_punch = 1.0
+	if rig != null:
+		rig.flash()
+		return
 	if actor != null:
 		actor.flash()
 		return
@@ -326,8 +362,29 @@ func sync(e: Node2D, dt: float) -> void:
 	_punch = maxf(0.0, _punch - dt * 9.0)
 	body.scale = Vector3(1.0 + _punch * 0.12, 1.0 - _punch * 0.08, 1.0 + _punch * 0.12)
 	var st: String = e.state
+	if st != _last_state:
+		if _last_state == "aim" and rig != null:
+			rig.fire()
+		_last_state = st
+		_state_el = 0.0
+	else:
+		_state_el += dt
 	var moving := true
-	match kind:
+	if rig != null:
+		rig.state = st
+		rig.state_t = _state_el
+		var spd := 0.5
+		var sh := 0.0
+		match kind:
+			"drone":
+				spd = 1.0
+			"trooper":
+				spd = 0.0 if st == "aim" else 0.5
+				sh = 1.0 if st == "aim" else 0.0
+			"brute", "boss":
+				spd = 1.0 if st == "charge" else (0.0 if st == "tell" or st == "ring" else 0.55)
+		rig.set_motion(spd, sh)
+	match kind if rig == null else "":
 		"drone":
 			var hover: Node3D = parts["hover"]
 			hover.position.y = 0.62 + sin(t * 5.0 + e.wobble) * 0.06
@@ -383,10 +440,17 @@ func start_death() -> void:
 		_elite_ring.visible = false
 	if actor != null:
 		actor.die()
+	if rig != null:
+		rig.die()
 
 ## Renvoie vrai quand l'animation de mort est terminée.
 func tick_death(dt: float) -> bool:
 	dying += dt
+	if rig != null:
+		var dt_end: float = DEATH_T.get(kind, 1.0)
+		if dying > dt_end - 0.35:
+			body.scale = Vector3.ONE * maxf(0.01, (dt_end - dying) / 0.35)
+		return dying > dt_end
 	match kind:
 		"trooper":
 			if dying > 0.9:

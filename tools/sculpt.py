@@ -290,9 +290,11 @@ def run(name):
     mod = importlib.util.module_from_spec(spec)
     sys.modules["sculpt"] = sys.modules[__name__]
     spec.loader.exec_module(mod)
-    ch = mod.build()
-    out = os.path.join(here, "..", "assets", "chars3d", name + ".glb")
-    ch.export(os.path.normpath(out))
+    res = mod.build()
+    # build() peut rendre un personnage ou une liste (ex. l'équipement : un fichier par objet)
+    for ch in (res if isinstance(res, (list, tuple)) else [res]):
+        out = os.path.join(here, "..", "assets", "chars3d", ch.name + ".glb")
+        ch.export(os.path.normpath(out))
 
 
 if __name__ == "__main__":
