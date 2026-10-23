@@ -1368,7 +1368,7 @@ func _tick_relais(dt: float) -> void:
 	var wide_pos := base + Vector3(sin(a) * 9.5 + 3.2, 3.4, cos(a) * 9.5)
 	var wide_look := base + Vector3(3.4, 1.6, 0)
 	var close_pos := base + Vector3(1.5, 2.7, 7.8)
-	var close_look := base + Vector3(2.1, 1.25, 0.6)
+	var close_look := base + Vector3(2.9, 1.25, 0.6)
 	cam.position = wide_pos.lerp(close_pos, _focus)
 	cam.look_at(wide_look.lerp(close_look, _focus), Vector3.UP)
 	cam.make_current()
