@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Colosse : marcheur lourd, deux bras-marteaux vers la droite, œil rouge. -->
+  <g stroke="#0B0F1A" stroke-width="6" stroke-linejoin="round" stroke-linecap="round">
+    <!-- pattes -->
+    <ellipse cx="60" cy="48" rx="20" ry="14" fill="#1C2238"/>
+    <ellipse cx="60" cy="152" rx="20" ry="14" fill="#1C2238"/>
+    <ellipse cx="120" cy="40" rx="18" ry="13" fill="#1C2238"/>
+    <ellipse cx="120" cy="160" rx="18" ry="13" fill="#1C2238"/>
+    <!-- bras-marteaux -->
+    <path d="M100 60 L150 44" stroke="#0B0F1A" stroke-width="34"/>
+    <path d="M100 140 L150 156" stroke="#0B0F1A" stroke-width="34"/>
+    <path d="M100 60 L150 44" stroke="#8A939E" stroke-width="22"/>
+    <path d="M100 140 L150 156" stroke="#8A939E" stroke-width="22"/>
+    <rect x="140" y="24" width="44" height="36" rx="8" fill="#5A6470"/>
+    <rect x="140" y="140" width="44" height="36" rx="8" fill="#5A6470"/>
+    <rect x="166" y="30" width="12" height="24" rx="3" fill="#FF7A2F" stroke="none"/>
+    <rect x="166" y="146" width="12" height="24" rx="3" fill="#FF7A2F" stroke="none"/>
+    <!-- corps octogonal -->
+    <path d="M62 60 L112 44 L150 76 L150 124 L112 156 L62 140 L40 100 Z" fill="#2C3350"/>
+    <path d="M62 100 L150 100 L150 124 L112 156 L62 140 L40 100 Z" fill="#1C2238" stroke="none"/>
+    <path d="M70 70 L108 58 L134 80 L134 120 L108 142 L70 130 L54 100 Z" fill="#3B4466" stroke="none"/>
+    <rect x="70" y="86" width="40" height="28" rx="6" fill="#FF7A2F" stroke="none"/>
+    <!-- œil -->
+    <circle cx="128" cy="100" r="16" fill="#FF4D6D"/>
+    <circle cx="132" cy="96" r="6" fill="#FFFFFF" stroke="none"/>
+    <!-- tuyaux -->
+    <circle cx="56" cy="80" r="7" fill="#3CF2D8" stroke="none"/>
+    <circle cx="56" cy="120" r="7" fill="#3CF2D8" stroke="none"/>
+  </g>
+</svg>

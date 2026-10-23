@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
+  <!-- Sas d'apparition : disque lumineux encastré dans le sol. -->
+  <defs>
+    <radialGradient id="g" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#3CF2D8" stop-opacity="0.35"/>
+      <stop offset="0.7" stop-color="#3CF2D8" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#3CF2D8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="80" cy="80" r="80" fill="url(#g)"/>
+  <circle cx="80" cy="80" r="56" fill="#0F2244" stroke="#0B0F1A" stroke-width="5"/>
+  <circle cx="80" cy="80" r="48" fill="none" stroke="#3CF2D8" stroke-width="4" opacity="0.9"/>
+  <circle cx="80" cy="80" r="30" fill="none" stroke="#3CF2D8" stroke-width="3" opacity="0.5"/>
+  <g stroke="#3CF2D8" stroke-width="5" stroke-linecap="round" opacity="0.9">
+    <path d="M80 24 L80 36 M80 124 L80 136 M24 80 L36 80 M124 80 L136 80"/>
+  </g>
+  <g fill="#FF7A2F">
+    <rect x="76" y="40" width="8" height="8" rx="2"/><rect x="76" y="112" width="8" height="8" rx="2"/>
+    <rect x="40" y="76" width="8" height="8" rx="2"/><rect x="112" y="76" width="8" height="8" rx="2"/>
+  </g>
+</svg>

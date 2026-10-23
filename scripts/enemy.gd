@@ -3,6 +3,7 @@ extends Node2D
 ## Élite : ×3 PV, ×1.25 vitesse, anneau d'or, lâche un objet. Dessin en code, deux tons, contour sombre.
 
 const Data = preload("res://scripts/data.gd")
+const Art = preload("res://scripts/art.gd")
 
 const OUTLINE := Color("#0B0F1A")
 const BODY := Color("#2C3350")
@@ -39,6 +40,10 @@ var facing := Vector2.DOWN
 var spawned_at := {}  # boss : seuils de PV déjà utilisés
 var pattern_t := 0.0
 var charge_cd := 3.0
+var _spr: Sprite2D
+var _glow: Sprite2D
+
+const SPRITES := {"drone": [Art.DRONE, 0.5], "trooper": [Art.GARDE, 0.56], "brute": [Art.COLOSSE, 0.6], "boss": [Art.PORTIQUE, 0.62]}
 
 func setup(k: String, is_elite: bool, hp_scale: float) -> void:
 	kind = k
@@ -55,6 +60,13 @@ func setup(k: String, is_elite: bool, hp_scale: float) -> void:
 	wobble = randf() * TAU
 	fire_cd = randf_range(0.8, 1.8)
 	charge_cd = randf_range(1.5, 3.0)
+	var sp: Array = SPRITES[k]
+	var sc: float = float(sp[1]) * (1.2 if elite else 1.0)
+	_glow = Art.sprite(Art.GLOW, radius * 0.045, true)
+	_glow.modulate = Color(GOLD if elite else RED, 0.28 if elite else 0.16)
+	add_child(_glow)
+	_spr = Art.sprite(sp[0], sc)
+	add_child(_spr)
 
 func hit(d: float) -> void:
 	if dead:
@@ -131,6 +143,17 @@ func tick(dt: float) -> void:
 			_contact(dist)
 		"boss":
 			_boss(dt, dir, dist, slow)
+	_spr.rotation = facing.angle()
+	var m := Color.WHITE
+	if flash > 0.0:
+		m = Color(2.0, 2.0, 2.0)
+	elif state == "tell":
+		m = Color(1.6, 0.8, 0.8)
+	_spr.modulate = m
+	if state == "tell":
+		_spr.position = Vector2(randf_range(-2, 2), randf_range(-2, 2))
+	else:
+		_spr.position = Vector2(0, sin(t * 6.0 + wobble) * 2.0) if kind == "drone" else Vector2.ZERO
 	queue_redraw()
 
 func _contact(dist: float) -> void:
@@ -207,86 +230,19 @@ func _disc(c: Vector2, r: float, col: Color, outline: float = 3.0) -> void:
 	draw_circle(c, r, col)
 
 func _draw() -> void:
-	var mod := Color.WHITE
-	if flash > 0.0:
-		mod = Color(2.0, 2.0, 2.0)
-	var tell := state == "tell"
-	var shake := Vector2(randf_range(-2, 2), randf_range(-2, 2)) if tell else Vector2.ZERO
-	draw_circle(Vector2(0, radius * 0.45), radius * 1.05, Color(0, 0, 0, 0.35))
+	draw_circle(Vector2(0, radius * 0.5), radius * 1.1, Color(0, 0, 0, 0.35))
 	if elite:
-		draw_arc(Vector2.ZERO, radius + 9.0, 0.0, TAU, 40, Color(GOLD, 0.8), 4.0, true)
-	var ang := facing.angle()
-	match kind:
-		"drone":
-			_disc(shake, radius, BODY * mod)
-			draw_circle(shake + Vector2(0, -3), radius * 0.6, BODY_DARK * mod)
-			draw_arc(shake, radius * 0.8, t * 2.0, t * 2.0 + PI * 1.4, 20, RED * mod, 3.0, true)
-			draw_circle(shake + Vector2.RIGHT.rotated(ang) * radius * 0.45, 4.5, RED * mod)
-			for i in range(3):
-				var a := t * 1.5 + TAU * i / 3.0
-				draw_circle(shake + Vector2.RIGHT.rotated(a) * (radius + 2.0), 3.0, PLATE * mod)
-		"trooper":
-			var f := Vector2.RIGHT.rotated(ang)
-			var s := f.orthogonal()
-			# jambes
-			var sw := sin(t * 9.0) * 5.0
-			_cap(-s * 7.0 - f * 2.0, -s * 8.0 - f * 10.0 + f * sw, 5.0, BODY_DARK * mod)
-			_cap(s * 7.0 - f * 2.0, s * 8.0 - f * 10.0 - f * sw, 5.0, BODY_DARK * mod)
-			# torse blindé
-			_disc(Vector2.ZERO, radius, PLATE * mod)
-			draw_circle(-f * 4.0, radius * 0.7, PLATE_DARK * mod)
-			# bras et fusil
-			_cap(s * 12.0, f * 18.0 + s * 4.0, 4.5, PLATE * mod)
-			_cap(-s * 12.0, f * 18.0 - s * 4.0, 4.5, PLATE * mod)
-			_cap(f * 14.0, f * 34.0, 4.0, BODY_DARK * mod)
-			if state == "aim":
-				draw_circle(f * 36.0, 6.0 + 4.0 * sin(t * 40.0), RED)
-			# casque et visière rouge
-			_disc(f * 2.0, radius * 0.62, BODY * mod)
-			draw_polygon(PackedVector2Array([f * 8.0 + s * 7.0, f * 13.0 + s * 4.0, f * 13.0 - s * 4.0, f * 8.0 - s * 7.0]), PackedColorArray([RED * mod]))
-		"brute":
-			var f := Vector2.RIGHT.rotated(ang)
-			var s := f.orthogonal()
-			var col := BODY if not (tell or state == "charge") else RED.darkened(0.35)
-			# corps massif
-			var pts := PackedVector2Array()
-			for i in range(8):
-				var a := TAU * i / 8.0 + PI / 8.0
-				pts.append(shake + Vector2.RIGHT.rotated(a) * radius)
-			var big := PackedVector2Array()
-			for p in pts:
-				big.append(p * 1.1)
-			draw_polygon(big, PackedColorArray([OUTLINE]))
-			draw_polygon(pts, PackedColorArray([col * mod]))
-			draw_circle(shake - f * radius * 0.3, radius * 0.55, BODY_DARK * mod)
-			# bras-marteaux
-			_cap(shake + s * radius * 0.9, shake + s * radius * 0.9 + f * radius * 0.9, 9.0, PLATE_DARK * mod)
-			_cap(shake - s * radius * 0.9, shake - s * radius * 0.9 + f * radius * 0.9, 9.0, PLATE_DARK * mod)
-			# œil
-			draw_circle(shake + f * radius * 0.45, 7.0, RED * mod)
-			draw_circle(shake + f * radius * 0.45, 3.0, Color.WHITE)
-		"boss":
-			var f := Vector2.RIGHT.rotated(ang)
-			var s := f.orthogonal()
-			var col := BODY if state != "tell" and state != "charge" else RED.darkened(0.3)
-			# quatre pattes
-			for i in [-1, 1]:
-				for j in [-1, 1]:
-					var base: Vector2 = s * i * radius * 0.7 + f * j * radius * 0.5
-					var foot: Vector2 = base + s * i * radius * 0.7 + f * j * radius * 0.3 + f * sin(t * 6.0 + i + j) * 6.0
-					_cap(shake + base, shake + foot, 9.0, PLATE_DARK * mod)
-			_disc(shake, radius, col * mod, 4.0)
-			draw_circle(shake - f * radius * 0.25, radius * 0.6, BODY_DARK * mod)
-			# canons
-			_cap(shake + s * radius * 0.55, shake + s * radius * 0.55 + f * radius * 1.1, 8.0, PLATE * mod)
-			_cap(shake - s * radius * 0.55, shake - s * radius * 0.55 + f * radius * 1.1, 8.0, PLATE * mod)
-			# tête : visière large
-			_disc(shake + f * radius * 0.35, radius * 0.45, PLATE * mod)
-			draw_polygon(PackedVector2Array([shake + f * radius * 0.5 + s * radius * 0.35, shake + f * radius * 0.75 + s * radius * 0.2, shake + f * radius * 0.75 - s * radius * 0.2, shake + f * radius * 0.5 - s * radius * 0.35]), PackedColorArray([MAGENTA * mod]))
-			if state == "ring":
-				draw_arc(Vector2.ZERO, radius + 14.0, 0.0, TAU, 48, Color(MAGENTA, 0.8), 5.0, true)
+		draw_arc(Vector2.ZERO, radius + 12.0, t * 1.5, t * 1.5 + TAU, 40, Color(GOLD, 0.85), 4.0, true)
+	if state == "tell":
+		var p := 1.0 - state_t / (0.8 if kind == "boss" else 0.7)
+		draw_arc(Vector2.ZERO, radius + 8.0 + p * 20.0, 0.0, TAU, 40, Color(RED, 0.9 - p * 0.6), 4.0, true)
+		draw_line(Vector2.ZERO, charge_dir * (radius + 90.0), Color(RED, 0.5), 6.0)
+	elif state == "aim":
+		draw_circle(facing * (radius + 26.0), 6.0 + 4.0 * sin(t * 40.0), RED)
+	elif state == "ring":
+		draw_arc(Vector2.ZERO, radius + 14.0, 0.0, TAU, 48, Color(MAGENTA, 0.8), 5.0, true)
 	# barre de vie des gros
 	if (kind == "brute" or elite) and hp < hp_max:
 		var w := radius * 2.2
-		draw_rect(Rect2(Vector2(-w * 0.5, -radius - 16.0), Vector2(w, 6.0)), Color(0, 0, 0, 0.6))
-		draw_rect(Rect2(Vector2(-w * 0.5, -radius - 16.0), Vector2(w * hp / hp_max, 6.0)), RED)
+		draw_rect(Rect2(Vector2(-w * 0.5, -radius - 18.0), Vector2(w, 6.0)), Color(0, 0, 0, 0.6))
+		draw_rect(Rect2(Vector2(-w * 0.5, -radius - 18.0), Vector2(w * hp / hp_max, 6.0)), RED)

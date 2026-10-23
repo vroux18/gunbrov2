@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="140" height="140" viewBox="0 0 140 140">
+  <!-- Garde : robot en armure blanche, visière rouge, fusil vers la droite. -->
+  <g stroke="#0B0F1A" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+    <!-- jambes / bottes -->
+    <ellipse cx="46" cy="42" rx="13" ry="10" fill="#2C3350"/>
+    <ellipse cx="46" cy="98" rx="13" ry="10" fill="#2C3350"/>
+    <!-- épaules et bras -->
+    <path d="M62 44 Q90 36 110 56" fill="none" stroke="#0B0F1A" stroke-width="22"/>
+    <path d="M62 96 Q90 104 110 84" fill="none" stroke="#0B0F1A" stroke-width="22"/>
+    <path d="M62 44 Q90 36 110 56" fill="none" stroke="#DDE3EA" stroke-width="12"/>
+    <path d="M62 96 Q90 104 110 84" fill="none" stroke="#DDE3EA" stroke-width="12"/>
+    <!-- fusil -->
+    <rect x="96" y="62" width="40" height="16" rx="4" fill="#1C2238"/>
+    <rect x="124" y="65" width="14" height="10" rx="3" fill="#FF4D6D" stroke="none"/>
+    <!-- torse blindé -->
+    <path d="M38 36 L84 30 L96 70 L84 110 L38 104 L30 70 Z" fill="#DDE3EA"/>
+    <path d="M38 70 L96 70 L84 110 L38 104 Z" fill="#AEB7C2" stroke="none"/>
+    <rect x="44" y="60" width="30" height="20" rx="4" fill="#FF7A2F" stroke="none"/>
+    <!-- casque -->
+    <circle cx="68" cy="70" r="24" fill="#2C3350"/>
+    <path d="M68 46 A24 24 0 0 1 92 70 L68 70 Z" fill="#3B4466" stroke="none"/>
+    <path d="M80 56 L96 64 L96 76 L80 84 Z" fill="#FF4D6D"/>
+    <path d="M84 60 L92 65 L92 70 L84 66 Z" fill="#FFB3C1" stroke="none"/>
+    <circle cx="56" cy="62" r="4" fill="#3CF2D8" stroke="none"/>
+  </g>
+</svg>

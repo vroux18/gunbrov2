@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <!-- Sentinelle : disque volant, œil rouge vers la droite (sens de la marche). -->
+  <defs>
+    <radialGradient id="eye" cx="0.4" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#FFB3C1"/>
+      <stop offset="0.5" stop-color="#FF4D6D"/>
+      <stop offset="1" stop-color="#B2102F"/>
+    </radialGradient>
+  </defs>
+  <g stroke="#0B0F1A" stroke-width="5" stroke-linejoin="round">
+    <!-- ailerons -->
+    <path d="M30 60 L6 36 L22 60 L6 84 Z" fill="#8A939E"/>
+    <path d="M60 30 L36 8 L60 24 L84 8 Z" fill="#8A939E"/>
+    <path d="M60 90 L36 112 L60 96 L84 112 Z" fill="#8A939E"/>
+    <!-- corps -->
+    <circle cx="60" cy="60" r="34" fill="#2C3350"/>
+    <path d="M26 60 A34 34 0 0 1 94 60 Z" fill="#3B4466" stroke="none"/>
+    <circle cx="60" cy="60" r="22" fill="#1C2238"/>
+    <!-- œil -->
+    <circle cx="74" cy="60" r="12" fill="url(#eye)"/>
+    <circle cx="77" cy="57" r="3.5" fill="#FFFFFF" stroke="none"/>
+    <!-- diodes -->
+    <circle cx="44" cy="46" r="4" fill="#3CF2D8" stroke="none"/>
+    <circle cx="44" cy="74" r="4" fill="#3CF2D8" stroke="none"/>
+    <path d="M100 60 L112 54 L112 66 Z" fill="#FF4D6D" stroke="none"/>
+  </g>
+</svg>

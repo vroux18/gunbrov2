@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="420" viewBox="0 0 900 420">
+  <!-- Vaisseau garé dans l'alcôve du hangar, vu de dessus, nez vers le bas (vers l'arène). Décor. -->
+  <defs>
+    <linearGradient id="h" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B4466"/>
+      <stop offset="1" stop-color="#232A45"/>
+    </linearGradient>
+    <radialGradient id="eng" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#9FFFF0"/>
+      <stop offset="0.4" stop-color="#3CF2D8"/>
+      <stop offset="1" stop-color="#3CF2D8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g stroke="#0B0F1A" stroke-width="8" stroke-linejoin="round">
+    <!-- ailes -->
+    <path d="M450 150 L60 60 L30 130 L300 260 Z" fill="#2C3350"/>
+    <path d="M450 150 L840 60 L870 130 L600 260 Z" fill="#2C3350"/>
+    <path d="M60 60 L30 130 L120 110 Z" fill="#FF7A2F" stroke="none"/>
+    <path d="M840 60 L870 130 L780 110 Z" fill="#FF7A2F" stroke="none"/>
+    <!-- réacteurs -->
+    <rect x="150" y="30" width="90" height="120" rx="30" fill="#5A6470"/>
+    <rect x="660" y="30" width="90" height="120" rx="30" fill="#5A6470"/>
+    <!-- fuselage -->
+    <path d="M330 40 L570 40 L600 200 L520 400 L380 400 L300 200 Z" fill="url(#h)"/>
+    <path d="M360 60 L540 60 L560 200 L500 360 L400 360 L340 200 Z" fill="#3B4466" stroke="none"/>
+    <rect x="420" y="120" width="60" height="140" rx="20" fill="#FF7A2F" stroke="none"/>
+    <!-- cockpit -->
+    <path d="M400 300 L500 300 L480 380 L420 380 Z" fill="#3CF2D8"/>
+    <path d="M410 310 L450 310 L440 350 L420 350 Z" fill="#9FFFF0" stroke="none" opacity="0.8"/>
+    <!-- lignes -->
+    <path d="M330 90 L570 90 M320 180 L580 180" stroke="#0B0F1A" stroke-width="5" opacity="0.6"/>
+  </g>
+  <circle cx="195" cy="30" r="46" fill="url(#eng)"/>
+  <circle cx="705" cy="30" r="46" fill="url(#eng)"/>
+</svg>

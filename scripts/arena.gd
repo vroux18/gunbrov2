@@ -6,6 +6,7 @@ extends Node2D
 const Data = preload("res://scripts/data.gd")
 const Enemy = preload("res://scripts/enemy.gd")
 const Bullet = preload("res://scripts/bullet.gd")
+const Art = preload("res://scripts/art.gd")
 
 signal room_cleared
 signal hero_died
@@ -16,6 +17,7 @@ signal wave_changed
 const W := 2400.0
 const H := 1400.0
 const WALL := 36.0
+const TOP := 250.0  # alcôve du vaisseau : décor, pas de jeu
 const BG := Color("#0E1B33")
 const FLOOR := Color("#122448")
 const GRID := Color("#16305A")
@@ -34,6 +36,7 @@ var cam: Camera2D
 var ents: Node2D
 var shots: Node2D
 var fxn: Node2D
+var fxa: Node2D  # couche additive : halos, particules
 var obstacles: Array[Rect2] = []
 var pads: Array[Vector2] = []
 
@@ -77,6 +80,10 @@ func build(sfx_node: Node, hero_node: Node2D) -> void:
 	fxn = Node2D.new()
 	fxn.draw.connect(_draw_fx)
 	add_child(fxn)
+	fxa = Node2D.new()
+	fxa.material = Art.additive()
+	fxa.draw.connect(_draw_fxa)
+	add_child(fxa)
 	cam = Camera2D.new()
 	cam.limit_left = 0
 	cam.limit_top = 0
@@ -108,14 +115,14 @@ func _layout() -> void:
 	for b in boxes:
 		obstacles.append(b)
 	pads.clear()
-	pads.append(Vector2(120, 120))
-	pads.append(Vector2(W - 120, 120))
-	pads.append(Vector2(120, H - 120))
-	pads.append(Vector2(W - 120, H - 120))
-	pads.append(Vector2(W * 0.5, 100))
-	pads.append(Vector2(W * 0.5, H - 100))
-	pads.append(Vector2(100, H * 0.5))
-	pads.append(Vector2(W - 100, H * 0.5))
+	pads.append(Vector2(130, TOP + 90))
+	pads.append(Vector2(W - 130, TOP + 90))
+	pads.append(Vector2(130, H - 130))
+	pads.append(Vector2(W - 130, H - 130))
+	pads.append(Vector2(W * 0.5, TOP + 80))
+	pads.append(Vector2(W * 0.5, H - 110))
+	pads.append(Vector2(110, (TOP + H) * 0.5))
+	pads.append(Vector2(W - 110, (TOP + H) * 0.5))
 
 # ---------------------------------------------------------------- partie
 func reset_run() -> void:
@@ -145,7 +152,7 @@ func start_room(r: int, mod: String) -> void:
 	room = r
 	modifier = mod
 	_clear_entities()
-	hero.position = Vector2(W * 0.5, H * 0.5)
+	hero.position = Vector2(W * 0.5, (TOP + H) * 0.5)
 	hero.dead = false
 	cam.position = hero.position
 	cam.reset_smoothing()
@@ -330,12 +337,13 @@ func _process(dt: float) -> void:
 		pa["vel"] *= 0.92
 		i += 1
 	fxn.queue_redraw()
+	fxa.queue_redraw()
 
 func _room_done() -> void:
 	cleared = true
 	var p := hero.position + Vector2(0, -140)
 	p.x = clampf(p.x, 200, W - 200)
-	p.y = clampf(p.y, 200, H - 200)
+	p.y = clampf(p.y, TOP + 160, H - 200)
 	chest = {"pos": p, "open": false}
 	sfx.play("level", 1.2)
 	room_cleared.emit()
@@ -354,7 +362,7 @@ func _spawn(spec: String) -> void:
 			break
 		pad = pads[randi() % pads.size()]
 	if kind == "boss":
-		pad = Vector2(W * 0.5, 160.0)
+		pad = Vector2(W * 0.5, TOP + 150.0)
 		boss = e
 	e.position = pad + Vector2(randf_range(-30, 30), randf_range(-30, 30))
 	ents.add_child(e)
@@ -428,7 +436,7 @@ func steer(pos: Vector2, dir: Vector2, r: float) -> Vector2:
 	return -dir
 
 func _blocked(p: Vector2, r: float) -> bool:
-	if p.x < WALL + r or p.x > W - WALL - r or p.y < WALL + r or p.y > H - WALL - r:
+	if p.x < WALL + r or p.x > W - WALL - r or p.y < TOP + r or p.y > H - WALL - r:
 		return true
 	for o in obstacles:
 		if o.grow(r * 0.8).has_point(p):
@@ -450,7 +458,7 @@ func nearest_enemy(pos: Vector2, max_d: float) -> Node2D:
 # ---------------------------------------------------------------- collisions
 func _clamp_circle(n: Node2D, r: float) -> void:
 	n.position.x = clampf(n.position.x, WALL + r, W - WALL - r)
-	n.position.y = clampf(n.position.y, WALL + r, H - WALL - r)
+	n.position.y = clampf(n.position.y, TOP + r, H - WALL - r)
 	for o in obstacles:
 		var cx := clampf(n.position.x, o.position.x, o.end.x)
 		var cy := clampf(n.position.y, o.position.y, o.end.y)
@@ -473,11 +481,11 @@ func _bullet_walls(b: Node2D) -> bool:
 			b.position.x = clampf(p.x, WALL + 1, W - WALL - 1)
 		else:
 			hit = true
-	if p.y < WALL or p.y > H - WALL:
+	if p.y < TOP or p.y > H - WALL:
 		if b.bounce > 0:
 			b.vel.y = -b.vel.y
 			b.bounce -= 1
-			b.position.y = clampf(p.y, WALL + 1, H - WALL - 1)
+			b.position.y = clampf(p.y, TOP + 1, H - WALL - 1)
 		else:
 			hit = true
 	if hit:
@@ -508,89 +516,98 @@ func _burst(pos: Vector2, col: Color, n: int, spd: float, r: float) -> void:
 
 func _draw() -> void:
 	draw_rect(Rect2(0, 0, W, H), BG)
-	draw_rect(Rect2(WALL, WALL, W - 2 * WALL, H - 2 * WALL), FLOOR)
-	_rng.seed = 42
-	for i in range(28):
-		var px := _rng.randf_range(WALL, W - 300)
-		var py := _rng.randf_range(WALL, H - 220)
-		draw_rect(Rect2(px, py, _rng.randf_range(120, 300), _rng.randf_range(80, 220)), Color("#14284F"))
-	var x := WALL
-	while x < W:
-		draw_line(Vector2(x, WALL), Vector2(x, H - WALL), GRID, 2.0)
-		x += 100.0
-	var y := WALL
-	while y < H:
-		draw_line(Vector2(WALL, y), Vector2(W - WALL, y), GRID, 2.0)
-		y += 100.0
-	# lignes de guidage cyan au sol
-	draw_line(Vector2(WALL, H * 0.5), Vector2(W - WALL, H * 0.5), Color(CYAN, 0.12), 6.0)
-	draw_line(Vector2(W * 0.5, WALL), Vector2(W * 0.5, H - WALL), Color(CYAN, 0.12), 6.0)
-	# murs
-	draw_rect(Rect2(0, 0, W, H), Color("#1B2B4D"), false, WALL * 2.0)
-	draw_rect(Rect2(WALL, WALL, W - 2 * WALL, H - 2 * WALL), Color(CYAN, 0.5), false, 3.0)
-	# bandes de danger aux angles
-	for c in [Vector2(WALL, WALL), Vector2(W - WALL - 140, WALL), Vector2(WALL, H - WALL - 14), Vector2(W - WALL - 140, H - WALL - 14)]:
-		for k in range(7):
-			draw_rect(Rect2(c.x + k * 20, c.y, 10, 14), Color(ORANGE, 0.8))
-	# sas d'apparition
+	# alcôve du vaisseau (haut) : quai sombre, vaisseau garé, garde-corps
+	draw_rect(Rect2(WALL, WALL, W - 2 * WALL, TOP - WALL), Color("#0B1A36"))
+	draw_texture_rect(Art.SHIP, Rect2(W * 0.5 - 450, -40, 900, 420), false, Color(0.8, 0.85, 0.95))
+	for k in range(int((W - 2 * WALL) / 60)):
+		draw_rect(Rect2(WALL + k * 60 + 10, TOP - 22, 40, 6), Color(ORANGE, 0.75))
+	draw_rect(Rect2(WALL, TOP - 10, W - 2 * WALL, 10), Color("#2A3F6E"))
+	draw_line(Vector2(WALL, TOP), Vector2(W - WALL, TOP), Color(CYAN, 0.7), 4.0)
+	# sol : dalles métalliques
+	draw_texture_rect(Art.FLOOR, Rect2(WALL, TOP, W - 2 * WALL, H - TOP - WALL), true)
+	# lignes de guidage au sol
+	draw_line(Vector2(WALL, (TOP + H) * 0.5), Vector2(W - WALL, (TOP + H) * 0.5), Color(CYAN, 0.14), 8.0)
+	draw_line(Vector2(W * 0.5, TOP), Vector2(W * 0.5, H - WALL), Color(CYAN, 0.14), 8.0)
 	for p in pads:
-		draw_circle(p, 46.0, Color(CYAN, 0.08))
-		draw_arc(p, 40.0, 0.0, TAU, 32, Color(CYAN, 0.5), 3.0, true)
-		draw_arc(p, 24.0, 0.0, TAU, 24, Color(CYAN, 0.3), 2.0, true)
-	# caisses
+		draw_texture_rect(Art.PAD, Rect2(p - Vector2(70, 70), Vector2(140, 140)), false)
+	# murs : plaques sombres, bandeau lumineux
+	draw_rect(Rect2(0, 0, W, H), Color("#1B2B4D"), false, WALL * 2.0)
+	draw_rect(Rect2(0, 0, W, H), Color("#0B0F1A"), false, 6.0)
+	draw_rect(Rect2(WALL, WALL, W - 2 * WALL, H - 2 * WALL), Color(CYAN, 0.45), false, 3.0)
+	for k in range(int(W / 200)):
+		draw_rect(Rect2(k * 200 + 60, H - WALL + 8, 80, 8), Color(CYAN, 0.6))
+		draw_rect(Rect2(k * 200 + 60, WALL - 16, 80, 8), Color(CYAN, 0.6))
+	for k in range(int(H / 200)):
+		draw_rect(Rect2(WALL - 16, k * 200 + 60, 8, 80), Color(CYAN, 0.6))
+		draw_rect(Rect2(W - WALL + 8, k * 200 + 60, 8, 80), Color(CYAN, 0.6))
+	# conteneurs : découpés en cellules à peu près carrées pour ne pas déformer le dessin
 	for o in obstacles:
-		draw_rect(o.grow(4.0), OUTLINE)
-		draw_rect(o, CRATE)
-		draw_rect(Rect2(o.position, Vector2(o.size.x, o.size.y * 0.42)), CRATE_TOP)
-		draw_rect(Rect2(o.position + Vector2(8, 8), Vector2(o.size.x - 16, 6)), Color(ORANGE, 0.7))
-		draw_rect(o, Color(CYAN, 0.25), false, 2.0)
+		var cols := maxi(1, int(round(o.size.x / 90.0)))
+		var rows := maxi(1, int(round(o.size.y / 90.0)))
+		var cw := o.size.x / cols
+		var ch := o.size.y / rows
+		for cx in range(cols):
+			for cy in range(rows):
+				draw_texture_rect(Art.CRATE, Rect2(o.position + Vector2(cx * cw, cy * ch), Vector2(cw, ch)), false)
 
 func _draw_fx() -> void:
 	# tourelles
 	for tr in turrets:
 		var p: Vector2 = tr["pos"]
-		fxn.draw_circle(p, 20.0, OUTLINE)
-		fxn.draw_circle(p, 16.0, Color("#3B5590"))
-		fxn.draw_line(p, p + Vector2.RIGHT.rotated(tr["ang"]) * 24.0, OUTLINE, 10.0)
-		fxn.draw_line(p, p + Vector2.RIGHT.rotated(tr["ang"]) * 24.0, GOLD, 6.0)
+		fxn.draw_circle(p, 22.0, OUTLINE)
+		fxn.draw_circle(p, 18.0, Color("#3B5590"))
+		fxn.draw_circle(p, 12.0, Color("#5673B5"))
+		fxn.draw_line(p, p + Vector2.RIGHT.rotated(tr["ang"]) * 26.0, OUTLINE, 12.0)
+		fxn.draw_line(p, p + Vector2.RIGHT.rotated(tr["ang"]) * 26.0, GOLD, 7.0)
 		fxn.draw_circle(p, 5.0, GOLD)
 	# drones alliés
 	for al in allies:
 		var p: Vector2 = hero.position + Vector2.RIGHT.rotated(al["ang"]) * 74.0
-		fxn.draw_circle(p, 12.0, OUTLINE)
-		fxn.draw_circle(p, 9.0, CYAN)
-		fxn.draw_circle(p, 3.5, Color.WHITE)
+		fxn.draw_circle(p, 13.0, OUTLINE)
+		fxn.draw_circle(p, 10.0, CYAN)
+		fxn.draw_circle(p, 4.0, Color.WHITE)
 	# ramassages
 	for pk in pickups:
 		var p: Vector2 = pk["pos"]
 		match String(pk["kind"]):
 			"ticket":
-				fxn.draw_circle(p, 9.0, OUTLINE)
-				fxn.draw_circle(p, 7.0, GOLD)
-				fxn.draw_circle(p + Vector2(-2, -2), 2.5, Color.WHITE)
+				fxn.draw_circle(p, 10.0, OUTLINE)
+				fxn.draw_circle(p, 8.0, GOLD)
+				fxn.draw_circle(p + Vector2(-2, -2), 3.0, Color("#FFE2A8"))
 			"hp":
-				fxn.draw_circle(p, 12.0, OUTLINE)
-				fxn.draw_circle(p, 10.0, Color("#F4F1EA"))
-				fxn.draw_rect(Rect2(p + Vector2(-6, -2), Vector2(12, 4)), RED)
-				fxn.draw_rect(Rect2(p + Vector2(-2, -6), Vector2(4, 12)), RED)
+				fxn.draw_circle(p, 13.0, OUTLINE)
+				fxn.draw_circle(p, 11.0, Color("#F4F1EA"))
+				fxn.draw_rect(Rect2(p + Vector2(-7, -2), Vector2(14, 4)), RED)
+				fxn.draw_rect(Rect2(p + Vector2(-2, -7), Vector2(4, 14)), RED)
 			"item":
 				var col: Color = Data.RARITY_COLORS[int(pk["item"]["rarity"])]
 				var bob := sin(pk["t"] * 5.0) * 3.0
-				fxn.draw_circle(p, 26.0, Color(col, 0.18))
-				fxn.draw_rect(Rect2(p + Vector2(-14, -14 + bob), Vector2(28, 28)), OUTLINE)
-				fxn.draw_rect(Rect2(p + Vector2(-11, -11 + bob), Vector2(22, 22)), col)
+				fxn.draw_rect(Rect2(p + Vector2(-15, -15 + bob), Vector2(30, 30)), OUTLINE)
+				fxn.draw_rect(Rect2(p + Vector2(-12, -12 + bob), Vector2(24, 24)), col)
+				fxn.draw_rect(Rect2(p + Vector2(-12, -12 + bob), Vector2(24, 8)), Color(1, 1, 1, 0.35))
 	# coffre
 	if not chest.is_empty():
 		var p: Vector2 = chest["pos"]
 		var open: bool = chest["open"]
+		fxn.draw_texture_rect(Art.CHEST, Rect2(p - Vector2(45, 38), Vector2(90, 75)), false, Color.WHITE if not open else Color(0.5, 0.5, 0.55))
+
+func _draw_fxa() -> void:
+	# halos (additifs) : coffre, objets, sas actifs, particules
+	if not chest.is_empty() and not chest["open"]:
 		var pulse := 0.5 + 0.5 * sin(elapsed * 4.0)
-		if not open:
-			fxn.draw_circle(p, 50.0 + pulse * 8.0, Color(GOLD, 0.12))
-		fxn.draw_rect(Rect2(p + Vector2(-30, -22), Vector2(60, 44)), OUTLINE)
-		fxn.draw_rect(Rect2(p + Vector2(-26, -18), Vector2(52, 36)), Color("#3B5590") if not open else Color("#2A3F6E"))
-		fxn.draw_rect(Rect2(p + Vector2(-26, -18), Vector2(52, 14)), GOLD if not open else Color("#8A6A2E"))
-		fxn.draw_circle(p + Vector2(0, 2), 5.0, GOLD if not open else Color("#8A6A2E"))
-	# particules
+		_glow(fxa, chest["pos"], 90.0 + pulse * 16.0, Color(GOLD, 0.45))
+	for pk in pickups:
+		if String(pk["kind"]) == "item":
+			var col: Color = Data.RARITY_COLORS[int(pk["item"]["rarity"])]
+			_glow(fxa, pk["pos"], 70.0, Color(col, 0.6))
+		elif String(pk["kind"]) == "ticket":
+			_glow(fxa, pk["pos"], 26.0, Color(GOLD, 0.35))
+	if not spawn_queue.is_empty():
+		for p in pads:
+			_glow(fxa, p, 120.0 + 20.0 * sin(elapsed * 6.0), Color(CYAN, 0.25))
 	for pa in particles:
 		var a: float = clampf(pa["life"] / pa["max"], 0.0, 1.0)
-		fxn.draw_circle(pa["pos"], pa["r"] * (0.5 + a), Color(pa["col"], a))
+		_glow(fxa, pa["pos"], pa["r"] * 6.0 * (0.4 + a), Color(pa["col"], a * 0.9))
+
+func _glow(on: Node2D, pos: Vector2, size: float, col: Color) -> void:
+	on.draw_texture_rect(Art.GLOW, Rect2(pos - Vector2(size, size) * 0.5, Vector2(size, size)), false, col)

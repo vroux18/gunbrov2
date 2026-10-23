@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="32" viewBox="0 0 96 32">
+  <!-- Tir laser blanc (teinté par le code), pointe à droite. -->
+  <defs>
+    <linearGradient id="t" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.6" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="1"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="6" width="90" height="20" rx="10" fill="url(#t)"/>
+  <rect x="30" y="11" width="60" height="10" rx="5" fill="#FFFFFF"/>
+  <circle cx="84" cy="16" r="8" fill="#FFFFFF"/>
+</svg>

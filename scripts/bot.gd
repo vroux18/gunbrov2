@@ -33,7 +33,7 @@ func _process(dt: float) -> void:
 		var e: Node2D = arena.nearest_enemy(hero.position, 320.0)
 		if e != null:
 			away = (hero.position - e.position).normalized() * 1.3
-		var pull := (Vector2(arena.W * 0.5, arena.H * 0.5) - hero.position).normalized() * 0.4
+		var pull := (Vector2(arena.W * 0.5, (arena.TOP + arena.H) * 0.5) - hero.position).normalized() * 0.4
 		dir = (away + pull + Vector2(randf_range(-1, 1), randf_range(-1, 1))).normalized()
 		if arena.cleared and not arena.chest.is_empty() and not arena.chest["open"]:
 			dir = (arena.chest["pos"] - hero.position).normalized()

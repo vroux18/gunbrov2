@@ -10,6 +10,7 @@ const ArenaScript = preload("res://scripts/arena.gd")
 const HudScript = preload("res://scripts/hud.gd")
 const JoyScript = preload("res://scripts/joystick.gd")
 const SfxScript = preload("res://scripts/sfx.gd")
+const Art = preload("res://scripts/art.gd")
 
 var profile: Dictionary
 var sfx: Node
@@ -106,6 +107,18 @@ func _full(bg: bool = true) -> Control:
 		c.color = UI.BG
 		c.set_anchors_preset(Control.PRESET_FULL_RECT)
 		root.add_child(c)
+		var floor_tex := TextureRect.new()
+		floor_tex.texture = Art.FLOOR
+		floor_tex.stretch_mode = TextureRect.STRETCH_TILE
+		floor_tex.set_anchors_preset(Control.PRESET_FULL_RECT)
+		floor_tex.modulate = Color(0.55, 0.6, 0.7, 1.0)
+		floor_tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		root.add_child(floor_tex)
+		var shade := ColorRect.new()
+		shade.color = Color(UI.BG, 0.45)
+		shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+		shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		root.add_child(shade)
 	return root
 
 func _add_preview_hero(pos: Vector2, scale_f: float) -> void:
@@ -144,6 +157,14 @@ func show_base() -> void:
 			var a := TAU * i / 12.0
 			deco.draw_line(c + Vector2.RIGHT.rotated(a) * 182, c + Vector2.RIGHT.rotated(a) * 200, Color(UI.ACCENT, 0.7), 4.0)
 	)
+	var ship := TextureRect.new()
+	ship.texture = Art.SHIP
+	ship.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	ship.position = Vector2(vp.x * 0.56, vp.y * 0.60)
+	ship.size = Vector2(vp.x * 0.42, vp.y * 0.40)
+	ship.modulate = Color(0.6, 0.65, 0.8, 0.35)
+	ship.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen.add_child(ship)
 	screen.add_child(deco)
 	_add_preview_hero(Vector2(vp.x * 0.28, vp.y * 0.52), 3.2)
 	var right := UI.vbox(14)

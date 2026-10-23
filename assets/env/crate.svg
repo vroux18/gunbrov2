@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <!-- Conteneur cargo vu de dessus, étiré à la taille de la caisse par le code. -->
+  <rect x="4" y="4" width="192" height="192" rx="14" fill="#0B0F1A"/>
+  <rect x="10" y="10" width="180" height="180" rx="10" fill="#2A3F6E"/>
+  <rect x="10" y="10" width="180" height="78" rx="10" fill="#3B5590"/>
+  <rect x="10" y="80" width="180" height="12" fill="#1F3058"/>
+  <rect x="22" y="22" width="156" height="14" rx="4" fill="#FF7A2F"/>
+  <rect x="22" y="164" width="156" height="14" rx="4" fill="#FF7A2F" opacity="0.8"/>
+  <g fill="#0B0F1A" opacity="0.8">
+    <rect x="20" y="20" width="10" height="160" rx="3"/>
+    <rect x="170" y="20" width="10" height="160" rx="3"/>
+  </g>
+  <g stroke="#3CF2D8" stroke-width="3" opacity="0.6">
+    <path d="M60 110 L140 110 M60 126 L140 126 M60 142 L120 142"/>
+  </g>
+  <circle cx="100" cy="60" r="10" fill="#0B0F1A"/>
+  <circle cx="100" cy="60" r="6" fill="#3CF2D8"/>
+  <g fill="#F2C23A">
+    <rect x="36" y="100" width="14" height="14" transform="rotate(45 43 107)"/>
+    <rect x="150" y="100" width="14" height="14" transform="rotate(45 157 107)"/>
+  </g>
+</svg>

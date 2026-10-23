@@ -3,6 +3,7 @@ extends Node2D
 ## Dessinée en code (vue de dessus 3/4, le corps tourne vers la visée). Stats = base × objets × pouvoirs.
 
 const Data = preload("res://scripts/data.gd")
+const Art = preload("res://scripts/art.gd")
 
 signal died
 signal damaged
@@ -58,6 +59,23 @@ var moving := false
 var dead := false
 var flash := 0.0
 var preview := false  # dans le Relais : posée, immobile, pas de tir
+var _spr: Sprite2D
+var _glow: Sprite2D
+var _flash: Sprite2D
+var _flash_t := 0.0
+var _recoil := 0.0
+
+func _ready() -> void:
+	_glow = Art.sprite(Art.GLOW, 1.1, true)
+	_glow.modulate = Color(VISOR, 0.22)
+	add_child(_glow)
+	_spr = Art.sprite(Art.JO, 0.5)
+	_spr.position = Vector2(0, -2)
+	add_child(_spr)
+	_flash = Art.sprite(Art.FLASH, 0.6, true)
+	_flash.position = Vector2(0, -66)
+	_flash.visible = false
+	add_child(_flash)
 
 func recalc() -> void:
 	var mult := {"dmg": 1.0, "rate": 1.0, "speed": 1.0, "range": 1.0, "energy": 1.0, "pickup": 1.0}
@@ -132,6 +150,20 @@ func update(dt: float, mv: Vector2, am: Vector2, aim_active: bool) -> void:
 	if moving:
 		position += mv * speed * dt
 		anim += dt * 11.0 * mv.length()
+	_recoil = maxf(0.0, _recoil - dt * 40.0)
+	_flash_t -= dt
+	_flash.visible = _flash_t > 0.0
+	_flash.rotation += dt * 20.0
+	var bob := absf(sin(anim)) * 3.0 if moving else 0.0
+	_spr.position = Vector2(0, -2 + _recoil - bob)
+	_spr.rotation = sin(anim) * 0.06 if moving else 0.0
+	_spr.scale = Vector2(0.5, 0.5 - _recoil * 0.004)
+	var m := Color.WHITE
+	if flash > 0.0:
+		m = Color(1.7, 1.7, 1.7)
+	elif invuln > 0.0 and int(invuln * 20.0) % 2 == 0 and not preview:
+		m = Color(1.0, 1.0, 1.0, 0.5)
+	_spr.modulate = m
 	var target_dir := Vector2.ZERO
 	var fire := false
 	if aim_active:
@@ -166,6 +198,9 @@ func _shoot() -> void:
 			damage *= 2.0
 		arena.spawn_bullet(muzzle, d * bspeed, damage, true, pierce, bounce, VISOR if not is_crit else Color("#FFF2A8"), 5.0 if not is_crit else 7.0)
 	arena.sfx.play("shoot", randf_range(0.9, 1.1), -8.0)
+	_flash_t = 0.05
+	_flash.modulate = VISOR
+	_recoil = 5.0
 
 func take_damage(amount: float) -> bool:
 	if dead or invuln > 0.0 or preview:
@@ -210,33 +245,8 @@ func _poly(pts: PackedVector2Array, col: Color, outline: float = 3.0) -> void:
 	draw_polygon(pts, PackedColorArray([col]))
 
 func _draw() -> void:
-	# ombre (non tournée : cercle)
-	draw_circle(Vector2(0, 8), 20.0, Color(0, 0, 0, 0.35))
-	var swing := sin(anim) * 7.0 if moving else 0.0
-	var mod := Color.WHITE
-	if flash > 0.0:
-		mod = Color(1.8, 1.8, 1.8)
-	if invuln > 0.0 and int(invuln * 20.0) % 2 == 0 and not preview:
-		mod = Color(1.0, 1.0, 1.0, 0.55)
-	# jambes
-	_cap(Vector2(-8, 6), Vector2(-9, 18 + swing), 6.0, NAVY * mod)
-	_cap(Vector2(8, 6), Vector2(9, 18 - swing), 6.0, NAVY * mod)
-	# torse : combinaison claire, bas plus sombre, bande orange
-	_poly(PackedVector2Array([Vector2(-17, -8), Vector2(17, -8), Vector2(15, 14), Vector2(-15, 14)]), SUIT * mod)
-	draw_polygon(PackedVector2Array([Vector2(-16, 3), Vector2(16, 3), Vector2(15, 14), Vector2(-15, 14)]), PackedColorArray([SUIT_DARK * mod]))
-	draw_polygon(PackedVector2Array([Vector2(-17, -8), Vector2(17, -8), Vector2(17, -1), Vector2(-17, -1)]), PackedColorArray([ACCENT * mod]))
-	# bras vers l'arme
-	_cap(Vector2(-15, -4), Vector2(-6, -24), 5.0, SUIT * mod)
-	_cap(Vector2(15, -4), Vector2(6, -24), 5.0, SUIT * mod)
-	# blaster
-	_poly(PackedVector2Array([Vector2(-5, -20), Vector2(5, -20), Vector2(5, -42), Vector2(-5, -42)]), GUN * mod, 2.5)
-	draw_circle(Vector2(0, -42), 4.0, VISOR * mod)
-	# tête : cheveux derrière, peau, visière devant
-	draw_circle(Vector2(0, -12), 15.0, OUTLINE)
-	draw_circle(Vector2(0, -12), 12.0, SKIN * mod)
-	draw_polygon(PackedVector2Array([Vector2(-12, -12), Vector2(12, -12), Vector2(11, -5), Vector2(0, -1), Vector2(-11, -5)]), PackedColorArray([HAIR * mod]))
-	draw_polygon(PackedVector2Array([Vector2(-12, -14), Vector2(12, -14), Vector2(10, -21), Vector2(-10, -21)]), PackedColorArray([VISOR * mod]))
-	draw_polygon(PackedVector2Array([Vector2(-12, -14), Vector2(12, -14), Vector2(11, -16), Vector2(-11, -16)]), PackedColorArray([Color(1, 1, 1, 0.6)]))
-	# bouclier
+	# ombre au sol (le sprite porte le corps)
+	draw_circle(Vector2(0, 10), 24.0, Color(0, 0, 0, 0.35))
 	if shield_max > 0 and shield_ready:
-		draw_arc(Vector2.ZERO, radius + 12.0, 0.0, TAU, 40, Color(VISOR, 0.55), 3.0, true)
+		draw_arc(Vector2.ZERO, radius + 22.0, 0.0, TAU, 48, Color(VISOR, 0.6), 4.0, true)
+		draw_arc(Vector2.ZERO, radius + 26.0, 0.0, TAU, 48, Color(VISOR, 0.2), 8.0, true)

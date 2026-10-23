@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="360" viewBox="0 0 360 360">
+  <!-- Le Portique : mécha quadrupède, deux canons et une visière magenta, tourné vers la droite. -->
+  <defs>
+    <linearGradient id="hull" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B4466"/>
+      <stop offset="1" stop-color="#1C2238"/>
+    </linearGradient>
+  </defs>
+  <g stroke="#0B0F1A" stroke-width="8" stroke-linejoin="round" stroke-linecap="round">
+    <!-- pattes -->
+    <path d="M110 110 L50 50" stroke="#0B0F1A" stroke-width="40"/>
+    <path d="M110 250 L50 310" stroke="#0B0F1A" stroke-width="40"/>
+    <path d="M250 110 L310 50" stroke="#0B0F1A" stroke-width="40"/>
+    <path d="M250 250 L310 310" stroke="#0B0F1A" stroke-width="40"/>
+    <path d="M110 110 L50 50" stroke="#8A939E" stroke-width="26"/>
+    <path d="M110 250 L50 310" stroke="#8A939E" stroke-width="26"/>
+    <path d="M250 110 L310 50" stroke="#8A939E" stroke-width="26"/>
+    <path d="M250 250 L310 310" stroke="#8A939E" stroke-width="26"/>
+    <circle cx="44" cy="44" r="22" fill="#5A6470"/>
+    <circle cx="44" cy="316" r="22" fill="#5A6470"/>
+    <circle cx="316" cy="44" r="22" fill="#5A6470"/>
+    <circle cx="316" cy="316" r="22" fill="#5A6470"/>
+    <!-- canons -->
+    <rect x="200" y="96" width="140" height="34" rx="10" fill="#5A6470"/>
+    <rect x="200" y="230" width="140" height="34" rx="10" fill="#5A6470"/>
+    <rect x="320" y="102" width="24" height="22" rx="6" fill="#F23CB8" stroke="none"/>
+    <rect x="320" y="236" width="24" height="22" rx="6" fill="#F23CB8" stroke="none"/>
+    <!-- carlingue -->
+    <path d="M100 110 L230 80 L290 180 L230 280 L100 250 L70 180 Z" fill="url(#hull)"/>
+    <path d="M110 180 L270 180 L230 280 L100 250 L70 180 Z" fill="#141A2E" stroke="none" opacity="0.5"/>
+    <path d="M120 130 L220 108 L260 180 L220 252 L120 230 L96 180 Z" fill="#2C3350" stroke="none"/>
+    <!-- bandes orange -->
+    <rect x="120" y="150" width="60" height="60" rx="10" fill="#FF7A2F" stroke="none"/>
+    <rect x="130" y="160" width="40" height="40" rx="6" fill="#FFB07A" stroke="none" opacity="0.6"/>
+    <!-- tête -->
+    <circle cx="246" cy="180" r="40" fill="#8A939E"/>
+    <path d="M262 150 L296 166 L296 194 L262 210 Z" fill="#F23CB8"/>
+    <path d="M268 158 L288 168 L288 176 L268 168 Z" fill="#FFB3E6" stroke="none"/>
+    <!-- lumières -->
+    <circle cx="110" cy="130" r="8" fill="#3CF2D8" stroke="none"/>
+    <circle cx="110" cy="230" r="8" fill="#3CF2D8" stroke="none"/>
+  </g>
+</svg>

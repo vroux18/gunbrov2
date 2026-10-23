@@ -112,14 +112,21 @@ jobs:
           files: build/Passeurs.apk
           make_latest: true
 
-      - uses: actions/configure-pages@v5
+      # Pages : activé automatiquement si possible ; sinon on n'échoue pas, l'APK est déjà publié
+      - id: pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
+        if: steps.pages.outcome == 'success'
         with:
           path: build/web
 
   pages:
     needs: export
-    if: ${{ !github.event.repository.private }}
+    if: ${{ !github.event.repository.private && github.ref == 'refs/heads/main' }}
+    continue-on-error: true
     runs-on: ubuntu-latest
     environment:
       name: github-pages

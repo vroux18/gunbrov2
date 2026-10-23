@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <!-- Flash de bouche et d'impact : étoile blanche à teinter. -->
+  <path d="M48 2 L56 36 L94 48 L56 60 L48 94 L40 60 L2 48 L40 36 Z" fill="#FFFFFF" opacity="0.9"/>
+  <path d="M48 20 L52 44 L76 48 L52 52 L48 76 L44 52 L20 48 L44 44 Z" fill="#FFFFFF"/>
+  <circle cx="48" cy="48" r="10" fill="#FFFFFF"/>
+</svg>
