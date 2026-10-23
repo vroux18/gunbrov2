@@ -5,7 +5,7 @@ Twin-stick à vagues pour téléphone, en paysage. Les Passeurs, équipage du Re
 - **APK Android** (dernière version de test) : https://github.com/vroux18/gunbrov2/releases/latest/download/Passeurs.apk
 - **Version web** (iPhone : ouvrir dans Safari, Partager > Sur l'écran d'accueil) : https://vroux18.github.io/gunbrov2/
 
-Godot 4.7 (GDScript, rendu Compatibility, tout dessiné en code, aucun asset). Compilé par GitHub Actions à chaque push (`.github/workflows/build.yml`) : robot testeur, export APK (clé de test fixe `tools/debug.keystore`, les versions s'installent l'une sur l'autre), export web sur GitHub Pages.
+Godot 4.7 (GDScript, rendu Compatibility). La simulation est en 2D (`arena.gd`), le rendu en 3D (`view3d.gd`) : hangar de station en modèles Kenney CC0, personnages riggés et animés, ennemis modélisés en code, effets lumineux. Compilé par GitHub Actions à chaque push (`.github/workflows/build.yml`) : robot testeur, test tactile, export APK (clé de test fixe `tools/debug.keystore`, les versions s'installent l'une sur l'autre), export web sur GitHub Pages. Crédits des ressources : `assets/CREDITS.md`.
 
 ## La boucle (V0)
 
@@ -20,6 +20,10 @@ Godot 4.7 (GDScript, rendu Compatibility, tout dessiné en code, aucun asset). C
 
 | Fichier | Rôle |
 |---|---|
+| `scripts/view3d.gd` | Rendu 3D : hangar, caméra, Jo, ennemis, projectiles, particules, effets, coffre, Relais et portail |
+| `scripts/actor3d.gd` | Personnage riggé (Mini Characters) : marche, course, tir, mort, butin visible, sac à réacteurs |
+| `scripts/mob3d.gd` | Ennemis 3D : Sentinelle, Garde, Colosse, Le Portique, élites, télégraphes au sol |
+| `scripts/models.gd`, `scripts/icon.gd` | Chargement des modèles et matériaux ; pictogrammes de l'interface |
 | `scripts/main.gd` | Écrans (Relais, Loge, Arsenal), partie, overlays (pouvoir, objet, portails, pause, fin) |
 | `scripts/arena.gd` | Carte, obstacles, caméra, vagues, projectiles, ramassages, coffre, tourelles, drones |
 | `scripts/hero.gd` | Jo : stats (base × objets × pouvoirs), déplacement, tir, dessin |
@@ -37,6 +41,8 @@ godot --headless --path . --quit-after 120      # vérification des scripts
 godot --headless --path . --fixed-fps 30 --quit-after 9000 -- --autoplay   # robot testeur
 ```
 
+Options du robot pour filmer (avec `--write-movie out.png --fixed-fps 10`) : `--room=N` (démarre en salle N), `--god` (Jo invulnérable), `--chest` (vide la salle pour voir coffre, objet et portails), `--hero=x,y` (place Jo), `--screen=loge|arsenal|base` (`--stuff` équipe des objets d'essai), `--touchtest` (deux doigts simulés sur les sticks).
+
 ## Hors V0
 
-Fissures en plein combat (ennemis du monde voisin), le Collectionneur, mondes 2 à 10, trois autres Passeurs, patchwork visible du loot sur le héros, boutique, build iOS natif (attend le compte Apple Developer Ulixen).
+Fissures en plein combat (ennemis du monde voisin), le Collectionneur, mondes 2 à 10, trois autres Passeurs, boutique, musique, build iOS natif (attend le compte Apple Developer Ulixen).

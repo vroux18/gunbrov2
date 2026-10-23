@@ -62,11 +62,7 @@ func setup(k: String, is_elite: bool, hp_scale: float) -> void:
 	charge_cd = randf_range(1.5, 3.0)
 	var sp: Array = SPRITES[k]
 	var sc: float = float(sp[1]) * (1.2 if elite else 1.0)
-	_glow = Art.sprite(Art.GLOW, radius * 0.045, true)
-	_glow.modulate = Color(GOLD if elite else RED, 0.28 if elite else 0.16)
-	add_child(_glow)
-	_spr = Art.sprite(sp[0], sc)
-	add_child(_spr)
+	# rendu 2D d'origine coupé : l'ennemi est dessiné en 3D par view3d.gd (mob3d.gd)
 
 func hit(d: float) -> void:
 	if dead:
@@ -143,17 +139,18 @@ func tick(dt: float) -> void:
 			_contact(dist)
 		"boss":
 			_boss(dt, dir, dist, slow)
-	_spr.rotation = facing.angle()
-	var m := Color.WHITE
-	if flash > 0.0:
-		m = Color(2.0, 2.0, 2.0)
-	elif state == "tell":
-		m = Color(1.6, 0.8, 0.8)
-	_spr.modulate = m
-	if state == "tell":
-		_spr.position = Vector2(randf_range(-2, 2), randf_range(-2, 2))
-	else:
-		_spr.position = Vector2(0, sin(t * 6.0 + wobble) * 2.0) if kind == "drone" else Vector2.ZERO
+	if _spr != null:
+		_spr.rotation = facing.angle()
+		var m := Color.WHITE
+		if flash > 0.0:
+			m = Color(2.0, 2.0, 2.0)
+		elif state == "tell":
+			m = Color(1.6, 0.8, 0.8)
+		_spr.modulate = m
+		if state == "tell":
+			_spr.position = Vector2(randf_range(-2, 2), randf_range(-2, 2))
+		else:
+			_spr.position = Vector2(0, sin(t * 6.0 + wobble) * 2.0) if kind == "drone" else Vector2.ZERO
 	queue_redraw()
 
 func _contact(dist: float) -> void:
