@@ -164,18 +164,11 @@ func update(dt: float, mv: Vector2, am: Vector2, aim_active: bool) -> void:
 	elif invuln > 0.0 and int(invuln * 20.0) % 2 == 0 and not preview:
 		m = Color(1.0, 1.0, 1.0, 0.5)
 	_spr.modulate = m
-	var target_dir := Vector2.ZERO
+	# le tir ne part que quand le stick droit est poussé ; sinon Jo regarde où elle va
 	var fire := false
 	if aim_active:
-		target_dir = am.normalized()
+		aim_dir = am.normalized()
 		fire = true
-	else:
-		var e: Node2D = arena.nearest_enemy(position, rng) if arena != null else null
-		if e != null:
-			target_dir = (e.position - position).normalized()
-			fire = true
-	if target_dir != Vector2.ZERO:
-		aim_dir = target_dir
 	elif moving:
 		aim_dir = mv.normalized()
 	rotation = aim_dir.angle() + PI * 0.5

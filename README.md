@@ -9,7 +9,7 @@ Godot 4.7 (GDScript, rendu Compatibility, tout dessiné en code, aucun asset). C
 
 ## La boucle (V0)
 
-- Deux sticks flottants : gauche déplace, droit vise et tire. Droit lâché = tir automatique sur l'ennemi le plus proche. Clavier ZQSD / flèches sur la version web.
+- Deux sticks fixes toujours visibles : gauche déplace, droit vise et tire (pas de tir tant qu'il n'est pas poussé). Clavier sur la version web : ZQSD / flèches pour bouger, I J K L pour viser, espace pour tirer droit devant.
 - Une partie = 10 salles dans le même biome. Chaque salle = 3 à 4 vagues ; salle 10 = boss (Le Portique) qui lâche l'éclat.
 - **Énergie** : chaque ennemi tué remplit la barre. Pleine = choix d'un pouvoir parmi 3, tirés de l'**arsenal** de 8 pouvoirs que le joueur compose dans le Relais (16 au catalogue : tourelle, cadence, dégâts, vitesse, tir double, rebond, perforant, soin, bouclier, aimant, détonation, drone allié, ralenti, critique, portée, vampirisme). Les pouvoirs ne durent qu'une partie.
 - **Loot** : un coffre en fin de salle, un objet par élite, un objet garanti meilleur au boss. Six emplacements (arme, module, tête, torse, jambes, gadget), quatre raretés. Le loot reste entre les parties et s'équipe dans la **Loge**.

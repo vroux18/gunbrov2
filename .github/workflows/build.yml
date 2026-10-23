@@ -80,6 +80,8 @@ jobs:
         run: |
           timeout 300 godot --headless --path . --quit-after 120 2>&1 | tee run.log
           timeout 600 godot --headless --path . --quit-after 2400 -- --autoplay 2>&1 | tee -a run.log
+          timeout 300 godot --headless --path . --fixed-fps 30 --quit-after 200 -- --autoplay --touchtest 2>&1 | tee -a run.log
+          grep -q "stick gauche ok=true" run.log
           ! grep -E "SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid access|Invalid get index|Invalid set index|Nonexistent function" run.log
 
       - name: Export APK
