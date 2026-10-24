@@ -55,13 +55,21 @@ func _process(dt: float) -> void:
 		cf.set_value("perf", "level", level)
 		cf.save(SAVE)
 
+## Réglage QUALITÉ du joueur (Dev.QUALITY) combiné au palier trouvé ici.
+func apply_quality() -> void:
+	if enabled:
+		_apply()
+
+func _shadows() -> bool:
+	return bool(LEVELS[level][1]) and bool(Dev.quality()[2])
+
 func _apply() -> void:
 	var vp := get_viewport()
 	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
-	vp.scaling_3d_scale = float(LEVELS[level][0])
+	vp.scaling_3d_scale = maxf(0.45, float(LEVELS[level][0]) * float(Dev.quality()[1]))
 	for n in get_tree().get_nodes_in_group("sun"):
-		(n as DirectionalLight3D).shadow_enabled = bool(LEVELS[level][1])
+		(n as DirectionalLight3D).shadow_enabled = _shadows()
 
 func _on_node_added(n: Node) -> void:
-	if n is DirectionalLight3D and n.is_in_group("sun") and not bool(LEVELS[level][1]):
+	if n is DirectionalLight3D and n.is_in_group("sun") and not _shadows():
 		(n as DirectionalLight3D).shadow_enabled = false

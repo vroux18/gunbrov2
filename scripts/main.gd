@@ -1244,11 +1244,18 @@ func _show_pause() -> void:
 	r.pressed.connect(_resume)
 	box.add_child(r)
 	var mu := UI.button("MUSIQUE : " + ("OUI" if Music.enabled else "NON"), 24, UI.ACCENT, 400)
-	mu.custom_minimum_size = Vector2(400, 80)
+	mu.custom_minimum_size = Vector2(400, 72)
 	mu.pressed.connect(func():
 		Music.set_enabled(not Music.enabled)
 		mu.text = "MUSIQUE : " + ("OUI" if Music.enabled else "NON"))
 	box.add_child(mu)
+	# qualité : ÉCO chauffe moins (3D plus basse, sans ombres, 30 i/s), MAX pour les téléphones costauds
+	var qb := UI.button("QUALITÉ : " + String(Dev.quality()[0]), 24, UI.ACCENT, 400)
+	qb.custom_minimum_size = Vector2(400, 72)
+	qb.pressed.connect(func():
+		Dev.set_value("quality", (int(Dev.v["quality"]) + 1) % Dev.QUALITY.size())
+		qb.text = "QUALITÉ : " + String(Dev.quality()[0]))
+	box.add_child(qb)
 	# caméra : recul et inclinaison, appliqués tout de suite derrière le menu
 	var cams := UI.hbox(12)
 	cams.alignment = BoxContainer.ALIGNMENT_CENTER

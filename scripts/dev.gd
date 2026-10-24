@@ -6,11 +6,16 @@ extends Node
 const CFG := "user://dev.cfg"
 ## Valeurs par défaut (et bornes des curseurs du mode développeur). all_worlds : version de démo, le monde 2
 ## est ouvert sans finir le monde 1 (le mode développeur le referme).
-const DEFAULTS := {"cam_dist": 11.5, "cam_pitch": 56.0, "cam_fov": 38.0, "hero_scale": 1.35, "mob_scale": 1.0, "fps": 60, "show_fps": false, "dev": false, "all_worlds": true}
+const DEFAULTS := {"cam_dist": 11.5, "cam_pitch": 56.0, "cam_fov": 38.0, "hero_scale": 1.35, "mob_scale": 1.0, "fps": 60, "show_fps": false, "dev": false, "all_worlds": true, "quality": 1}
 const RANGES := {"cam_dist": [6.0, 24.0], "cam_pitch": [30.0, 85.0], "cam_fov": [24.0, 70.0], "hero_scale": [0.9, 2.2], "mob_scale": [0.6, 1.4]}
 ## Préréglages du menu pause (boutons VUE et ANGLE).
 const ZOOMS := [["PROCHE", 9.0], ["NORMALE", 11.5], ["LARGE", 14.0], ["TRÈS LARGE", 16.5]]
 const ANGLES := [["PLONGÉE", 66.0], ["STANDARD", 56.0], ["RASANTE", 46.0]]
+## Qualité (téléphone) : [nom, échelle de la 3D, ombres du soleil, images par seconde au plus en partie].
+## La 3D est calculée en dessous de la résolution de l'écran (l'interface reste nette) : c'est ce qui chauffe
+## le plus. Hors partie (Relais, écrans), le jeu tourne à MENU_FPS.
+const QUALITY := [["ÉCO", 0.6, false, 30], ["NORMALE", 0.75, true, 60], ["MAX", 1.0, true, 120]]
+const MENU_FPS := 30
 
 var v := DEFAULTS.duplicate()
 var _label: Label
@@ -67,12 +72,35 @@ func nearest(presets: Array, value: float) -> int:
 
 ## Résumé des réglages, à recopier pour les retenir comme valeurs par défaut du jeu.
 func summary() -> String:
-	return "recul %.1f · angle %d° · champ %d° · Jo ×%.2f · ennemis ×%.2f · %d i/s" % [get_f("cam_dist"), int(get_f("cam_pitch")), int(get_f("cam_fov")), get_f("hero_scale"), get_f("mob_scale"), int(v["fps"])]
+	return "recul %.1f · angle %d° · champ %d° · Jo ×%.2f · ennemis ×%.2f · %d i/s · qualité %s" % [get_f("cam_dist"), int(get_f("cam_pitch")), int(get_f("cam_fov")), get_f("hero_scale"), get_f("mob_scale"), int(v["fps"]), String(quality()[0])]
+
+func quality() -> Array:
+	return QUALITY[clampi(int(v["quality"]), 0, QUALITY.size() - 1)]
 
 func _apply() -> void:
-	Engine.max_fps = int(v["fps"])
+	_in_run = _playing()
+	if Perf.enabled:  # téléphone et web
+		Engine.max_fps = mini(int(v["fps"]), int(quality()[3])) if _in_run else menu_fps()
+	else:
+		Engine.max_fps = int(v["fps"])
 	_label.visible = bool(v["show_fps"])
+	Perf.apply_quality()
 
-func _process(_dt: float) -> void:
+func menu_fps() -> int:
+	return mini(MENU_FPS, int(quality()[3]))
+
+## En partie (arène) : sinon Relais et écrans, à cadence réduite.
+var _in_run := false
+var _poll := 0.0
+func _playing() -> bool:
+	var sc := get_tree().current_scene
+	return sc != null and str(sc.get("state")) == "arena"
+
+func _process(dt: float) -> void:
+	_poll -= dt
+	if _poll <= 0.0:
+		_poll = 0.5
+		if _playing() != _in_run:
+			_apply()
 	if _label.visible:
 		_label.text = "%d i/s · %d appels · %dk tri" % [Engine.get_frames_per_second(), Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000.0)]
