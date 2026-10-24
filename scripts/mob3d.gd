@@ -9,7 +9,7 @@ const Rig3D = preload("res://scripts/rig3d.gd")
 ## Échelle des modèles sculptés (conçus à l'échelle de Jo, qui est affichée à 1,75).
 const RIG_SCALE := {"drone": 1.75, "trooper": 1.75, "brute": 1.3, "boss": 1.05, "bomber": 1.75, "sniper": 1.75, "shield": 1.75, "mortar": 1.75}
 ## Durée de l'animation de mort avant suppression du nœud.
-const DEATH_T := {"drone": 0.35, "trooper": 1.3, "brute": 1.0, "boss": 1.6, "bomber": 0.2, "sniper": 1.2, "shield": 1.2, "mortar": 1.1}
+const DEATH_T := {"drone": 0.35, "trooper": 1.3, "brute": 1.0, "boss": 1.6, "bomber": 0.2, "sniper": 0.9, "shield": 1.0, "mortar": 0.7}
 ## Durée du télégraphe (état « tell ») par genre, pour remplir l'anneau au sol.
 const TELL_T := {"brute": 0.7, "boss": 0.8, "bomber": 0.55, "shield": 0.5, "mortar": 0.9}
 const VIOLET := Color("#B36BFF")
