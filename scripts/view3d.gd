@@ -127,6 +127,7 @@ func _build_env() -> void:
 	we.environment = env
 	add_child(we)
 	sun = DirectionalLight3D.new()
+	sun.add_to_group("sun")  # qualité adaptative (scripts/perf.gd)
 	sun.rotation_degrees = Vector3(-58, 28, 0)
 	sun.light_color = Color(1.0, 0.95, 0.88)
 	sun.light_energy = 0.9

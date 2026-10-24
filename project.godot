@@ -20,6 +20,10 @@ config/icon="res://icon.svg"
 config/quit_on_go_back=false
 run/max_fps=120
 
+[autoload]
+
+Perf="*res://scripts/perf.gd"
+
 [display]
 
 window/size/viewport_width=1280
