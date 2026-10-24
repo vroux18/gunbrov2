@@ -1,7 +1,7 @@
 """Textures du quai nord : python3 tools/decor/bay_textures.py
   bay_grime.png : salissures raccordables (multipliées à la couleur par sommet, projection triplanaire) ;
   bay_floor.png : pont du quai peint (plaques d'acier, joints, rivets, aire de posé de la baie 07, marquages
-                  BAIE 07 et ORVA FRET, allée piétonne, traces de pneus et d'huile)."""
+                  BAIE 07 et logo HÉLIX FRET, allée piétonne, traces de pneus et d'huile)."""
 import math
 import os
 

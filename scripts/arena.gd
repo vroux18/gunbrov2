@@ -22,6 +22,9 @@ signal chest_opened(pos: Vector2)
 signal bullet_blocked(pos: Vector2, color: Color)
 signal exploded(pos: Vector2, radius: float, color: Color)
 signal shell_launched(from: Vector2, to: Vector2, flight: float, radius: float)
+signal doors_opened
+signal door_taken(door: Dictionary)
+signal shield_blocked(e: Node2D, pos: Vector2, vel: Vector2)  # tir de Jo arrêté par le bouclier d'un rempart
 
 const W := 2400.0
 const H := 1400.0
@@ -54,6 +57,7 @@ var bullets: Array = []
 var pickups: Array = []
 var particles: Array = []
 var shells: Array = []  # obus du mortier en vol : {from, to, t, flight, r, dmg}
+var doors: Array = []  # portails de fin de salle : {pos, kind, title, desc, col}, Jo entre dans l'un d'eux
 var turrets: Array = []
 var allies: Array = []
 var chest := {}
@@ -156,11 +160,13 @@ func _clear_entities() -> void:
 	pickups.clear()
 	particles.clear()
 	shells.clear()
+	doors.clear()
 	chest = {}
 	boss = null
 
 func start_room(r: int, mod: String) -> void:
 	room = r
+	Music.play("boss" if r >= Data.ROOMS else "combat")
 	modifier = mod
 	_clear_entities()
 	hero.position = Vector2(W * 0.5, (TOP + H) * 0.5)
@@ -263,6 +269,7 @@ func _process(dt: float) -> void:
 					continue
 				if (e.position - b.position).length() < e.radius + b.radius + (10.0 if e.kind == "shield" else 0.0):
 					if e.blocks(b.position - b.vel.normalized() * 30.0):
+						shield_blocked.emit(e, b.position, b.vel)
 						bullet_blocked.emit(b.position, b.color)
 						sfx.play("hit", randf_range(1.4, 1.7), -8.0)
 						_burst(b.position, ORANGE, 5, 200.0, 2.0)
@@ -288,6 +295,14 @@ func _process(dt: float) -> void:
 	for b in dead_bullets:
 		bullets.erase(b)
 		b.queue_free()
+	# portails de fin de salle : Jo choisit sa route en entrant dans l'un d'eux
+	if not doors.is_empty():
+		for d in doors:
+			if (hero.position - d["pos"]).length() < hero.radius + 44.0:
+				var taken: Dictionary = d
+				doors.clear()
+				door_taken.emit(taken)
+				break
 	# obus du mortier : explosent à l'arrivée sur la zone annoncée au sol
 	var landed := []
 	for sh in shells:
@@ -378,6 +393,7 @@ func _room_done() -> void:
 	p.y = clampf(p.y, TOP + 160, H - 200)
 	chest = {"pos": p, "open": false}
 	sfx.play("level", 1.2)
+	Music.stinger()
 	room_cleared.emit()
 
 # ---------------------------------------------------------------- apparitions et morts
@@ -415,6 +431,29 @@ func boss_summon(pos: Vector2, n: int) -> void:
 		enemy_spawned.emit(e)
 		_burst(e.position, RED, 8, 180.0, 3.0)
 	sfx.play("portal", 0.8)
+
+## Ouvre les portails de fin de salle (liste de {kind, title, desc, col}) en arc devant Jo, dans l'aire de jeu
+## et hors des caisses.
+func open_doors(list: Array) -> void:
+	doors.clear()
+	var n := list.size()
+	var cx := clampf(hero.position.x, WALL + 140.0 + (n - 1) * 160.0, W - WALL - 140.0 - (n - 1) * 160.0)
+	var up := hero.position.y - 150.0 > TOP + 110.0  # assez de place au nord, sinon au sud
+	for i in range(n):
+		var k := float(i) - (n - 1) * 0.5
+		# arc serré autour de Jo, pour que les trois portails et leurs panneaux tiennent à l'écran
+		var p := Vector2(cx + k * 320.0, hero.position.y + (-1.0 if up else 1.0) * (150.0 - absf(k) * 90.0))
+		for tries in range(8):
+			if not _blocked(p, 70.0):
+				break
+			p.y += (-1.0 if up else 1.0) * (35.0 if tries % 2 == 0 else -70.0)
+		p.x = clampf(p.x, WALL + 90.0, W - WALL - 90.0)
+		p.y = clampf(p.y, TOP + 90.0, H - WALL - 90.0)
+		var d: Dictionary = (list[i] as Dictionary).duplicate()
+		d["pos"] = p
+		doors.append(d)
+	doors_opened.emit()
+	sfx.play("portal", 1.1, -2.0)
 
 ## Explosion : blesse Jo dans le rayon, et les autres ennemis si `enemy_dmg` > 0 (pétard abattu).
 func explode(pos: Vector2, r: float, hero_dmg: float, enemy_dmg: float, col: Color) -> void:

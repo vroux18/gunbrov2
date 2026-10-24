@@ -1,6 +1,6 @@
 extends RefCounted
 ## Nébuleuse 7 — quai nord, baie 07 (hors de l'aire de jeu, au-delà du garde-corps) : la Pie, navette des
-## Passeurs, posée sur son aire ; pompes, consoles, râteliers de la compagnie de fret ORVA, bras de chargement.
+## Passeurs, posée sur son aire ; pompes, consoles, râteliers de la compagnie de fret HÉLIX FRET, bras de chargement.
 ## Objets sculptés (tools/decor/bay_*.py -> assets/decor/bay/*.glb), sol peint (bay_floor.png).
 ## Appelé par view3d.gd avec la vue `v` (voir hangar_shell.gd) : le décor statique part dans le lot v._batch.
 
@@ -293,7 +293,7 @@ void fragment() {
 
 ## Équipement du quai : pompe et groupe de parc reliés à la Pie, râteliers, palettes, consoles, projecteurs.
 static func _props(v: Node) -> void:
-	# ouest : stockage ORVA
+	# ouest : stockage HÉLIX FRET
 	put(v, "bay_gas", Vector3(2.1, 0, 0.35))
 	put(v, "bay_drums", Vector3(3.3, 0, 1.25), 0.4)
 	put(v, "bay_rack_a", Vector3(6.0, 0, 0.36))
@@ -366,7 +366,7 @@ static func _screens(v: Node) -> void:
 ## Signalisation BAIE 07 : caissons sur les poteaux qui encadrent l'aire, grand caisson au-dessus de la Pie.
 static func _signs(v: Node, cx: float) -> void:
 	var font: Font = load("res://assets/fonts/RussoOne-Regular.ttf")
-	for s in [[Vector3(12.75, 1.2, 0.52), 1.0, "BAIE 07"], [Vector3(24.75, 1.2, 0.52), 1.0, "BAIE 07"], [Vector3(cx, 2.45, 0.52), 1.9, "BAIE 07 · ORVA FRET"]]:
+	for s in [[Vector3(12.75, 1.2, 0.52), 1.0, "BAIE 07"], [Vector3(24.75, 1.2, 0.52), 1.0, "BAIE 07"], [Vector3(cx, 2.45, 0.52), 1.9, "BAIE 07 · HÉLIX FRET"]]:
 		put(v, "bay_sign", s[0], 0.0, s[1])
 		var lb := Label3D.new()
 		lb.text = s[2]

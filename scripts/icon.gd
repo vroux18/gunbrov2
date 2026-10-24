@@ -155,5 +155,31 @@ func _draw() -> void:
 		"chest":
 			_poly([V.call(0.14, 0.4), V.call(0.86, 0.4), V.call(0.86, 0.82), V.call(0.14, 0.82)])
 			_arc(V.call(0.5, 0.42), 0.36, PI, TAU)
+		"shard":
+			# éclat du Cœur : cristal taillé, facette claire
+			_poly([V.call(0.5, 0.06), V.call(0.8, 0.38), V.call(0.5, 0.94), V.call(0.2, 0.38)])
+			var keep2 := color
+			color = Color(1, 1, 1, 0.45)
+			_poly([V.call(0.5, 0.06), V.call(0.62, 0.38), V.call(0.5, 0.72), V.call(0.38, 0.38)])
+			color = keep2
+		"room":
+			# porte de salle : arche et seuil
+			_arc(V.call(0.5, 0.5), 0.3, PI, TAU)
+			_l(V.call(0.2, 0.5), V.call(0.2, 0.86))
+			_l(V.call(0.8, 0.5), V.call(0.8, 0.86))
+			_l(V.call(0.1, 0.86), V.call(0.9, 0.86))
+		"play":
+			_poly([V.call(0.3, 0.18), V.call(0.84, 0.5), V.call(0.3, 0.82)])
+		"home":
+			_poly([V.call(0.5, 0.12), V.call(0.88, 0.46), V.call(0.12, 0.46)])
+			_poly([V.call(0.22, 0.44), V.call(0.78, 0.44), V.call(0.78, 0.86), V.call(0.22, 0.86)])
+		"pause":
+			_l(V.call(0.36, 0.24), V.call(0.36, 0.76), 0.16)
+			_l(V.call(0.64, 0.24), V.call(0.64, 0.76), 0.16)
+		"gear":
+			_c(V.call(0.5, 0.5), 0.2)
+			for k in range(8):
+				var a := TAU * k / 8.0
+				_l(V.call(0.5, 0.5) + Vector2(cos(a), sin(a)) * 0.28, V.call(0.5, 0.5) + Vector2(cos(a), sin(a)) * 0.4, 0.12)
 		_:
 			_c(V.call(0.5, 0.5), 0.3, true)

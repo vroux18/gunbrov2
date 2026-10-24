@@ -43,8 +43,8 @@ BLACK = "#16181F"
 RUBBER = "#1E2026"
 GLASS = "#132A36"
 GLASS_L = "#5C98A8"
-ORVA = "#4E9C8E"        # vert d'eau de la compagnie de fret ORVA
-ORVA_D = "#2F6B62"
+HXF = "#4E9C8E"         # vert d'eau de la compagnie de fret HÉLIX FRET (HXF)
+HXF_D = "#2F6B62"
 CREAM = "#A39C8A"
 WARM = "#FFD9A0"        # éclairage intérieur (lumineux)
 
