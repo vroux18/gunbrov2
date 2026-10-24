@@ -143,7 +143,10 @@ const RARITY_NAMES := ["Accessoire", "Pièce de costume", "Pièce de collection"
 const RARITY_COLORS := [Color("#9FB3C8"), Color("#3CF2D8"), Color("#C77DFF"), Color("#FFB347")]
 const RARITY_MULT := [1.0, 1.6, 2.4, 3.5]
 
-# stat : dmg, rate, speed, range, energy, pickup (multiplicateurs, en fraction) ; hp (points) ; crit (fraction)
+# stat : dmg, rate, speed, range, energy, pickup (multiplicateurs, en fraction) ; hp (points) ; crit (fraction).
+# Chaque objet a son modèle (tools/chars/gear.py -> assets/chars3d/gear_<id>.glb) et son icône
+# (tools/item_icons.tscn -> assets/icons/items/<id>.png). « world » : monde dont l'objet a le style (indicatif).
+# Tous les tirages (coffres, fin de salle, élites, box) piochent uniformément dans cette liste (roll_item).
 const ITEMS := [
 	{"id": "blaster_garde", "slot": "arme", "name": "Blaster de garde", "stat": "dmg", "val": 0.10},
 	{"id": "fusil_impulsion", "slot": "arme", "name": "Fusil à impulsion", "stat": "rate", "val": 0.12},
@@ -157,6 +160,20 @@ const ITEMS := [
 	{"id": "jambieres", "slot": "jambes", "name": "Jambières de garde", "stat": "hp", "val": 8.0},
 	{"id": "pile", "slot": "gadget", "name": "Pile de secours", "stat": "energy", "val": 0.15},
 	{"id": "aimant", "slot": "gadget", "name": "Aimant à ferraille", "stat": "pickup", "val": 0.5},
+	# Nébuleuse 7 : matériel de quai Hélix Fret (bleu acier, orange)
+	{"id": "riveteuse", "slot": "arme", "name": "Riveteuse", "stat": "dmg", "val": 0.11, "world": "n7"},
+	{"id": "pince", "slot": "arme2", "name": "Pince de fret", "stat": "pickup", "val": 0.4, "world": "n7"},
+	{"id": "casque_docker", "slot": "tete", "name": "Casque de docker", "stat": "range", "val": 0.08, "world": "n7"},
+	{"id": "gilet_fret", "slot": "torse", "name": "Gilet de fret", "stat": "energy", "val": 0.12, "world": "n7"},
+	{"id": "amortisseurs", "slot": "jambes", "name": "Amortisseurs", "stat": "hp", "val": 9.0, "world": "n7"},
+	{"id": "reservoir", "slot": "gadget", "name": "Réservoir à plasma", "stat": "rate", "val": 0.1, "world": "n7"},
+	# Cité Néon : cyberpunk mignon (rose, bleu)
+	{"id": "pistolet_neon", "slot": "arme", "name": "Pistolet à rayons", "stat": "rate", "val": 0.11, "world": "neon"},
+	{"id": "antenne", "slot": "arme2", "name": "Antenne pirate", "stat": "range", "val": 0.1, "world": "neon"},
+	{"id": "oreilles_chat", "slot": "tete", "name": "Oreilles de chat", "stat": "pickup", "val": 0.45, "world": "neon"},
+	{"id": "echarpe", "slot": "torse", "name": "Écharpe fétiche", "stat": "crit", "val": 0.05, "world": "neon"},
+	{"id": "patins", "slot": "jambes", "name": "Patins néon", "stat": "speed", "val": 0.09, "world": "neon"},
+	{"id": "ailes", "slot": "gadget", "name": "Petites ailes", "stat": "speed", "val": 0.07, "world": "neon"},
 ]
 
 static func item_template(id: String) -> Dictionary:
