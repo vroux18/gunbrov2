@@ -119,7 +119,7 @@ var cleared := false
 var kills := 0
 var tickets := 0
 var energy := 0.0
-const ENERGY_SCALE := 1.45  # vagues moins nombreuses : chaque kill vaut plus, le rythme des pouvoirs reste le même
+const ENERGY_SCALE := 1.3  # vagues moins nombreuses : chaque kill vaut plus, le rythme des pouvoirs reste le même
 var energy_need := 10.0
 var energy_level := 0
 var boss: Node2D = null
@@ -263,7 +263,7 @@ func start_room(r: int, mod: String) -> void:
 	running = true
 	cleared = false
 	# difficulté : les ennemis gagnent 20 % de PV par salle, et chaque monde repart plus haut (+40 %)
-	hp_scale = (1.0 + (r - 1) * 0.2) * (1.0 + 0.4 * Data.world)
+	hp_scale = (1.0 + (r - 1) * 0.24) * (1.0 + 0.4 * Data.world)
 	# tourelles et drones des pouvoirs, replacés à chaque salle
 	turrets.clear()
 	allies.clear()
