@@ -286,9 +286,9 @@ func _build_relais_panel() -> void:
 	halo.show_behind_parent = true
 	go.add_child(halo)
 	go.resized.connect(func():
-		halo.size = go.size * Vector2(1.35, 2.6)
+		halo.size = go.size * Vector2(1.3, 3.0)
 		halo.position = (go.size - halo.size) * 0.5)
-	Fx.pulse(halo, 0.25, 0.7, 1.4)
+	Fx.pulse(halo, 0.55, 1.0, 1.4)
 	Fx.shine(go, 560.0, 2.4, 0.45)
 	var chev := Control.new()
 	chev.mouse_filter = Control.MOUSE_FILTER_IGNORE

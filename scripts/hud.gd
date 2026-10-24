@@ -40,6 +40,7 @@ var _tk_int := 0
 var _energy_last := 0.0
 var _energy_pop := 0.0
 var _t := 0.0
+var _intro := 0.0  # 1 au début d'une partie : le HUD glisse depuis le haut
 var _c: Control
 var _pause: Button
 var _ins := {"left": 24.0, "right": 24.0, "top": 14.0, "bottom": 12.0}
@@ -111,6 +112,7 @@ func flash(text: String, t: float = 2.2, col: Color = Color.WHITE) -> void:
 
 func _process(dt: float) -> void:
 	_t += dt
+	_intro = maxf(0.0, _intro - dt * 2.2)
 	_ins_t -= dt
 	if _ins_t <= 0.0:
 		_ins_t = 1.0
@@ -150,6 +152,7 @@ func snap() -> void:
 	_hp_ghost = hp
 	_hp_last = hp
 	_energy_last = energy
+	_intro = 1.0
 
 # ---------------------------------------------------------------- primitives
 func _rr(r: Rect2, col: Color, radius: float, border: float = 0.0, border_col: Color = Color.BLACK) -> void:
@@ -226,7 +229,7 @@ func _draw_hud() -> void:
 	var H := _c.size.y
 	var L: float = _ins["left"]
 	var R: float = W - float(_ins["right"])
-	var T: float = _ins["top"]
+	var T: float = float(_ins["top"]) - 120.0 * _intro * _intro  # entrée : le bandeau descend
 	# voile rouge (coup reçu, vie basse)
 	var low := hp < 0.3
 	var v := hurt
