@@ -325,7 +325,7 @@ var fxs: Fx3D  # réserves d'effets (scripts/fx/fx3d.gd)
 var _last_hit := {}  # id d'instance de l'ennemi -> [direction du dernier coup (Vector3), heure]
 var _shells: Array = []  # obus du mortier en vol : [point d'arrivée (Vector2), heure d'arrivée]
 var _fx_room := -1
-var _fx_frame := 0
+var _fx_el := 0.0
 var _markers: Array = []  # nœuds recyclés : zones d'impact du mortier
 var _lobs: Array = []  # nœuds recyclés : obus en vol
 
@@ -856,14 +856,14 @@ func _spawn_column(pos: Vector3, col: Color, h: float, life: float) -> void:
 	fxs.column(pos, col, h, life)
 
 func _tick_fx(dt: float) -> void:
-	# changement de salle, ou retour en partie après le Relais : les effets en cours disparaissent
-	var fr := Engine.get_process_frames()
-	if arena.room != _fx_room or fr - _fx_frame > 3:
+	# changement de salle, ou nouvelle partie (le chrono de l'arène repart de zéro) : les effets en cours
+	# disparaissent ; une pause (écran de choix) ne touche à rien
+	if arena.room != _fx_room or arena.elapsed < _fx_el:
 		fxs.clear()
 		_shells.clear()
 		_last_hit.clear()
 	_fx_room = arena.room
-	_fx_frame = fr
+	_fx_el = arena.elapsed
 	fxs.tick(dt)
 	fxs.tick_dying(dying)
 	fxs.trail_end()

@@ -26,7 +26,7 @@ const ACCENT := {
 	"bomber": Color("#FF9A3C"), "sniper": Color("#9A7BFF"), "shield": Color("#FF8A2A"), "mortar": Color("#9BE15D"),
 }
 const WHITE_HOT := Color(1.0, 0.96, 0.85)
-const FIRE_HOT := Color(2.3, 1.55, 0.6)
+const FIRE_HOT := Color(2.1, 1.4, 0.5)
 const FIRE_COOL := Color(0.75, 0.16, 0.05)
 const GOLD := Color("#FFB347")
 
@@ -60,7 +60,7 @@ func setup(v: Node3D) -> void:
 	prism.size = Vector3(1, 1, 1)
 	debris = FxPool.new(self, prism, load("res://shaders/fx_debris.gdshader"), 320, {}, 0)
 	# feu en fondu (pas additif) : les bouffées gardent leur forme ronde au lieu de saturer en blanc
-	fire = FxPool.new(self, quad, mix_sh, 256, {"tex": puff, "fade_pow": 1.1, "spin": 2.0, "energy": 1.0, "shade": 0.55}, 1)
+	fire = FxPool.new(self, quad, mix_sh, 256, {"tex": puff, "fade_pow": 1.8, "spin": 2.0, "energy": 1.0, "shade": 0.55}, 1)
 	trail = FxPool.new(self, quad, add_sh, 480, {"tex": radial, "energy": 1.0}, 1, true)
 	glow = FxPool.new(self, quad, add_sh, 1024, {"tex": radial, "energy": 1.0, "fade_pow": 1.2}, 2)
 	star = FxPool.new(self, quad, add_sh, 64, {"tex": load("res://assets/fx/star.png"), "energy": 1.0, "fade_pow": 1.5, "spin": 1.5}, 3)
@@ -235,8 +235,8 @@ func explosion(pos: Vector3, r: float, col: Color, big: bool = false, delay: flo
 	var g := Vector3(pos.x, 0.0, pos.z)
 	# `front` : le feu avance vers la caméra pour ne pas se cacher dans un gros modèle
 	var fc := g + UP * h + Vector3(0, 0, front)
-	flash(fc + UP * 0.15, WHITE_HOT, r * 1.8, 0.1, delay)
-	flash(fc, col, r * 2.8, 0.25, delay)
+	flash(fc + UP * 0.15, WHITE_HOT, r * 1.5, 0.09, delay)
+	flash(fc, col, r * 2.6, 0.22, delay)
 	fireball(fc, r, 14 if big else 9, delay)
 	smoke_puffs(fc - UP * 0.05, r, 10 if big else 6, 1.5 if big else 1.2, delay + 0.12)
 	wave(g + UP * 0.06, UP, col, r * 0.5, r * 2.8, 0.4, 0.22, 0, 0.35, delay)
@@ -251,8 +251,8 @@ func explosion(pos: Vector3, r: float, col: Color, big: bool = false, delay: flo
 func crater(pos: Vector3, r: float) -> void:
 	var g := Vector3(pos.x, 0.0, pos.z)
 	var lime := Color("#B8F06A")
-	flash(g + UP * 0.5, Color(0.95, 1.0, 0.8), r * 2.4, 0.1)
-	flash(g + UP * 0.4, lime, r * 3.0, 0.25)
+	flash(g + UP * 0.5, Color(0.95, 1.0, 0.8), r * 1.5, 0.08)
+	flash(g + UP * 0.4, lime, r * 2.2, 0.2)
 	fireball(g + UP * 0.35, r * 0.8, 6, 0.0, Color(2.2, 2.1, 1.0), Color(0.7, 0.3, 0.05))
 	wave(g + UP * 0.06, UP, lime, r * 0.5, r * 2.5, 0.35, 0.2, 0, 0.3)
 	wave(g + UP * 0.05, UP, lime, r * 2.8, r * 2.8, 0.3, 0.0, 2)
@@ -262,7 +262,7 @@ func crater(pos: Vector3, r: float) -> void:
 	# le cratère fume : bouffées qui s'échappent une à une pendant ~1,4 s
 	for k in range(7):
 		var off := Vector3(randf_range(-0.3, 0.3), 0.2, randf_range(-0.3, 0.3)) * r
-		_p(smoke, g + off, Vector3(randf_range(-0.2, 0.2), randf_range(0.5, 0.9), randf_range(-0.2, 0.2)), randf_range(0.9, 1.3), 0.0, r * 0.35, r * 1.1, 1.0, Color(0.45, 0.42, 0.42, 0.7), Color(0.32, 0.33, 0.42), 0.0, 0.1 + k * 0.2)
+		_p(smoke, g + off, Vector3(randf_range(-0.2, 0.2), randf_range(0.6, 1.0), randf_range(-0.2, 0.2)), randf_range(1.0, 1.4), 0.0, r * 0.5, r * 1.5, 1.0, Color(0.55, 0.52, 0.5, 0.85), Color(0.42, 0.43, 0.52), 0.0, 0.1 + k * 0.18)
 	embers(g + UP * 0.1, 6, 1.0, Color(1.0, 0.75, 0.3), Color(0.8, 0.2, 0.05), 1.4, r * 0.5, 0.1)
 
 ## Mort d'un ennemi, propre à chaque genre. `dir` : sens du dernier coup reçu (les débris partent avec).
@@ -271,12 +271,13 @@ func death(kind: String, pos: Vector3, dir: Vector3, elite: bool) -> void:
 	var acc: Color = ACCENT.get(kind, Color("#FF4D6D"))
 	if elite:
 		pal = pal + [GOLD]
-	var c := pos + UP * 0.6
+	# éclairs et feu un peu devant le modèle (vers la caméra), sinon la coque les cache
+	var c := pos + UP * 0.6 - _cam_fwd() * 0.45
 	match kind:
 		"drone":
-			flash(c, WHITE_HOT, 1.2, 0.1)
-			flash(c, acc, 2.0, 0.22)
-			fireball(c, 0.35, 4)
+			flash(c, WHITE_HOT, 1.6, 0.1)
+			flash(c, acc, 2.4, 0.24)
+			fireball(c, 0.5, 6)
 			sparks(c, dir + UP * 0.3, 9, 9.0, 0.7, Color(1, 0.95, 0.85), acc, 0.3)
 			chunks(c, pal, 5, 4.5, dir, 0.1, 0.4)
 			wave(pos + UP * 0.05, UP, acc, 0.3, 1.8, 0.3, 0.14)

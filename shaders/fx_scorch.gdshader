@@ -43,7 +43,7 @@ void fragment() {
 	float fade = 1.0 - smoothstep(0.55, 1.0, x);
 	float dens = smoothstep(0.05, 0.6, t.a);
 	// braises : anneau chaud irrégulier près du centre, qui s'éteint vite
-	float hot = v_prm.y * pow(max(0.0, 1.0 - x * 2.2), 1.5);
+	float hot = v_prm.y * pow(max(0.0, 1.0 - x * 3.0), 1.5);
 	float emb = hot * smoothstep(0.75, 0.2, r) * (0.4 + 0.6 * t.r) * smoothstep(0.3, 0.8, t.a);
 	ALBEDO = mix(v_col.rgb * (0.7 + 0.3 * t.r), v_emb.rgb, clamp(emb, 0.0, 1.0));
 	ALPHA = clamp(dens * v_col.a * fade + emb * 0.5, 0.0, 1.0);
