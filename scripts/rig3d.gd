@@ -271,12 +271,31 @@ func apply_skin() -> void:
 			_skin_orig[m] = m.material_override
 		keep[m] = _skin_orig.get(m)
 		var orig = keep[m]
+		if not hero_skin.is_empty() and orig is ShaderMaterial and (orig as ShaderMaterial).shader == _char_shader:
+			m.material_override = _skin_body_mat(orig, String(m.name) == "head")
+			continue
 		if hero_skin.is_empty() or not (orig is StandardMaterial3D):
 			m.material_override = orig
 			continue
 		var glow := (orig as StandardMaterial3D).shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED
 		m.material_override = _skin_mat(orig, glow, String(m.name) == "head")
 	_skin_orig = keep
+
+## Corps au rendu premium (shaders/character.gdshader) : même matériau, remappage des couleurs activé.
+static func _skin_body_mat(orig: ShaderMaterial, head: bool) -> ShaderMaterial:
+	var key := "body|%s|%d|%d" % [String(hero_skin.get("id", "")), int(head), orig.get_instance_id()]
+	if _skin_mats.has(key):
+		return _skin_mats[key]
+	var sm := orig.duplicate() as ShaderMaterial
+	sm.set_meta("skin", true)
+	sm.set_shader_parameter("skin_on", 1.0)
+	for k in [["suit", "suit"], ["accent", "accent"], ["light", "lit_col"]]:
+		var c: Color = hero_skin[k[0]]
+		sm.set_shader_parameter(k[1], Vector3(c.r, c.g, c.b))
+	sm.set_shader_parameter("rainbow", 1.0 if bool(hero_skin.get("rainbow", false)) else 0.0)
+	sm.set_shader_parameter("suit_on", 0.0 if head else 1.0)
+	_skin_mats[key] = sm
+	return sm
 
 static func _skin_mat(orig: StandardMaterial3D, glow: bool, head: bool) -> ShaderMaterial:
 	var key := "%s|%d|%d|%d" % [String(hero_skin.get("id", "")), int(glow), int(head), orig.get_instance_id()]
@@ -344,9 +363,11 @@ func gesture(i: int) -> void:
 ## quand un ennemi ou une caisse passe devant elle (tampon de stencil, sur les masses seulement : tête, torse,
 ## jambes), voile de coup teinté.
 const XRAY_PARTS := ["torso", "head", "leg_r", "leg_l"]
-var _hero_mat: StandardMaterial3D = null
+## Le matériau de Jo est une copie de body_mat() (shaders/character.gdshader) ; son liseré turquoise
+## remplace le contour sombre commun (next_pass) : un seul contour, pas deux.
+var _hero_mat: ShaderMaterial = null
 func make_hero(outline: Color, width: float, hurt: Color) -> void:
-	_hero_mat = (body_mat(Color(1, 1, 1)).duplicate() as StandardMaterial3D)
+	_hero_mat = body_mat(Color(1, 1, 1)).duplicate() as ShaderMaterial
 	var xray_mat := _hero_mat
 	if width > 0.0:
 		var ol := StandardMaterial3D.new()
