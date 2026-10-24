@@ -2,8 +2,8 @@ extends RefCounted
 ## Monde 2 — Cité Néon : obstacles du toit-terrasse (BOXES) et leur habillage, accessoires non bloquants
 ## le long des parapets ouest, est et sud ou à plat au sol. Appelé par neon_world.gd (build) avec la vue `v`.
 ## Modèles sculptés en SDF : tools/decor/neon_props.py -> assets/decor/neon/props/*.glb (couleurs par sommet,
-## marquages sur la planche decals.png). Tout le décor statique part dans le lot de la vue (v._batch : un
-## MultiMesh par maillage). Les hélices des climatiseurs tournent dans le shader (aucun nœud animé).
+## marquages sur la planche decals.png). Tout le décor statique part dans le lot de la vue (v._batch, fusionné
+## par matériau). Les hélices des climatiseurs tournent dans le shader (aucun nœud animé).
 
 const Models = preload("res://scripts/models.gd")
 const PR := "res://assets/decor/neon/props/"
@@ -158,6 +158,9 @@ static func _body(key: String, spin: float = 0.0, spin_z: bool = false) -> Mater
 		m.set_shader_parameter("noise", load(NOISE))
 		m.set_shader_parameter("spin", spin)
 		m.set_shader_parameter("spin_z", spin_z)
+		# hélice : le moyeu est l'origine de l'instance, elle garde son MultiMesh ; sinon le lot peut la fusionner
+		# (view3d._flush_batch : MODEL_MATRIX[3] n'est lu que si spin != 0)
+		m.set_meta("per_instance", spin != 0.0)
 		_mats[key] = m
 	return _mats[key]
 
@@ -248,7 +251,7 @@ static func _collect(n: Node, xf: Transform3D, out: Array) -> void:
 		if c is Node3D:
 			_collect(c, xf * (c as Node3D).transform, out)
 
-## Pose un modèle dans le lot statique de la vue (un MultiMesh par maillage, ombres projetées) ; les objets
+## Pose un modèle dans le lot statique de la vue (fusionné par matériau, voir view3d._flush_batch) ; les objets
 ## à plat (flaques, graffitis, plaques d'égout) vont dans un lot sans ombre, monté à la fin de build().
 static func put(v: Node, name: String, pos: Vector3, rot: float, scl: Vector3 = Vector3.ONE, box_i: int = -1) -> void:
 	var xf := Transform3D(Basis(Vector3.UP, rot) * Basis.from_scale(scl), pos)

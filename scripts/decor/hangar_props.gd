@@ -131,7 +131,7 @@ static func _collect(n: Node, xf: Transform3D, out: Array) -> void:
 		if c is Node3D:
 			_collect(c, xf * (c as Node3D).transform, out)
 
-## Pose un modèle dans le lot statique de la vue (un MultiMesh par maillage, ombres projetées).
+## Pose un modèle dans le lot statique de la vue (fusionné par matériau, voir view3d._flush_batch).
 static func put(v: Node, name: String, pos: Vector3, rot: float, scl: Vector3 = Vector3.ONE) -> void:
 	var xf := Transform3D(Basis(Vector3.UP, rot) * Basis.from_scale(scl), pos)
 	for part in parts(name):

@@ -129,7 +129,7 @@ static func _collect(n: Node, xf: Transform3D, out: Array) -> void:
 	for c in n.get_children():
 		_collect(c, here, out)
 
-## Objet statique : ajouté au lot (un MultiMesh par maillage pour tout le décor).
+## Objet statique : ajouté au lot (fusionné par matériau, voir view3d._flush_batch).
 static func put(v: Node, name: String, pos: Vector3, rot_y: float = 0.0, scl: float = 1.0) -> void:
 	put_xf(v, name, Transform3D(Basis(Vector3.UP, rot_y) * Basis.from_scale(Vector3.ONE * scl), pos))
 

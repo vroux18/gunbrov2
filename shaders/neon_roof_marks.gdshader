@@ -47,7 +47,11 @@ void fragment() {
 	float deep = smoothstep(0.25, 0.75, water);
 	vec3 alb = p.rgb * paint_gain * mix(1.0, 0.35, deep) * (1.0 - mc.b * 0.3);
 	alb = mix(alb, vec3(0.06), clamp(mc.g * 0.4, 0.0, 0.6));
-	vec2 slope = nr_ripples(wpos.xz, t) * deep;
+	vec2 slope = vec2(0.0);
+	if (deep > 0.0) {
+		// gouttes : seulement dans l'eau
+		slope = nr_ripples(wpos.xz, t) * deep;
+	}
 	vec3 nw = normalize(vec3(-slope.x, 1.0, -slope.y));
 	float rough = mix(0.32, 0.035, smoothstep(0.08, 0.5, water));
 	vec3 v = normalize(CAMERA_POSITION_WORLD - wpos);
@@ -58,7 +62,13 @@ void fragment() {
 	ROUGHNESS = rough;
 	METALLIC = 0.0;
 	NORMAL = normalize((VIEW_MATRIX * vec4(nw, 0.0)).xyz);
-	EMISSION = nl_lights(wpos, nw, v, alb, 1.0 - rough, rough, t) + nl_reflect(wpos, nw, v, rough, t) * rk;
+	// hors de la peinture (alpha nul) : pas de lumière des tubes à calculer ; le reflet reste hors de toute
+	// branche (ses dérivées d'écran choisissent le niveau de mip)
+	vec3 lit = vec3(0.0);
+	if (a > 0.0) {
+		lit = nl_lights(wpos, nw, v, alb, 1.0 - rough, rough, t);
+	}
+	EMISSION = lit + nl_reflect(wpos, nw, v, rough, t) * rk;
 }
 
 uniform float sun_gain = 1.0;
