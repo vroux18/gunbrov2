@@ -536,12 +536,12 @@ func _on_ev(d: Dictionary) -> void:
 		"start":
 			if not is_guest():
 				return
+			if main.state == "arena" or main.overlay != null:
+				main._end_run(false)  # encore sur l'écran de fin : le butin est gardé, on repart
 			start_info = d
 			world_override = int(d.get("world", 0))
 			run_id = int(d.get("run", 0))
 			partner_items = d.get("items", partner_items)
-			if main.state == "arena" or main.overlay != null:
-				main._end_run(false)
 			_starting = true
 			main.state = "base"
 			phase = "run"
