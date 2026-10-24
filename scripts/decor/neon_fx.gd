@@ -67,36 +67,46 @@ static func _mist(level: Node3D, W: float, H: float) -> void:
 		[Vector3(-0.7, -2.0, (zn + H) * 0.5), Vector2(H - zn + 6.0, 6.0), pink, 0.14, "x", 8.0],
 		[Vector3(W + 0.7, -2.0, (zn + H) * 0.5), Vector2(H - zn + 6.0, 6.0), blue, 0.14, "x", 9.0],
 		[Vector3(W * 0.5, -2.0, H + 0.7), Vector2(W + 6.0, 6.0), violet, 0.14, "z", 10.0],
-		[Vector3(1.2, 0.18, (zn + H) * 0.5), Vector2(1.8, H - zn - 0.6), pink, 0.07, "", 11.0],
-		[Vector3(W - 1.2, 0.18, (zn + H) * 0.5), Vector2(1.8, H - zn - 0.6), blue, 0.07, "", 12.0],
-		[Vector3(W * 0.5, 0.18, H - 1.0), Vector2(W - 2.0, 1.6), violet, 0.06, "", 13.0],
+		[Vector3(1.2, 0.18, (zn + H) * 0.5), Vector2(1.8, H - zn - 0.6), pink, 0.12, "", 11.0],
+		[Vector3(W - 1.2, 0.18, (zn + H) * 0.5), Vector2(1.8, H - zn - 0.6), blue, 0.12, "", 12.0],
+		[Vector3(W * 0.5, 0.18, H - 1.0), Vector2(W - 2.0, 1.6), violet, 0.1, "", 13.0],
 	]
+	# un seul maillage (un appel de dessin) : COLOR = teinte * énergie, UV2 = échelle du bruit,
+	# CUSTOM0 = graine, fondu vers le haut (quads debout), largeur du fondu des bords
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_custom_format(0, SurfaceTool.CUSTOM_RGBA_FLOAT)
 	for q in quads:
-		var m := _shader_mat("res://shaders/neon_mist.gdshader")
 		var sz: Vector2 = q[1]
 		var c: Color = q[2]
-		m.set_shader_parameter("tint", Vector3(c.r, c.g, c.b))
-		m.set_shader_parameter("energy", q[3])
-		m.set_shader_parameter("seed", q[5])
-		m.set_shader_parameter("scale", Vector2(maxf(sz.x / 3.0, 1.0), maxf(sz.y / 3.0, 1.0)))
-		var mi := MeshInstance3D.new()
+		var e: float = q[3]
 		var axis: String = q[4]
+		var p: Vector3 = q[0]
+		var u: Vector3
+		var w: Vector3
 		if axis == "":
-			var pm := PlaneMesh.new()
-			pm.size = sz
-			mi.mesh = pm
+			u = Vector3(sz.x * 0.5, 0, 0)
+			w = Vector3(0, 0, sz.y * 0.5)
+		elif axis == "x":
+			u = Vector3(0, 0, sz.x * 0.5)
+			w = Vector3(0, -sz.y * 0.5, 0)
 		else:
-			var qm := QuadMesh.new()
-			qm.size = sz
-			mi.mesh = qm
-			m.set_shader_parameter("rise", 1.0)
-			m.set_shader_parameter("edge", 0.18)
-			if axis == "x":
-				mi.rotation.y = PI * 0.5
-		mi.material_override = m
-		mi.position = q[0]
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		level.add_child(mi)
+			u = Vector3(sz.x * 0.5, 0, 0)
+			w = Vector3(0, -sz.y * 0.5, 0)
+		var corners := [p - u - w, p + u - w, p + u + w, p - u + w]
+		var uvs := [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
+		for k in [0, 1, 2, 0, 2, 3]:
+			st.set_color(Color(c.r * e, c.g * e, c.b * e, 1.0))
+			st.set_uv(uvs[k])
+			st.set_uv2(Vector2(maxf(sz.x / 3.0, 1.0), maxf(sz.y / 3.0, 1.0)))
+			st.set_custom(0, Color(q[5], 0.0 if axis == "" else 1.0, 0.25 if axis == "" else 0.18, 0.0))
+			st.set_normal(Vector3.UP)
+			st.add_vertex(corners[k])
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = _shader_mat("res://shaders/neon_mist.gdshader")
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	level.add_child(mi)
 
 ## Drones-taxis : un MultiMesh, trajectoires dans le vide (sous le niveau du toit) et dans la faille au nord.
 static func _flyers(level: Node3D, W: float, H: float) -> void:
@@ -104,10 +114,11 @@ static func _flyers(level: Node3D, W: float, H: float) -> void:
 	var mesh: Mesh = (scn.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D).mesh
 	scn.free()
 	var m := _shader_mat("res://shaders/neon_flyer.gdshader")
-	m.set_shader_parameter("body_tints", [Vector3(0.95, 0.72, 0.15), Vector3(0.95, 0.25, 0.6), Vector3(0.2, 0.8, 0.85), Vector3(0.85, 0.85, 0.9)])
+	m.set_shader_parameter("body_tints", PackedVector3Array([Vector3(0.95, 0.72, 0.15), Vector3(0.95, 0.25, 0.6), Vector3(0.2, 0.8, 0.85), Vector3(0.85, 0.85, 0.9)]))
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_custom_data = true
+	mm.use_colors = true
 	mm.mesh = mesh
 	# [milieu, cap (rad), vitesse, longueur, phase, teinte, échelle]
 	var paths := [
@@ -125,6 +136,7 @@ static func _flyers(level: Node3D, W: float, H: float) -> void:
 		var b := Basis(Vector3.UP, float(p[1])) * Basis.from_scale(Vector3.ONE * float(p[6]))
 		mm.set_instance_transform(i, Transform3D(b, p[0]))
 		mm.set_instance_custom_data(i, Color(float(p[2]) / float(p[6]), float(p[3]) / float(p[6]), p[4], p[5]))
+		mm.set_instance_color(i, Color.WHITE)
 	mesh.surface_set_material(0, m)
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm

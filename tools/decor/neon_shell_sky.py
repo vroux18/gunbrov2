@@ -95,8 +95,8 @@ def main():
     # sous l'horizon : brume rose de la ville, scintillements
     below = smoothstep(0.5, 0.56, v)
     haze = (srgb("#3a1648") ** 2.2) * (1 - smoothstep(0.5, 1.0, v))[..., None] + srgb("#120818") ** 2.2 * smoothstep(0.5, 1.0, v)[..., None]
-    dots = (blur_noise(PH, PW, 0.7, 807) > 2.3) & (v > 0.52)
-    haze = haze + dots[..., None] * (srgb("#ffb0d8") ** 2.2) * 0.5
+    dots = (blur_noise(PH, PW, 0.7, 807) > 3.0) & (v > 0.52)
+    haze = haze + dots[..., None] * (srgb("#ffb0d8") ** 2.2) * 0.18 * (1 - smoothstep(0.5, 0.8, v))[..., None]
     sky = sky * (1 - below[..., None]) + haze * below[..., None]
     # faisceaux de projecteurs
     for (a0, sp) in ((-0.9, 0.12), (1.3, -0.08), (2.6, 0.1)):

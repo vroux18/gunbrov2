@@ -77,7 +77,8 @@ def build_layout():
 
     fixed = [(HATCH, 9, 4), (HATCH, 25, 10), (SKY, 4, 5), (SKY, 26, 6), (SKY, 18, 12), (GRATE, 12, 9),
              (GRATE, 27, 2), (GRATE, 6, 11), (PLATE, 21, 4), (PLATE, 8, 2), (PLATE, 14, 6), (DRAIN, 10, 10),
-             (DRAIN, 21, 11), (DRAIN, 24, 5), (DRAIN, 7, 7), (DRAIN, 15, 3)]
+             (DRAIN, 21, 11), (DRAIN, 24, 5), (DRAIN, 7, 7), (DRAIN, 15, 3), (SKY, 12, 13), (SKY, 28, 9),
+             (GRATE, 2, 4), (PLATE, 23, 13), (DRAIN, 3, 12), (DRAIN, 28, 12)]
     for k, c, r in fixed:
         w, h = KIND_CELLS[k]
         if free(c, r, w, h) and not near_heli(c, r, w, h):
@@ -89,8 +90,13 @@ def build_layout():
                 continue
             if memb[r, c]:
                 put(c, r, 1, 1, MEMB, 1)
-            else:
-                put(c, r, 1, 1, SLAB, 0)
+                continue
+            # dalles de tailles mêlées : 1 x 1, 2 x 1, 1 x 2, 2 x 2
+            u = R.random()
+            w, h = (1, 1) if u < 0.5 else ((2, 1) if u < 0.7 else ((1, 2) if u < 0.85 else (2, 2)))
+            while (w > 1 or h > 1) and not (free(c, r, w, h) and not memb[r:r + h, c:c + w].any()):
+                w, h = (1, h) if w > 1 else (w, 1)
+            put(c, r, w, h, SLAB, 0)
     # données par pièce : graine, variante (0 d'origine, 1 refaite, 2 fissurée, 3 écornée)
     for p in panels:
         p.append(int(R.integers(0, 256)))

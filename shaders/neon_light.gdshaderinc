@@ -97,23 +97,38 @@ vec3 nl_reflect(vec3 wp, vec3 n, vec3 v, float rough, float t) {
 	vec3 sky = textureLod(sky_tex, suv, slod).rgb * sky_gain * mix(1.8, 1.0, smoothstep(0.05, 0.3, rough));
 	vec4 fm = textureLod(facade_tex, uv, lod);
 	vec3 fc = fm.rgb * facade_gain;
-	if (lod < 2.5) {
-		vec4 sc = ns_screens(h.xy, t);
-		fc = mix(fc, sc.rgb * facade_gain, sc.a * (1.0 - lod / 2.5));
+	// écrans : contenu animé net dans les miroirs, teinte de la scène en cours dans les reflets flous
+	for (int i = 0; i < 4; i++) {
+		vec4 rr = ns_rect[i];
+		float pad = 0.3 + lod * 0.25;
+		vec2 q = max(max(rr.xy - h.xy, h.xy - rr.zw), vec2(0.0));
+		float inr = 1.0 - smoothstep(0.0, pad, length(q));
+		if (inr > 0.0) {
+			vec3 sc = lod < 2.5 ? mix(ns_screen(i, clamp((h.xy - rr.xy) / (rr.zw - rr.xy), 0.0, 1.0), t), ns_screen_avg(i, t), lod / 2.5) : ns_screen_avg(i, t);
+			fc = mix(fc, sc * facade_gain, inr * mix(1.0, 0.7, clamp(lod / 2.5, 0.0, 1.0)));
+		}
 	}
 	float on = r.z < -0.02 ? fm.a : 0.0;
 	vec3 col = mix(sky, fc, on);
 	// reflet flou (béton mouillé) : moins saturé, la couleur reste aux flaques
 	float lum = dot(col, vec3(0.3, 0.55, 0.15));
-	col = mix(col, vec3(lum) * vec3(0.8, 0.85, 1.0), smoothstep(0.1, 0.45, rough) * 0.65);
+	col = mix(col, vec3(lum) * vec3(0.78, 0.86, 1.0), smoothstep(0.08, 0.35, rough) * 0.8);
 	// tubes des parapets : traits lumineux étirés dans l'eau
 	for (int i = 0; i < 8; i++) {
 		vec4 sc = strip_col[i];
 		if (sc.r + sc.g + sc.b <= 0.0) {
 			continue;
 		}
+		// tubes trop loin : rien à refléter (évite le calcul pour la plupart des pixels)
+		vec3 sa = strip_a[i];
+		vec3 sb = strip_b[i];
+		vec3 lo = min(sa, sb) - vec3(7.0);
+		vec3 hi = max(sa, sb) + vec3(7.0);
+		if (wp.x < lo.x || wp.x > hi.x || wp.z < lo.z || wp.z > hi.z) {
+			continue;
+		}
 		float s;
-		float d = nl_ray_seg(wp, r, strip_a[i], strip_b[i], s);
+		float d = nl_ray_seg(wp, r, sa, sb, s);
 		float wdt = 0.018 + rough * rough * s * 1.6;
 		col += sc.rgb * strip_energy * exp(-(d * d) / (wdt * wdt)) * (0.035 / wdt) * nl_buzz(sc.a, t);
 	}
@@ -130,6 +145,11 @@ vec3 nl_lights(vec3 wp, vec3 n, vec3 v, vec3 dif, float spec_k, float rough, flo
 		}
 		vec3 a = strip_a[i];
 		vec3 b = strip_b[i];
+		vec3 lo = min(a, b) - vec3(strip_range * 2.5);
+		vec3 hi = max(a, b) + vec3(strip_range * 2.5);
+		if (wp.x < lo.x || wp.x > hi.x || wp.z < lo.z || wp.z > hi.z) {
+			continue;
+		}
 		vec3 u = b - a;
 		float L = length(u);
 		u /= L;

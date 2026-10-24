@@ -75,13 +75,14 @@ void fragment() {
 		rough = 0.4;
 	} else if (a == 3) {
 		int si = int(anim.y * 4.0);
-		vec3 sc = ns_screen(si, UV, t);
+		vec2 suv = vec2(UV.x, 1.0 - UV.y);  // le quad a v vers le bas
+		vec3 sc = ns_screen(si, suv, t);
 		// trame de pixels et léger vignetage
 		vec4 r = ns_rect[si];
 		vec2 px = UV * (r.zw - r.xy) * 22.0;
 		vec2 g = abs(fract(px) - 0.5);
 		float grid = 0.78 + 0.22 * (1.0 - smoothstep(0.38, 0.5, max(g.x, g.y)));
-		float vig = 1.0 - 0.35 * pow(length(UV - 0.5) * 1.4, 3.0);
+		float vig = 1.0 - 0.35 * pow(length(suv - 0.5) * 1.4, 3.0);
 		em = sc * grid * vig * 1.35;
 		alb = vec3(0.01);
 		rough = 0.15;

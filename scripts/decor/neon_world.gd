@@ -61,7 +61,7 @@ static func env(v: Node) -> void:
 	var sun: DirectionalLight3D = v.sun
 	# lune au nord, haute : ombres portées vers le sud
 	sun.rotation_degrees = Vector3(-52, 180, 0)
-	sun.light_color = Color(0.62, 0.66, 1.0)
+	sun.light_color = Color(0.7, 0.75, 0.95)
 	sun.light_energy = 0.7
 
 ## Lumière de la façade : prend la couleur de la scène en cours sur l'écran géant (même suite que

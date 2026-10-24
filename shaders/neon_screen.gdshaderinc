@@ -130,6 +130,13 @@ vec4 ns_screens(vec2 xy, float t) {
 	return vec4(0.0);
 }
 
+// teinte moyenne d'un écran (reflets flous) : couleur de la scène en cours
+vec3 ns_screen_avg(int i, float t) {
+	vec4 m = ns_mode[i];
+	vec3 c = m.x < 0.5 ? ns_pal(m.y * 3.0 + floor(t / 7.0 + m.y)) : ns_pal(floor(t * 0.9));
+	return (c * 0.16 + NS_VIOLET * 0.08 + vec3(0.03)) * m.z;
+}
+
 // lueur moyenne des écrans bas (0 et 1) vue depuis le toit à l'abscisse x (couleur de la scène en cours)
 vec3 ns_screen_glow(float x, float t) {
 	vec3 acc = vec3(0.0);

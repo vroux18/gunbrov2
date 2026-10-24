@@ -21,7 +21,7 @@ uniform float wet_dark = 0.62;
 uniform float refl_wet = 0.06;
 uniform float refl_water = 0.42;
 uniform vec3 sky_glow : source_color = vec3(1.0, 0.75, 0.5);
-uniform float sky_energy = 1.6;
+uniform float sky_energy = 0.25;
 uniform vec3 pad_col : source_color = vec3(0.6, 1.0, 0.35);
 uniform float ripple_k = 1.0;
 
@@ -82,14 +82,22 @@ void fragment() {
 	if (slab) {
 		// béton : teinte par dalle, dalles refaites plus claires, fissures, coins écornés
 		vec3 base = variant == 1 ? conc_b : conc_a;
-		alb = base * (0.66 + 0.5 * h1) * (0.62 + 0.76 * dt.r);
+		// teinte propre à chaque dalle : plus ou moins claire, un peu plus chaude ou plus froide
+		float h2 = hash1(fs + 17.0);
+		base *= mix(vec3(0.94, 0.97, 1.06), vec3(1.06, 1.0, 0.92), h2);
+		alb = base * (0.6 + 0.6 * h1) * (0.25 + 1.5 * dt.r);
+		// arêtes usées, plus claires, juste avant le joint
+		alb *= 1.0 + 0.3 * (1.0 - smoothstep(0.012, 0.045, d)) * smoothstep(0.006, 0.012, d);
 		float crack = variant == 2 ? dt.g * 0.8 : dt.g * 0.08;
 		alb *= 1.0 - crack * 0.6;
 		water_add += crack * 0.5;
-		rough = 0.55 + (dt.a - 0.5) * 0.3;
-		if (variant == 3) {
-			// écornure au coin choisi par la graine
-			vec2 cq = vec2((seed & 16) != 0 ? grid.z - pc.x : pc.x, (seed & 32) != 0 ? grid.w - pc.y : pc.y);
+		rough = 0.55 + (dt.a - 0.5) * 0.5 + (dt.b - 0.55) * 0.4;
+		bool ce = (seed & 16) != 0;
+		bool cs = (seed & 32) != 0;
+		bool corner = (flags & (ce ? 4 : 1)) != 0 && (flags & (cs ? 8 : 2)) != 0;
+		if (variant == 3 && corner) {
+			// écornure au coin choisi par la graine (un vrai coin de la dalle)
+			vec2 cq = vec2(ce ? grid.z - pc.x : pc.x, cs ? grid.w - pc.y : pc.y);
 			float chip = 1.0 - smoothstep(0.16, 0.2, cq.x + cq.y + (dt.b - 0.5) * 0.08);
 			alb = mix(alb, alb * 0.45, chip);
 			rough = mix(rough, 0.8, chip);
@@ -142,7 +150,7 @@ void fragment() {
 			// lanterneau : verre armé éclairé de l'intérieur
 			float g = 1.0 - smoothstep(0.03, 0.2, lvl);
 			emis_c = at.rgb * sky_glow * sky_energy * g * (0.9 + 0.1 * sin(t * 1.3 + fs));
-			alb *= mix(1.0, 0.25, g);
+			alb *= mix(1.0, 0.15, g);
 			rough = mix(rough, 0.08, g);
 		}
 		water_add += (1.0 - smoothstep(0.1, 0.5, lvl)) * 0.6;
