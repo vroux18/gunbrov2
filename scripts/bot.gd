@@ -136,6 +136,8 @@ func _process(dt: float) -> void:
 	t += dt
 	if _capture_screen():
 		return
+	if (main.state == "duo" or main.state == "depart") and main.overlay == null:
+		return  # salon duo : la session (scripts/net/duo.gd) se connecte et lance d'elle-même
 	if main.overlay != null or main.screen != null:
 		click_t += dt
 		if click_t > 0.6:
@@ -201,6 +203,13 @@ func _process(dt: float) -> void:
 		if not arena.doors.is_empty():
 			dir = (arena.doors[_door_pick % arena.doors.size()]["pos"] - hero.position).normalized()
 			dir = arena.steer(hero.position, dir, hero.radius)
+		# duo : relever la partenaire à terre, rester à portée d'elle
+		if main.duo != null and main.duo.in_run():
+			var goal: Vector2 = main.duo.bot_goal(hero)
+			if goal != Vector2.INF:
+				dir = arena.steer(hero.position, (goal - hero.position).normalized(), hero.radius)
+				if hero.position.distance_to(goal) < 50.0:
+					dir = Vector2.ZERO
 	main.joy.bot_move = dir
 	var target: Node2D = arena.nearest_enemy(hero.position, hero.rng)
 	if target != null:

@@ -1,0 +1,129 @@
+# Relais Internet du mode duo (server/relay) : essai local, déploiement sur Cloudflare (Worker + Durable
+# Objects), puis publication de son adresse dans relay.txt, asset de la release « relay » :
+#   https://github.com/vroux18/gunbrov2/releases/download/relay/relay.txt
+# Le jeu lit ce fichier en ouvrant DUO > INTERNET. Sans les secrets Cloudflare, le déploiement est sauté
+# (le workflow reste vert). Procédure : server/relay/README.md.
+name: Relais duo (Cloudflare)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "server/**"
+      - ".github/workflows/deploy-relay.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-relay
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Secrets Cloudflare présents ?
+        id: secrets
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Relais non déployé::Secrets CLOUDFLARE_API_TOKEN et CLOUDFLARE_ACCOUNT_ID absents : déploiement sauté (procédure dans server/relay/README.md)."
+            {
+              echo "### Relais non déployé"
+              echo "Les secrets \`CLOUDFLARE_API_TOKEN\` et \`CLOUDFLARE_ACCOUNT_ID\` manquent : rien n'a été déployé."
+              echo "Procédure en 3 étapes : \`server/relay/README.md\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.secrets.outputs.ok == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.secrets.outputs.ok == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/relay/package-lock.json
+
+      - name: Dépendances et essai local (wrangler dev)
+        if: steps.secrets.outputs.ok == 'true'
+        working-directory: server/relay
+        env:
+          WRANGLER_SEND_METRICS: "false"
+        run: |
+          npm ci --no-audit --no-fund
+          npx wrangler dev --ip 127.0.0.1 --port 8787 > "$RUNNER_TEMP/wrangler-dev.log" 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8787/health && break; sleep 1; done
+          node test/relay.test.mjs ws://127.0.0.1:8787 || { cat "$RUNNER_TEMP/wrangler-dev.log"; exit 1; }
+          pkill -f "wrangler dev" || true
+
+      - name: Déploiement sur Cloudflare
+        id: deploy
+        if: steps.secrets.outputs.ok == 'true'
+        uses: cloudflare/wrangler-action@v4
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
+          WRANGLER_SEND_METRICS: "false"
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: server/relay
+          command: deploy
+
+      - name: Adresse du relais
+        id: url
+        if: steps.secrets.outputs.ok == 'true'
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url }}
+          CMD_OUT: ${{ steps.deploy.outputs.command-output }}
+        run: |
+          url="$DEPLOY_URL"
+          out="$RUNNER_TEMP/wrangler-output.ndjson"
+          if [ -z "$url" ] && [ -f "$out" ]; then
+            url=$(grep '"type":"deploy"' "$out" | jq -r '.targets[]? // empty' | grep -E '^https://' | head -1 || true)
+          fi
+          if [ -z "$url" ]; then
+            url=$(printf '%s' "$CMD_OUT" | grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' | head -1 || true)
+          fi
+          if [ -z "$url" ]; then
+            echo "::error::Adresse du relais introuvable dans la sortie de wrangler (sous-domaine workers.dev pas encore choisi ? voir README)."
+            exit 1
+          fi
+          url="${url%/}"
+          ws="wss://${url#https://}"
+          echo "https=$url" >> "$GITHUB_OUTPUT"
+          echo "ws=$ws" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$ws" > relay.txt
+          echo "Relais : $ws"
+
+      - name: Essai du relais déployé
+        if: steps.secrets.outputs.ok == 'true'
+        continue-on-error: true  # un tout premier sous-domaine workers.dev peut mettre quelques minutes à répondre
+        run: |
+          for i in $(seq 1 30); do curl -sf "${{ steps.url.outputs.https }}/health" && break; sleep 4; done
+          node server/relay/test/relay.test.mjs "${{ steps.url.outputs.ws }}"
+
+      - name: Publication de relay.txt (release « relay »)
+        if: steps.secrets.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          repo="${{ github.repository }}"
+          if ! gh release view relay --repo "$repo" > /dev/null 2>&1; then
+            gh release create relay --repo "$repo" --target "${{ github.sha }}" --latest=false \
+              --title "Relais duo (adresse du serveur)" \
+              --notes "Adresse du relais Internet du mode duo, lue par le jeu (DUO > INTERNET). Mise à jour par le workflow deploy-relay.yml."
+          fi
+          gh release upload relay relay.txt --repo "$repo" --clobber
+          {
+            echo "### Relais déployé"
+            echo "Adresse : \`${{ steps.url.outputs.ws }}\`"
+            echo "Publiée dans https://github.com/$repo/releases/download/relay/relay.txt"
+          } >> "$GITHUB_STEP_SUMMARY"

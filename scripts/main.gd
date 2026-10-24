@@ -17,6 +17,7 @@ const CardScript = preload("res://scripts/ui/card.gd")
 const EnemyCardScript = preload("res://scripts/ui/enemy_card.gd")
 const TutorialScript = preload("res://scripts/ui/tutorial.gd")
 const EndScreenScript = preload("res://scripts/ui/end_screen.gd")
+const DuoScript = preload("res://scripts/net/duo.gd")
 
 var profile: Dictionary
 var sfx: Node
@@ -35,6 +36,7 @@ var enemy_card: Control  # « NOUVEL ENNEMI », dans le HUD
 var tutorial: Control = null
 var run_items: Array = []  # objets trouvés pendant la partie (écran de fin)
 var _shown := {}  # valeurs affichées au Relais la dernière fois (compteurs qui défilent au retour)
+var duo: Node  # mode duo (scripts/net/duo.gd) : salon, réseau, partie à deux
 
 func _ready() -> void:
 	randomize()
@@ -85,6 +87,9 @@ func _ready() -> void:
 		else:
 			hud.flash("VAGUE %d" % (arena.wave_i + 1), 1.3, UI.ACCENT))
 	_apply_profile_to_hero()
+	duo = DuoScript.new()
+	duo.main = self
+	add_child(duo)
 	show_base()
 	if "--autoplay" in OS.get_cmdline_user_args():
 		var bot = load("res://scripts/bot.gd").new()
@@ -332,6 +337,9 @@ func _build_relais_panel() -> void:
 	var ars := _side_button("ARSENAL", "bolt", UI.ORANGE, "%d/%d" % [profile["arsenal"].size(), Data.ARSENAL_SIZE])
 	ars.pressed.connect(show_arsenal)
 	row.add_child(ars)
+	var duo_b := _side_button("DUO", "portal", UI.GOLD, "")
+	duo_b.pressed.connect(func(): duo.open_lobby())
+	row.add_child(duo_b)
 	var equipped := Save.equipped_items(profile)
 	var eq_txt := "Rien d'équipé. Les objets trouvés en partie restent à toi."
 	if not equipped.is_empty():
@@ -537,6 +545,8 @@ func _world_open(i: int) -> bool:
 ## Monde de la prochaine partie : celui choisi au Relais s'il est ouvert et livré, sinon Nébuleuse 7.
 ## `--world=N` (essais, captures) force un monde livré.
 func _chosen_world() -> int:
+	if duo != null and duo.world_override >= 0:
+		return duo.world_override  # duo : le monde de l'hôte
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--world="):
 			# « --world=2! » force un monde même sans boss livré (essais pendant la construction)
@@ -598,6 +608,8 @@ func _refresh_world() -> void:
 func _depart() -> void:
 	if state != "base":
 		return
+	if duo != null and duo.intercept_depart():
+		return  # duo : l'invité attend que l'hôte lance
 	state = "depart"
 	sfx.play("portal", 0.8)
 	var tw := screen.create_tween()
@@ -629,6 +641,8 @@ func start_run() -> void:
 	hud.flash(Data.world_name().to_upper(), 2.0, Data.WORLDS[Data.world]["accent"])
 	sfx.play("portal")
 	_start_run_ui()
+	if duo != null:
+		duo.on_run_started()
 
 ## Interface d'une nouvelle partie : compteurs remis à zéro, cartes « nouvel ennemi » vidées,
 ## tutoriel des deux pouces à la toute première partie (tant qu'il n'a pas été fait).
@@ -668,6 +682,11 @@ func _on_enemy_spawned(e: Node2D) -> void:
 
 func _pause_for_overlay() -> void:
 	hud.flash("", 0.0)
+	if duo != null and duo.in_run():
+		# duo : la partie continue pour l'autre ; on est invulnérable pendant son choix (duo_host.gd)
+		joy.enabled = false
+		joy.reset()
+		return
 	get_tree().paused = true
 	joy.enabled = false
 	joy.reset()
@@ -694,7 +713,7 @@ func _card_overlay(title: String, subtitle: String) -> VBoxContainer:
 	return box
 
 func _show_power_choice() -> void:
-	if get_tree().paused:
+	if get_tree().paused or (duo != null and duo.in_run() and overlay != null):
 		return
 	var pool := []
 	for id in profile["arsenal"]:
@@ -779,6 +798,8 @@ func _deal_overlay(title: String, subtitle: String, col: Color) -> float:
 	return top + 96.0
 
 func _show_item(item: Dictionary) -> void:
+	if duo != null and duo.defer_item(item):
+		return  # duo : un autre écran est ouvert, l'objet attend
 	_pause_for_overlay()
 	profile["inventory"].append(item)
 	Save.save_profile(profile)
@@ -828,6 +849,8 @@ func _show_item(item: Dictionary) -> void:
 
 func _after_item() -> void:
 	_resume()
+	if duo != null and duo.is_guest():
+		return  # duo : les portails viennent de l'hôte
 	if arena.cleared and not arena.chest.is_empty() and arena.chest["open"]:
 		if arena.room >= Data.ROOMS:
 			_victory()
@@ -1003,6 +1026,9 @@ func _show_dev() -> void:
 func _on_hero_died() -> void:
 	if get_tree().paused:
 		return
+	if duo != null and duo.in_run():
+		duo.on_local_down()  # duo : la partenaire peut relever ; la partie n'est perdue qu'à deux à terre
+		return
 	sfx.play("boom", 0.6)
 	view.add_shake(0.8)
 	hud.flash("K.O.", 1.2, UI.DANGER)
@@ -1032,6 +1058,8 @@ func _victory() -> void:
 
 ## Écran de fin : récapitulatif de la partie, REJOUER (repart aussitôt) ou RELAIS.
 func _show_end(won: bool, title: String, subtitle: String) -> void:
+	if duo != null:
+		duo.on_show_end(won, title, subtitle)
 	_clear_overlay()
 	var es: Control = EndScreenScript.new()
 	overlay = es
@@ -1056,3 +1084,5 @@ func _end_run(_won: bool) -> void:
 	arena.stop()
 	view.stop()
 	show_base()
+	if duo != null:
+		duo.after_run()

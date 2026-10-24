@@ -1,0 +1,15 @@
+{
+  "name": "passeurs-relay",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Relais WebSocket du mode duo de Passeurs (Worker Cloudflare + un Durable Object par salle).",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --ip 127.0.0.1 --port 8787",
+    "deploy": "wrangler deploy",
+    "test": "node test/relay.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.152.0"
+  }
+}
