@@ -60,9 +60,62 @@ func _capture_screen() -> bool:
 				main.show_loge()
 			"arsenal":
 				main.show_arsenal()
+			"power", "item", "victory", "defeat", "enemy", "tuto", "pause", "hud":
+				# écrans de partie : on entre directement dans l'arène, Jo reste immobile
+				main.start_run()
+				if mode == "tuto":
+					main.joy.bot = false  # sticks dessinés, aucun doigt
+				for a in OS.get_cmdline_user_args():
+					if a.begins_with("--room="):
+						main.arena.start_room(int(a.trim_prefix("--room=")), "combat")
+						main.view.start_room()
 			_:
 				main.show_base()
+	_capture_events(mode)
 	return true
+
+## Écrans de partie à filmer : l'overlay s'ouvre à 1 s ; `--clickat=S` touche la première carte à S secondes.
+var _shot_done := false
+var _click_done := false
+func _capture_events(mode: String) -> void:
+	if not _shot_done and t > 1.0:
+		_shot_done = true
+		match mode:
+			"power":
+				main.arena.energy = main.arena.energy_need
+				main._show_power_choice()
+			"item":
+				var r := 2
+				for a in OS.get_cmdline_user_args():
+					if a.begins_with("--rarity="):
+						r = int(a.trim_prefix("--rarity="))
+				main._show_item({"id": "fusil_impulsion", "rarity": r, "uid": "test_capture"})
+			"victory", "defeat":
+				main.arena.room = 10 if mode == "victory" else 6
+				main.arena.kills = 214 if mode == "victory" else 96
+				main.arena.tickets = 388 if mode == "victory" else 141
+				main.run_items = [{"id": "plastron", "rarity": 1}, {"id": "bottes", "rarity": 0}, {"id": "pile", "rarity": 2}, {"id": "visiere", "rarity": 3}]
+				if mode == "victory":
+					main._victory()
+				else:
+					main._pause_for_overlay()
+					main._show_end(false, "RAPPEL AU RELAIS", "Le butin reste, les pouvoirs partent.")
+			"pause":
+				main._show_pause()
+			"hud":
+				# HUD sous tension : énergie presque pleine, coup reçu, tickets qui tombent
+				main.arena.energy = main.arena.energy_need * 0.93
+				main.arena.tickets += 37
+				main.hero.hp = main.hero.hp_max * 0.55
+				main.hud.hurt = 1.0
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--clickat=") and not _click_done and t > float(a.trim_prefix("--clickat=")):
+			_click_done = true
+			if main.overlay != null:
+				for b in main.overlay.find_children("*", "Button", true, false):
+					if not b.disabled:
+						b.pressed.emit()
+						break
 
 func _give_stuff() -> void:
 	var Data = load("res://scripts/data.gd")
@@ -170,7 +223,7 @@ func _click_something() -> void:
 	# depuis le Relais, on préfère partir ; ailleurs, un bouton au hasard
 	var pick: Button = candidates[randi() % candidates.size()]
 	for b in candidates:
-		if String(b.text).begins_with("PARTIR") or String(b.text).begins_with("RETOUR") or String(b.text).begins_with("REPRENDRE"):
+		if String(b.text).begins_with("PARTIR") or String(b.text).begins_with("RETOUR") or String(b.text).begins_with("REPRENDRE") or String(b.text).begins_with("REJOUER"):
 			pick = b
 			break
 	print("BOT : clic « %s »" % pick.text)

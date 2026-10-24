@@ -3,6 +3,7 @@ extends RefCounted
 ## Polices : Russo One pour les titres et les chiffres, Rajdhani pour le texte (SIL OFL).
 
 const Icon = preload("res://scripts/icon.gd")
+const Fx = preload("res://scripts/ui/fx.gd")
 
 const BG := Color("#0E1B33")
 const PANEL := Color("#16254A")
@@ -74,6 +75,7 @@ static func _style_button(b: Button, face: Color, edge: Color, text_col: Color, 
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	b.add_theme_stylebox_override("disabled", chunky(PANEL_DARK, INK))
 	b.add_theme_constant_override("outline_size", 0)
+	Fx.press(b)
 
 static func button(text: String, size: int = 26, accent: Color = ACCENT, min_w: float = 0.0) -> Button:
 	load_fonts()
@@ -150,6 +152,7 @@ static func chip(icon_kind: String, text: String, col: Color) -> PanelContainer:
 	h.add_child(ic)
 	var l := label(text, 20, TEXT)
 	h.add_child(l)
+	p.set_meta("label", l)
 	return p
 
 ## Carte cliquable (pouvoir, portail, objet) : pictogramme, titre, texte. Les enfants laissent passer le clic.
@@ -169,6 +172,7 @@ static func card(icon_kind: String, title_text: String, body_text: String, accen
 	b.add_theme_stylebox_override("pressed", pressed)
 	b.add_theme_stylebox_override("hover_pressed", pressed)
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	Fx.press(b, 0.95)
 	var v := vbox(8)
 	v.set_anchors_preset(Control.PRESET_FULL_RECT)
 	v.offset_left = 18
@@ -257,12 +261,13 @@ static func tile(icon_kind: String, title_text: String, body_text: String, accen
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(v)
-	var t := title(title_text, 20, TEXT if selected else MUTED, accent)
+	var t := title(title_text, 21, TEXT if selected else MUTED, accent)
 	t.add_theme_constant_override("shadow_offset_y", 0)
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(t)
 	if body_text != "":
-		var d := label(body_text, 17, MUTED)
+		var d := label(body_text, 19, MUTED)
+		d.add_theme_constant_override("line_spacing", -3)
 		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		d.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		v.add_child(d)
@@ -303,3 +308,41 @@ static func pop_in(n: Control, delay: float = 0.0) -> void:
 	tw.set_parallel(true)
 	tw.tween_property(n, "modulate:a", 1.0, 0.18)
 	tw.tween_property(n, "scale", Vector2.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+## Marges de sécurité (encoches, coins arrondis, barre de gestes), en unités du viewport.
+## Sur téléphone : zone sûre du système ; partout : un minimum, plus large sur les écrans très allongés
+## (20:9 et plus), où l'encoche peut se trouver d'un côté comme de l'autre en paysage.
+static func safe_insets(vp: Viewport) -> Dictionary:
+	var vs := vp.get_visible_rect().size
+	var side := 24.0
+	if vs.x / maxf(1.0, vs.y) > 1.95:
+		side = 56.0
+	var out := {"left": side, "right": side, "top": 14.0, "bottom": 12.0}
+	if OS.has_feature("mobile"):
+		var scr := Vector2(DisplayServer.screen_get_size())
+		var safe := DisplayServer.get_display_safe_area()
+		if scr.x > 0.0 and safe.size.x > 0:
+			var k := vs.x / scr.x
+			out["left"] = maxf(out["left"], safe.position.x * k + 8.0)
+			out["right"] = maxf(out["right"], (scr.x - safe.end.x) * k + 8.0)
+			out["top"] = maxf(out["top"], safe.position.y * k + 6.0)
+			out["bottom"] = maxf(out["bottom"], (scr.y - safe.end.y) * k + 6.0)
+	return out
+
+## Petite étiquette pleine (« RARE », « NIV. 2 », « NOUVEL ENNEMI »).
+static func tag(text: String, bg: Color, fg: Color = INK, size: int = 18) -> PanelContainer:
+	load_fonts()
+	var p := PanelContainer.new()
+	var s := flat(bg, bg, 10, 0)
+	s.content_margin_left = 10
+	s.content_margin_right = 10
+	s.content_margin_top = 1
+	s.content_margin_bottom = 3
+	p.add_theme_stylebox_override("panel", s)
+	var l := title(text, size, fg, bg)
+	l.add_theme_constant_override("outline_size", 0)
+	l.add_theme_constant_override("shadow_offset_y", 0)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(l)
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return p

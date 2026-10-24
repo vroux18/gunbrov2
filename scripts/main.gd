@@ -12,6 +12,11 @@ const JoyScript = preload("res://scripts/joystick.gd")
 const SfxScript = preload("res://scripts/sfx.gd")
 const Art = preload("res://scripts/art.gd")
 const View3D = preload("res://scripts/view3d.gd")
+const Fx = preload("res://scripts/ui/fx.gd")
+const CardScript = preload("res://scripts/ui/card.gd")
+const EnemyCardScript = preload("res://scripts/ui/enemy_card.gd")
+const TutorialScript = preload("res://scripts/ui/tutorial.gd")
+const EndScreenScript = preload("res://scripts/ui/end_screen.gd")
 
 var profile: Dictionary
 var sfx: Node
@@ -26,6 +31,10 @@ var overlay: Control = null
 var preview_hero: Node2D = null
 var version := ""
 var view: Node3D
+var enemy_card: Control  # « NOUVEL ENNEMI », dans le HUD
+var tutorial: Control = null
+var run_items: Array = []  # objets trouvés pendant la partie (écran de fin)
+var _shown := {}  # valeurs affichées au Relais la dernière fois (compteurs qui défilent au retour)
 
 func _ready() -> void:
 	randomize()
@@ -57,6 +66,10 @@ func _ready() -> void:
 	hud.pause_pressed.connect(_show_pause)
 	hero.damaged.connect(func(): hud.hurt = 1.0)
 	add_child(hud)
+	enemy_card = EnemyCardScript.new()
+	enemy_card.slowmo = func(): view.hit_stop(0.45, 0.3)
+	hud.add_child(enemy_card)
+	arena.enemy_spawned.connect(_on_enemy_spawned)
 	ui_layer = CanvasLayer.new()
 	ui_layer.layer = 10
 	ui_layer.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -92,6 +105,7 @@ func _process(_dt: float) -> void:
 		hud.shield = hero.shield_max > 0 and hero.shield_ready
 		hud.energy = arena.energy / arena.energy_need
 		hud.room = arena.room
+		hud.rooms = Data.ROOMS
 		hud.wave = maxi(1, arena.wave_i + 1)
 		hud.waves = arena.waves.size()
 		hud.tickets = int(profile["tickets"]) + arena.tickets
@@ -103,9 +117,13 @@ func _process(_dt: float) -> void:
 			hud.boss_hp = -1.0
 
 # ---------------------------------------------------------------- écrans
-func _clear_screen() -> void:
+## `animated` : l'écran sortant s'efface en fondu (changement d'écran) ; sinon il disparaît net (rafraîchissement).
+func _clear_screen(animated: bool = true) -> void:
 	if screen != null:
-		screen.queue_free()
+		if animated:
+			Fx.screen_out(screen)
+		else:
+			screen.queue_free()
 		screen = null
 	if preview_hero != null:
 		preview_hero.queue_free()
@@ -113,7 +131,7 @@ func _clear_screen() -> void:
 
 func _clear_overlay() -> void:
 	if overlay != null:
-		overlay.queue_free()
+		Fx.screen_out(overlay, 0.14)
 		overlay = null
 
 func _full(bg: bool = true) -> Control:
@@ -184,37 +202,132 @@ func show_base() -> void:
 	joy.enabled = false
 	screen = _full(false)
 	ui_layer.add_child(screen)
-	screen.add_child(_side_shade(0.42))
-	var right := UI.vbox(16)
+	_build_relais_panel()
+
+## Panneau du Relais (droite) : titre PASSEURS en relief qui brille, compteurs qui défilent depuis la dernière
+## visite, PARTIR énorme (halo qui pulse, reflet, chevrons qui filent), LOGE et ARSENAL avec leurs pastilles.
+func _build_relais_panel() -> void:
+	var ins := UI.safe_insets(get_viewport())
+	screen.add_child(_side_shade(0.4))
+	var right := UI.vbox(14)
 	right.anchor_left = 0.53
-	right.anchor_right = 0.96
+	right.anchor_right = 1.0
+	right.offset_right = -float(ins["right"]) - 24.0
 	right.anchor_top = 0.07
 	right.anchor_bottom = 0.95
+	var vs := get_viewport().get_visible_rect().size
+	if vs.x / vs.y < 1.6:
+		right.alignment = BoxContainer.ALIGNMENT_CENTER  # tablette : panneau centré en hauteur
 	screen.add_child(right)
-	right.add_child(UI.title("PASSEURS", 86, UI.TEXT, UI.ACCENT))
+	# titre : couche orange décalée derrière, face claire, reflet qui balaie, filet lumineux dessous
+	var tbox := Control.new()
+	tbox.custom_minimum_size = Vector2(0, 104)
+	tbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	right.add_child(tbox)
+	var t_back := UI.title("PASSEURS", 92, UI.ORANGE, UI.ORANGE)
+	t_back.add_theme_color_override("font_outline_color", Color("#7A2A08"))
+	t_back.add_theme_constant_override("shadow_offset_y", 0)
+	t_back.position = Vector2(6, 7)
+	tbox.add_child(t_back)
+	var t_front := UI.title("PASSEURS", 92, UI.TEXT, UI.ACCENT)
+	t_front.add_theme_constant_override("shadow_offset_y", 0)
+	tbox.add_child(t_front)
+	Fx.shine(t_front, 480.0, 3.0, 0.75)
+	var rule := Control.new()
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rule.position = Vector2(4, 100)
+	rule.size = Vector2(440, 6)
+	var rt := {"t": 0.0}
+	rule.draw.connect(func():
+		rule.draw_rect(Rect2(0, 0, rule.size.x, 4), Color(UI.ACCENT, 0.25))
+		rule.draw_rect(Rect2(0, 0, 120, 4), UI.ACCENT)
+		var x := fmod(float(rt["t"]) * 160.0, rule.size.x + 120.0) - 60.0
+		rule.draw_rect(Rect2(x, -1, 60, 6), Color(1, 1, 1, 0.8)))
+	rule.set_process(true)
+	tbox.add_child(rule)
+	var tw_rule := rule.create_tween().set_loops()
+	tw_rule.tween_method(func(v: float):
+		rt["t"] = v
+		rule.queue_redraw(), 0.0, 4.0, 4.0)
 	right.add_child(UI.label("LE RELAIS  ·  MONDE 1 : " + Data.WORLD_NAME.to_upper(), 22, UI.MUTED))
+	# compteurs : défilent depuis les valeurs vues à la dernière visite
 	var chips := UI.hbox(10)
 	right.add_child(chips)
-	chips.add_child(UI.chip("portal", "%d / 10 éclats" % int(profile["shards"]), UI.ACCENT))
-	chips.add_child(UI.chip("coin", str(int(profile["tickets"])), UI.GOLD))
-	chips.add_child(UI.chip("skull", "salle %d" % int(profile["best_room"]), UI.DANGER))
+	var shards := int(profile["shards"])
+	var tk := int(profile["tickets"])
+	var best := int(profile["best_room"])
+	var c1 := UI.chip("shard", "", UI.ACCENT)
+	var c2 := UI.chip("coin", "", UI.GOLD)
+	var c3 := UI.chip("room", "", UI.DANGER)
+	for c in [c1, c2, c3]:
+		var cl: Label = c.get_meta("label")
+		cl.add_theme_font_override("font", UI.TITLE)
+		cl.add_theme_font_size_override("font_size", 21)
+		chips.add_child(c)
+	Fx.count(c1.get_meta("label"), int(_shown.get("shards", shards)), shards, 0.7, 0.35, "%d / 10")
+	Fx.count(c2.get_meta("label"), int(_shown.get("tickets", tk)), tk, 1.0, 0.35, "%d")
+	Fx.count(c3.get_meta("label"), int(_shown.get("best", best)), best, 0.6, 0.35, "record %d")
+	if int(_shown.get("tickets", tk)) != tk:
+		var tbump := c2.create_tween()
+		tbump.tween_interval(1.35)
+		tbump.tween_callback(func(): Fx.bump(c2, 0.15))
+	_shown = {"shards": shards, "tickets": tk, "best": best}
 	var sp := Control.new()
-	sp.custom_minimum_size = Vector2(0, 10)
+	sp.custom_minimum_size = Vector2(0, 12)
 	right.add_child(sp)
-	var go := UI.primary("PARTIR", 40)
-	go.custom_minimum_size = Vector2(0, 86)
+	# PARTIR : le bouton qu'on a envie de toucher
+	var go := UI.primary("PARTIR", 54)
+	go.custom_minimum_size = Vector2(0, 112)
+	go.add_theme_stylebox_override("normal", _go_style(false))
+	go.add_theme_stylebox_override("hover", _go_style(false))
+	go.add_theme_stylebox_override("pressed", _go_style(true))
+	go.add_theme_stylebox_override("hover_pressed", _go_style(true))
 	go.pressed.connect(_depart)
 	right.add_child(go)
-	var row := UI.hbox(12)
+	var halo := Fx.halo(Color(UI.ORANGE, 0.5), Vector2(10, 10))
+	halo.show_behind_parent = true
+	go.add_child(halo)
+	go.resized.connect(func():
+		halo.size = go.size * Vector2(1.3, 3.0)
+		halo.position = (go.size - halo.size) * 0.5)
+	Fx.pulse(halo, 0.55, 1.0, 1.4)
+	Fx.shine(go, 560.0, 2.4, 0.45)
+	var chev := Control.new()
+	chev.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chev.anchor_left = 1.0
+	chev.anchor_right = 1.0
+	chev.anchor_top = 0.5
+	chev.anchor_bottom = 0.5
+	chev.offset_left = -96
+	chev.offset_right = -24
+	chev.offset_top = -22
+	chev.offset_bottom = 18
+	var ct := {"t": 0.0}
+	chev.draw.connect(func():
+		for k in range(3):
+			var ph := fmod(float(ct["t"]) * 1.6 - k * 0.22, 1.0)
+			var x := 6.0 + k * 22.0
+			var a := 0.25 + 0.75 * clampf(1.0 - absf(ph - 0.5) * 2.0, 0.0, 1.0)
+			chev.draw_polyline(PackedVector2Array([Vector2(x, 4), Vector2(x + 14, 20), Vector2(x, 36)]), Color(UI.INK, a), 7.0, true))
+	go.add_child(chev)
+	var tw_chev := chev.create_tween().set_loops()
+	tw_chev.tween_method(func(v: float):
+		ct["t"] = v
+		chev.queue_redraw(), 0.0, 1.0, 0.625)
+	var picon := UI.Icon.new("play", UI.INK, 40.0)
+	picon.anchor_top = 0.5
+	picon.anchor_bottom = 0.5
+	picon.offset_left = 30
+	picon.offset_top = -24
+	go.add_child(picon)
+	# LOGE et ARSENAL : pictogramme, pastille de compte
+	var row := UI.hbox(14)
 	right.add_child(row)
-	var loge := UI.button("LOGE", 26, UI.ACCENT)
-	loge.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	loge.custom_minimum_size = Vector2(0, 64)
+	var inv_n: int = profile["inventory"].size()
+	var loge := _side_button("LOGE", "torse", UI.ACCENT, str(inv_n) if inv_n > 0 else "")
 	loge.pressed.connect(show_loge)
 	row.add_child(loge)
-	var ars := UI.button("ARSENAL", 26, UI.ORANGE)
-	ars.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ars.custom_minimum_size = Vector2(0, 64)
+	var ars := _side_button("ARSENAL", "bolt", UI.ORANGE, "%d/%d" % [profile["arsenal"].size(), Data.ARSENAL_SIZE])
 	ars.pressed.connect(show_arsenal)
 	row.add_child(ars)
 	var equipped := Save.equipped_items(profile)
@@ -224,24 +337,69 @@ func show_base() -> void:
 		for it in equipped:
 			names.append(Data.item_label(it))
 		eq_txt = "Équipé : " + ", ".join(names)
-	var eq := UI.label(eq_txt, 18, UI.MUTED)
+	var eq := UI.label(eq_txt, 20, UI.MUTED)
 	eq.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	right.add_child(eq)
 	var ver := UI.label("V0 · " + version, 14, UI.LINE)
 	ver.anchor_top = 1.0
 	ver.anchor_bottom = 1.0
 	ver.offset_top = -30
-	ver.offset_left = 16
+	ver.offset_left = 16 + float(ins["left"])
 	screen.add_child(ver)
-	UI.pop_in(go, 0.1)
+	# entrée : le panneau glisse depuis la droite, les éléments arrivent l'un après l'autre
+	Fx.slide_in(right, Vector2(160, 0), 0.0, 0.45)
+	Fx.slam(tbox, 0.08, 1.5)
+	Fx.rise_in(chips, 0.22)
+	Fx.rise_in(go, 0.3, 0.42, 0.6)
+	Fx.rise_in(row, 0.42)
+	var tw_go := go.create_tween()
+	tw_go.tween_interval(0.8)
+	tw_go.tween_callback(func(): Fx.breathe(go, 0.03, 1.3))
+
+func _go_style(pressed: bool) -> StyleBoxFlat:
+	var s := UI.chunky(Color("#FF8A3D") if not pressed else Color("#F0702A"), Color("#A83E12"), pressed, 26)
+	s.border_width_bottom = 3 if pressed else 10
+	s.border_width_top = 0 if pressed else 3
+	s.border_color = Color("#A83E12")
+	s.shadow_color = Color(0.35, 0.1, 0.0, 0.55)
+	s.shadow_size = 2 if pressed else 12
+	s.shadow_offset = Vector2(0, 6)
+	return s
+
+func _side_button(text: String, icon: String, col: Color, badge: String) -> Button:
+	var b := UI.button(text, 30, col)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.custom_minimum_size = Vector2(0, 86)
+	b.add_theme_font_override("font", UI.TITLE)
+	b.add_theme_font_size_override("font_size", 28)
+	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var st: StyleBoxFlat = b.get_theme_stylebox("normal")
+	st.content_margin_left = 60
+	var ic := UI.Icon.new(icon, col, 36.0)
+	ic.anchor_top = 0.5
+	ic.anchor_bottom = 0.5
+	ic.offset_left = 18
+	ic.offset_top = -22
+	b.add_child(ic)
+	if badge != "":
+		var tg := UI.tag(badge, col, UI.INK, 18)
+		tg.anchor_left = 1.0
+		tg.anchor_right = 1.0
+		tg.offset_left = -64
+		tg.offset_top = -12
+		b.add_child(tg)
+	return b
 
 func show_loge() -> void:
-	_clear_screen()
+	var fresh := state != "loge"
+	_clear_screen(fresh)
 	state = "loge"
 	screen = _full(false)
 	ui_layer.add_child(screen)
 	screen.add_child(_side_shade(0.22))
 	view.relais_focus = 1.0
+	if fresh:
+		Fx.screen_in(screen)
 	var left := UI.vbox(8)
 	left.anchor_left = 0.33
 	left.anchor_right = 0.62
@@ -251,10 +409,13 @@ func show_loge() -> void:
 	var head := UI.hbox(14)
 	left.add_child(head)
 	head.add_child(UI.title("LOGE", 44, UI.TEXT, UI.ACCENT))
-	var back := UI.primary("RETOUR", 22)
+	var back := UI.primary("RETOUR", 24)
+	back.custom_minimum_size = Vector2(150, 80)
 	back.pressed.connect(show_base)
 	head.add_child(back)
-	left.add_child(UI.label("Touche un emplacement pour le vider.", 17, UI.MUTED))
+	if fresh:
+		Fx.slide_in(left, Vector2(-120, 0), 0.0, 0.4)
+	left.add_child(UI.label("Touche un emplacement pour le vider.", 20, UI.MUTED))
 	for slot in Data.SLOTS:
 		var uid := String(profile["equipped"].get(slot, ""))
 		var it := Save.find_item(profile, uid) if uid != "" else {}
@@ -277,6 +438,8 @@ func show_loge() -> void:
 	right.anchor_bottom = 0.96
 	screen.add_child(right)
 	right.add_child(UI.title("INVENTAIRE  %d" % profile["inventory"].size(), 30, UI.TEXT, UI.GOLD))
+	if fresh:
+		Fx.slide_in(right, Vector2(140, 0), 0.08, 0.42)
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -307,11 +470,14 @@ func show_loge() -> void:
 		list.add_child(b)
 
 func show_arsenal() -> void:
-	_clear_screen()
+	var fresh := state != "arsenal"
+	_clear_screen(fresh)
 	state = "arsenal"
 	screen = _full(false)
 	ui_layer.add_child(screen)
 	screen.add_child(UI.dim(0.8))
+	if fresh:
+		Fx.screen_in(screen)
 	var col := UI.vbox(12)
 	col.anchor_left = 0.04
 	col.anchor_right = 0.96
@@ -325,10 +491,11 @@ func show_arsenal() -> void:
 	var sp := Control.new()
 	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(sp)
-	var back := UI.primary("RETOUR", 22)
+	var back := UI.primary("RETOUR", 24)
+	back.custom_minimum_size = Vector2(150, 80)
 	back.pressed.connect(show_base)
 	head.add_child(back)
-	col.add_child(UI.label("Les pouvoirs allumés peuvent t'être proposés quand ta barre d'énergie est pleine. Trois sont tirés à chaque fois.", 18, UI.MUTED))
+	col.add_child(UI.label("Les pouvoirs allumés peuvent t'être proposés quand ta barre d'énergie est pleine. Trois sont tirés à chaque fois.", 20, UI.MUTED))
 	var grid := GridContainer.new()
 	grid.columns = 4
 	grid.add_theme_constant_override("h_separation", 10)
@@ -349,6 +516,8 @@ func show_arsenal() -> void:
 			Save.save_profile(profile)
 			show_arsenal())
 		grid.add_child(b)
+		if fresh:
+			Fx.rise_in(b, 0.06 + 0.025 * grid.get_child_count(), 0.3, 0.85)
 
 # ---------------------------------------------------------------- partie
 ## PARTIR : l'interface s'efface, Jo court dans le portail, puis la partie commence.
@@ -382,6 +551,43 @@ func start_run() -> void:
 	hud.fade = 1.0
 	hud.flash(Data.WORLD_NAME.to_upper(), 2.0, UI.ACCENT)
 	sfx.play("portal")
+	_start_run_ui()
+
+## Interface d'une nouvelle partie : compteurs remis à zéro, cartes « nouvel ennemi » vidées,
+## tutoriel des deux pouces à la toute première partie (tant qu'il n'a pas été fait).
+func _start_run_ui() -> void:
+	run_items = []
+	hud.tickets = int(profile["tickets"])
+	hud.hp = 1.0
+	hud.energy = 0.0
+	hud.snap()
+	enemy_card.clear()
+	if tutorial != null and is_instance_valid(tutorial):
+		tutorial.queue_free()
+	tutorial = null
+	if not bool(profile.get("tutorial_done", false)):
+		tutorial = TutorialScript.new()
+		tutorial.joy = joy
+		tutorial.finished.connect(func():
+			profile["tutorial_done"] = true
+			Save.save_profile(profile)
+			tutorial = null)
+		hud.add_child(tutorial)
+
+## Premier passage d'un genre d'ennemi pour ce joueur : carte « NOUVEL ENNEMI » (mémorisée dans la sauvegarde).
+func _on_enemy_spawned(e: Node2D) -> void:
+	if state != "arena":
+		return
+	var kind := String(e.kind)
+	if not EnemyCardScript.TIPS.has(kind):
+		return
+	var seen: Array = profile.get("seen_enemies", [])
+	if kind in seen:
+		return
+	seen.append(kind)
+	profile["seen_enemies"] = seen
+	Save.save_profile(profile)
+	enemy_card.push(kind)
 
 func _pause_for_overlay() -> void:
 	hud.flash("", 0.0)
@@ -424,59 +630,124 @@ func _show_power_choice() -> void:
 		return
 	_pause_for_overlay()
 	sfx.play("level")
-	var box := _card_overlay("ÉNERGIE PLEINE", "Choisis un pouvoir pour cette partie")
-	var row := UI.hbox(22)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_child(row)
-	for i in range(mini(3, pool.size())):
+	var vs := get_viewport().get_visible_rect().size
+	var head := _deal_overlay("ÉNERGIE PLEINE", "Choisis un pouvoir pour cette partie", UI.ACCENT)
+	var n := mini(3, pool.size())
+	var cs := Vector2(264, 356)
+	if vs.y < 700.0:
+		cs = Vector2(240, 324)
+	var gap := 34.0
+	var cy := head + (vs.y - head) * 0.5 - 6.0
+	var cards: Array = []
+	for i in range(n):
 		var p: Dictionary = pool[i]
-		var have: int = hero.power_count(String(p["id"]))
-		var b := UI.card(String(p["id"]), String(p["name"]), String(p["desc"]), UI.ACCENT, Vector2(250, 300), ("NIV. %d" % (have + 1)) if have > 0 else "")
-		UI.pop_in(b, 0.06 * i)
+		var id := String(p["id"])
+		var have: int = hero.power_count(id)
+		var tier: int = CardScript.POWER_TIER.get(id, 0)
+		var b: Button = CardScript.new()
+		b.setup(id, String(p["name"]), String(p["desc"]), tier, CardScript.POWER_TIER_NAMES[tier], ("NIV. %d" % (have + 1)) if have > 0 else "", cs)
+		overlay.add_child(b)
+		cards.append(b)
+		# éventail : les cartes du bord descendent un peu et penchent vers l'extérieur
+		var k := i - (n - 1) * 0.5
+		var to := Vector2(vs.x * 0.5 + k * (cs.x + gap) - cs.x * 0.5, cy - cs.y * 0.5 + absf(k) * 18.0)
+		b.deal(Vector2(vs.x * 0.5 - cs.x * 0.5, vs.y + 60.0), to, k * 0.075, 0.12 + 0.09 * i)
+		b.reveal(0.62 + 0.16 * i)
 		b.pressed.connect(func():
-			hero.add_power(String(p["id"]))
+			var ov := overlay
+			for o in cards:
+				(o as Button).disabled = true
+			hero.add_power(id)
 			arena.consume_energy()
-			if String(p["id"]) == "turret":
+			if id == "turret":
 				arena.turrets.append({"pos": hero.position + Vector2.RIGHT.rotated(randf() * TAU) * 100.0, "cd": 0.0, "ang": 0.0})
-			if String(p["id"]) == "ally":
+			if id == "ally":
 				arena.allies.append({"ang": randf() * TAU, "cd": 0.0})
-			hud.flash(String(p["name"]).to_upper(), 1.4, UI.ORANGE)
-			_resume()
-			view.power_fx())
-		row.add_child(b)
+			sfx.play("chest", 1.1, -4.0)
+			b.pick(Vector2(vs.x * 0.5, cy))
+			for o in cards:
+				if o != b:
+					(o as Button).discard(signf((o as Button).position.x - b.position.x))
+			var tw := ov.create_tween()
+			tw.tween_interval(0.42)
+			tw.tween_callback(func():
+				if overlay == ov:
+					hud.flash(String(p["name"]).to_upper(), 1.4, UI.ORANGE)
+					_resume()
+					view.power_fx()))
+
+## Fond des overlays à cartes : voile, halo coloré au centre, titre tamponné, sous-titre. Renvoie le bas du titre.
+func _deal_overlay(title: String, subtitle: String, col: Color) -> float:
+	_clear_overlay()
+	var vs := get_viewport().get_visible_rect().size
+	overlay = _full(false)
+	overlay.add_child(UI.dim(0.8))
+	var glow := Fx.halo(Color(col, 0.22), Vector2(vs.x * 1.1, vs.y * 1.2))
+	glow.position = Vector2(vs.x * -0.05, vs.y * 0.0)
+	overlay.add_child(glow)
+	ui_layer.add_child(overlay)
+	Fx.screen_in(overlay, 0.15)
+	var top := clampf(vs.y * 0.05, 18.0, 70.0)
+	var t := UI.title(title, 50, UI.TEXT, col, HORIZONTAL_ALIGNMENT_CENTER)
+	t.position = Vector2(0, top)
+	t.size = Vector2(vs.x, 62)
+	overlay.add_child(t)
+	Fx.slam(t, 0.02, 1.8)
+	Fx.shine(t, vs.x * 0.5, 2.6, 0.5)
+	var s := UI.label(subtitle, 24, Color("#C4D2E4"), HORIZONTAL_ALIGNMENT_CENTER)
+	s.position = Vector2(0, top + 62)
+	s.size = Vector2(vs.x, 30)
+	overlay.add_child(s)
+	Fx.rise_in(s, 0.2)
+	return top + 96.0
 
 func _show_item(item: Dictionary) -> void:
 	_pause_for_overlay()
 	profile["inventory"].append(item)
 	Save.save_profile(profile)
+	run_items.append(item)
+	var vs := get_viewport().get_visible_rect().size
 	var tpl := Data.item_template(String(item["id"]))
 	var rarity := int(item["rarity"])
-	var box := _card_overlay("OBJET TROUVÉ", Data.RARITY_NAMES[rarity].to_upper())
 	var rc: Color = Data.RARITY_COLORS[rarity]
-	var c := UI.card(String(tpl["slot"]), Data.item_label(item), Data.SLOT_NAMES[tpl["slot"]] + "\n" + Data.item_stat_text(item), rc, Vector2(330, 300))
-	c.disabled = false
+	var head := _deal_overlay("OBJET TROUVÉ", Data.SLOT_NAMES[tpl["slot"]].to_upper() + "  ·  " + Data.item_stat_text(item), rc)
+	var cs := Vector2(300, 356) if vs.y >= 700.0 else Vector2(270, 320)
+	var c: Button = CardScript.new()
+	c.setup(String(tpl["slot"]), Data.item_label(item), Data.SLOT_NAMES[tpl["slot"]] + "\n" + Data.item_stat_text(item), rarity, Data.RARITY_NAMES[rarity].to_upper(), "", cs)
 	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var cc := CenterContainer.new()
-	cc.add_child(c)
-	box.add_child(cc)
-	UI.pop_in(c)
+	overlay.add_child(c)
+	var cy := head + 10.0 + cs.y * 0.5
+	c.deal(Vector2(vs.x * 0.5 - cs.x * 0.5, vs.y + 60.0), Vector2(vs.x * 0.5 - cs.x * 0.5, cy - cs.y * 0.5), 0.0, 0.08)
+	c.reveal(0.5)
+	var by := cy + cs.y * 0.5 + 18.0
 	var cur_uid := String(profile["equipped"].get(tpl["slot"], ""))
 	var cur := Save.find_item(profile, cur_uid) if cur_uid != "" else {}
 	if not cur.is_empty():
-		box.add_child(UI.label("Équipé actuellement : " + Data.item_label(cur) + " (" + Data.item_stat_text(cur) + ")", 19, UI.MUTED, HORIZONTAL_ALIGNMENT_CENTER))
-	var row := UI.hbox(16)
+		var cl := UI.label("Équipé : " + Data.item_label(cur) + " (" + Data.item_stat_text(cur) + ")", 20, UI.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		cl.position = Vector2(0, by)
+		cl.size = Vector2(vs.x, 26)
+		overlay.add_child(cl)
+		Fx.rise_in(cl, 0.8)
+		by += 30.0
+	var row := UI.hbox(18)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_child(row)
-	var eq := UI.primary("ÉQUIPER", 24)
+	row.position = Vector2(0, minf(by, vs.y - 96.0))
+	row.size = Vector2(vs.x, 84)
+	overlay.add_child(row)
+	var eq := UI.primary("ÉQUIPER", 30, 250)
+	eq.custom_minimum_size = Vector2(250, 82)
 	eq.pressed.connect(func():
 		Save.equip(profile, String(item["uid"]))
 		Save.save_profile(profile)
 		_apply_profile_to_hero()
 		_after_item())
 	row.add_child(eq)
-	var keep := UI.button("GARDER", 24, UI.MUTED)
+	var keep := UI.button("GARDER", 28, UI.MUTED, 210)
+	keep.custom_minimum_size = Vector2(210, 82)
 	keep.pressed.connect(_after_item)
 	row.add_child(keep)
+	Fx.rise_in(eq, 0.85, 0.34, 0.6)
+	Fx.rise_in(keep, 0.92, 0.34, 0.6)
 
 func _after_item() -> void:
 	_resume()
@@ -525,18 +796,24 @@ func _show_pause() -> void:
 	if state != "arena" or get_tree().paused:
 		return
 	_pause_for_overlay()
-	var box := _card_overlay("PAUSE", "Salle %d · %d ennemis tués" % [arena.room, arena.kills])
-	var r := UI.primary("REPRENDRE", 30, 360)
+	var box := _card_overlay("PAUSE", "Salle %d · %d ennemis abattus" % [arena.room, arena.kills])
+	Fx.screen_in(overlay, 0.15)
+	var r := UI.primary("REPRENDRE", 34, 400)
+	r.custom_minimum_size = Vector2(400, 88)
 	r.pressed.connect(_resume)
 	box.add_child(r)
-	var mu := UI.button("MUSIQUE : " + ("OUI" if Music.enabled else "NON"), 22, UI.ACCENT, 360)
+	var mu := UI.button("MUSIQUE : " + ("OUI" if Music.enabled else "NON"), 24, UI.ACCENT, 400)
+	mu.custom_minimum_size = Vector2(400, 80)
 	mu.pressed.connect(func():
 		Music.set_enabled(not Music.enabled)
 		mu.text = "MUSIQUE : " + ("OUI" if Music.enabled else "NON"))
 	box.add_child(mu)
-	var q := UI.button("ABANDONNER  ·  le butin reste", 22, UI.MUTED, 360)
-	q.pressed.connect(func(): _end_run(false))
+	var q := UI.button("ABANDONNER  ·  le butin reste", 24, UI.MUTED, 400)
+	q.custom_minimum_size = Vector2(400, 80)
+	q.pressed.connect(func(): _show_end(false, "PARTIE ABANDONNÉE", "Le butin reste, les pouvoirs partent."))
 	box.add_child(q)
+	Fx.rise_in(r, 0.05)
+	Fx.rise_in(q, 0.12)
 
 func _on_hero_died() -> void:
 	if get_tree().paused:
@@ -550,24 +827,36 @@ func _on_hero_died() -> void:
 	if state != "arena":
 		return
 	_pause_for_overlay()
-	var box := _card_overlay("RAPPEL AU RELAIS", "Salle %d  ·  %d ennemis  ·  %d tickets\nLe butin reste, les pouvoirs partent." % [arena.room, arena.kills, arena.tickets])
-	var b := UI.primary("RETOUR AU RELAIS", 30, 400)
-	b.pressed.connect(func(): _end_run(false))
-	box.add_child(b)
+	_show_end(false, "RAPPEL AU RELAIS", "Le butin reste, les pouvoirs partent.")
 
 func _victory() -> void:
 	_pause_for_overlay()
 	profile["shards"] = int(profile["shards"]) + 1
-	var box := _card_overlay("ÉCLAT DU CŒUR RÉCUPÉRÉ", "Le Relais se rallume.  %d ennemis  ·  %d tickets" % [arena.kills, arena.tickets])
-	var b := UI.primary("RETOUR AU RELAIS", 30, 400)
-	b.pressed.connect(func(): _end_run(true))
-	box.add_child(b)
+	_show_end(true, "VICTOIRE", "Éclat du Cœur récupéré : le Relais se rallume.")
+
+## Écran de fin : récapitulatif de la partie, REJOUER (repart aussitôt) ou RELAIS.
+func _show_end(won: bool, title: String, subtitle: String) -> void:
+	_clear_overlay()
+	var es: Control = EndScreenScript.new()
+	overlay = es
+	ui_layer.add_child(es)
+	es.build({
+		"room": arena.room, "rooms": Data.ROOMS, "kills": arena.kills, "tickets": arena.tickets,
+		"items": run_items, "shard": won, "record": arena.room > int(profile["best_room"]) and int(profile["runs"]) > 1,
+		"title": title, "subtitle": subtitle,
+	})
+	Fx.screen_in(es, 0.2)
+	es.replay.connect(func():
+		_end_run(won)
+		_depart())
+	es.relais.connect(func(): _end_run(won))
 
 func _end_run(_won: bool) -> void:
 	profile["tickets"] = int(profile["tickets"]) + arena.tickets
 	profile["kills"] = int(profile["kills"]) + arena.kills
 	profile["best_room"] = maxi(int(profile["best_room"]), arena.room)
 	Save.save_profile(profile)
+	enemy_card.clear()
 	arena.stop()
 	view.stop()
 	show_base()
