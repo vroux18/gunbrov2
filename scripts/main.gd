@@ -17,6 +17,8 @@ const CardScript = preload("res://scripts/ui/card.gd")
 const EnemyCardScript = preload("res://scripts/ui/enemy_card.gd")
 const TutorialScript = preload("res://scripts/ui/tutorial.gd")
 const EndScreenScript = preload("res://scripts/ui/end_screen.gd")
+const TalentsScreenScript = preload("res://scripts/ui/talents_screen.gd")
+const Talents = preload("res://scripts/talents.gd")
 
 var profile: Dictionary
 var sfx: Node
@@ -93,6 +95,7 @@ func _ready() -> void:
 
 func _apply_profile_to_hero() -> void:
 	hero.items = Save.equipped_items(profile)
+	hero.set_meta("profile", profile)  # talents permanents (talents.gd, lus dans hero.recalc())
 	hero.recalc()
 	if view != null:
 		view.set_hero_items(hero.items)
@@ -332,6 +335,16 @@ func _build_relais_panel() -> void:
 	var ars := _side_button("ARSENAL", "bolt", UI.ORANGE, "%d/%d" % [profile["arsenal"].size(), Data.ARSENAL_SIZE])
 	ars.pressed.connect(show_arsenal)
 	row.add_child(ars)
+	# TALENTS : pastille = nombre d'améliorations achetables tout de suite
+	var buyable := 0
+	for t in Talents.TALENTS:
+		if Talents.block_reason(profile, String(t["id"])) == "":
+			buyable += 1
+	var tal := _side_button("TALENTS", "tree", UI.GOLD, ("+%d" % buyable) if buyable > 0 else "")
+	tal.pressed.connect(show_talents)
+	row.add_child(tal)
+	for b in [loge, ars, tal]:
+		_compact_side_button(b)
 	var equipped := Save.equipped_items(profile)
 	var eq_txt := "Rien d'équipé. Les objets trouvés en partie restent à toi."
 	if not equipped.is_empty():
@@ -391,6 +404,37 @@ func _side_button(text: String, icon: String, col: Color, badge: String) -> Butt
 		tg.offset_top = -12
 		b.add_child(tg)
 	return b
+
+## Trois boutons sur la ligne : pictogramme au-dessus du nom, pour tenir en 16:9.
+func _compact_side_button(b: Button) -> void:
+	b.add_theme_font_size_override("font_size", 23)
+	b.custom_minimum_size = Vector2(0, 92)
+	for stn in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+		var st: StyleBoxFlat = b.get_theme_stylebox(stn)
+		st.content_margin_left = 8
+		st.content_margin_right = 8
+		st.content_margin_top = 44 if not stn.contains("pressed") else 49
+		st.content_margin_bottom = 8 if not stn.contains("pressed") else 3
+	for c in b.get_children():
+		if c is Control and c.get_script() == UI.Icon:
+			var ic := c as Control
+			ic.custom_minimum_size = Vector2(34, 34)
+			ic.anchor_left = 0.5
+			ic.anchor_right = 0.5
+			ic.anchor_top = 0.0
+			ic.anchor_bottom = 0.0
+			ic.offset_left = -17
+			ic.offset_right = 17
+			ic.offset_top = 9
+			ic.offset_bottom = 43
+
+func show_talents() -> void:
+	var fresh := state != "talents"
+	_clear_screen(fresh)
+	state = "talents"
+	screen = TalentsScreenScript.new()
+	ui_layer.add_child(screen)
+	screen.build(self, fresh)
 
 func show_loge() -> void:
 	var fresh := state != "loge"
