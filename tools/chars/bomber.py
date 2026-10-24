@@ -1,9 +1,9 @@
 """Pétard (code « bomber ») : petit kamikaze roulant de la sécurité de la station, qui fonce sur Jo et explose.
-Boule de danger jaune à chevrons noirs et bande de roulement sombre, qui roule sur elle-même (axe X) entre deux
-moyeux fixes. Sur les moyeux, un étrier porte une petite tête sombre : GROS œil rouge incliné vers le haut
+Boule de danger jaune en coque de mine : bande de roulement en ruban de danger (chevrons obliques continus noirs),
+flancs rivetés, plots de détonateur sombres, qui roule sur elle-même (axe X) entre deux moyeux fixes. Sur les moyeux, un étrier porte une petite tête sombre : GROS œil rouge incliné vers le haut
 (lisible depuis la caméra haute), antenne-détonateur à voyant rouge clignotant, ailerons arrière (sens du
 Pétard vu du dessus). Deux poignées rouges sur les moyeux.
-Regarde vers +Z ; sa droite est en -X. Pieds à y = 0 : la boule touche le sol. Largeur ~0,5, hauteur ~0,56.
+Regarde vers +Z ; sa droite est en -X. Pieds à y = 0 : la boule touche le sol. Largeur ~0,6, hauteur ~0,67.
 
 Parts : body (moyeux, étrier, tête ; pivot au centre de la boule), ball (la boule qui roule, pivot au centre),
 eye_glow (œil, pivot au centre de la lentille), fuse (antenne, pivot à sa base) + fuse_glow (voyant).
@@ -24,20 +24,20 @@ METAL = "#2C3350"
 METAL_L = "#454E70"
 METAL_D = "#161B2E"
 SHELL = "#C8CEDC"
-RED = "#EE3F5C"      # peinture de faction
-EYE_RIM = "#A8001A"  # bord de l'œil (reste rouge une fois lumineux)
-EYE_IRIS = "#FF2648"  # #FF4D6D poussé (la lueur le délave)
+RED = "#E8303A"      # peinture de faction (rouge franc)
+EYE_RIM = "#B00A06"  # bord de l'œil (reste rouge une fois lumineux)
+EYE_IRIS = "#FF2414"  # iris rouge : ni bleu ni vert, la lueur ne le délave pas en rose
 PUPIL = "#1A0610"
 WHITE = "#FFFFFF"
-LAMP = "#FF1434"
+LAMP = "#FF1A0A"
 ORANGE = "#FF7A2F"
-GOLD = "#FFB347"
-GOLD_D = "#D98A1E"
+GOLD = "#EE8530"     # or franc des élites (jamais jaune pâle : il doit se détacher du jaune de danger)
+GOLD_D = "#C8650E"
 
 R = 0.18                          # rayon de la boule
 C = np.array([0.0, 0.192, 0.0])   # centre de la boule (ses reliefs effleurent le sol)
 POD = C + np.array([0.0, 0.223, 0.0])  # centre de la tête
-SCALE = 0.935  # sculpté un peu grand puis réduit (largeur ~0,5, hauteur ~0,56)
+SCALE = 1.12  # agrandi (largeur ~0,6, hauteur ~0,67) : il se voyait mal à l'écran
 
 
 class Part(_Part):
@@ -161,6 +161,16 @@ def scale_parts(parts, k):
             pc.ops = [(op[0], scaled(op[1])) + tuple(op[2:]) for op in pc.ops]
 
 
+def _axis_rot(d):
+    """Angles (degrés, ordre X puis Y puis Z de rot_matrix) qui couchent l'axe +Y sur la direction d."""
+    d = np.asarray(d, dtype=np.float64)
+    d = d / np.linalg.norm(d)
+    # +Y -> d : basculer autour de X (vers +Z) puis tourner autour de Y
+    rx = math.degrees(math.acos(max(-1.0, min(1.0, d[1]))))
+    ry = math.degrees(math.atan2(d[0], d[2]))
+    return (rx, ry, 0.0)
+
+
 def at(p, x, y, z):
     return (np.asarray(p) + np.array([x, y, z])).tolist()
 
@@ -250,30 +260,51 @@ def build(elite=False):
     parts.append(body)
 
     # ================================================================ boule (roule autour de X)
-    # jaune uni ; bande centrale de ruban de danger (hachures à 45°) bordée de deux joncs sombres, qui défile
-    # d'avant en arrière vu du dessus
+    # coque de mine jaune : au centre, bande de roulement en ruban de danger (chevrons obliques continus, qui
+    # défilent d'avant en arrière vu du dessus) bordée de deux joncs sombres ; sur chaque flanc, une couture
+    # rivetée et des plots de détonateur sombres (l'élite porte des pointes dorées à la place)
     ball = Part("ball", pivot=C.tolist(), parent="body", res=0.0045)
     bs = sphere(C.tolist(), R)
     hub_hole = [cyl(at(C, sx * 0.19, 0, 0), 0.06, 0.03, 0.0, rot=(0, 0, 90)) for sx in (-1, 1)]
-    sh = ball.piece(HAZ, tris=460)
+    sh = ball.piece(HAZ, tris=520)
     sh.add(bs)
     for hh in hub_hole:
         sh.sub(hh)
-    BW = 0.058  # demi-largeur de la bande
-    hatch = ball.piece(STRIPE, tris=700, res=0.0032)
-    hatch.add(inter(inter(grow(bs, 0.007), helix_x(C, 14, 0.085, 0.5), k=0.002), cyl(C.tolist(), R + 0.05, BW - 0.002, 0.0, rot=(0, 0, 90))))
-    rims = ball.piece(METAL, tris=240)
+    BW = 0.07  # demi-largeur de la bande
+    hatch = ball.piece(STRIPE, tris=640, res=0.0032)
+    hatch.add(inter(inter(grow(bs, 0.007), chevrons(C, 11, 0.1, 0.38), k=0.002), cyl(C.tolist(), R + 0.05, BW - 0.002, 0.0, rot=(0, 0, 90))))
+    rims = ball.piece(METAL, tris=260)
     for sx in (-1, 1):
         rims.add(inter(grow(bs, 0.011), cyl(at(C, sx * (BW + 0.006), 0, 0), R + 0.05, 0.008, 0.0, rot=(0, 0, 90)), k=0.004))
+    # couture rivetée des flancs
+    SX = 0.128
+    rr = math.sqrt(R * R - SX * SX)
+    seam = ball.piece(METAL, tris=420, res=0.003)
+    for sx in (-1, 1):
+        seam.add(torus(at(C, sx * SX, 0, 0), rr + 0.002, 0.0045, rot=(0, 0, 90)))
+        for i in range(10):
+            a = 2 * math.pi * (i + 0.5 * (sx > 0)) / 10
+            seam.add(sphere(at(C, sx * SX, (rr + 0.004) * math.cos(a), (rr + 0.004) * math.sin(a)), 0.0105), k=0.003)
+    beta = math.radians(48)
     if elite:
         # couronne de pointes dorées sur les flancs (elles ne touchent jamais le sol)
         sp = ball.piece(GOLD_D, tris=380, res=0.0035)
-        beta = math.radians(46)
         for sx in (-1, 1):
             for i in range(6):
                 ph = 2 * math.pi * (i + 0.5 * (sx > 0) + 0.25) / 6
                 d = np.array([sx * math.sin(beta), math.cos(beta) * math.cos(ph), math.cos(beta) * math.sin(ph)])
                 sp.add(capsule((C + d * 0.165).tolist(), (C + d * 0.232).tolist(), 0.022, 0.004))
+    else:
+        # plots de détonateur : courts, arrondis, coiffés de rouge (ils ne touchent jamais le sol)
+        st = ball.piece(METAL, tris=360, res=0.0035)
+        tips = ball.piece(RED, tris=160, res=0.0035)
+        for sx in (-1, 1):
+            for i in range(5):
+                ph = 2 * math.pi * (i + 0.5 * (sx > 0)) / 5
+                d = np.array([sx * math.sin(beta), math.cos(beta) * math.cos(ph), math.cos(beta) * math.sin(ph)])
+                st.add(capsule((C + d * 0.17).tolist(), (C + d * 0.196).tolist(), 0.019, 0.017))
+                st.add(cyl((C + d * 0.172).tolist(), 0.026, 0.006, 0.004, rot=_axis_rot(d)), k=0.006)
+                tips.add(sphere((C + d * 0.205).tolist(), 0.0125))
     parts.append(ball)
 
     # ================================================================ œil

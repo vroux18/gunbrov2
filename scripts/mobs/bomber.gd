@@ -8,7 +8,7 @@ extends "res://scripts/rig3d.gd"
 
 const TELL_TIME := 0.55
 const DIE_TIME := 0.15
-const BALL_R := 0.168  # rayon de la boule (tools/chars/bomber.py : R x SCALE), échelle du modèle
+const BALL_R := 0.2016  # rayon de la boule (tools/chars/bomber.py : R x SCALE), échelle du modèle
 const ROLL_SPEED := 15.0  # rad/s à speed = 1 quand on ne mesure pas le déplacement réel (banc d'essai)
 ## La couleur du GLB est multipliée par cette énergie : au-delà de ~1,5 le rouge vire au rose pâle.
 const GLOW_SCALE := 0.45
@@ -23,7 +23,7 @@ var _seed := -1.0
 var _glow_base := 1.35
 var _eye_mat: StandardMaterial3D
 var _lamp_mat: StandardMaterial3D
-var _skin: StandardMaterial3D  # matériau propre : rougit pendant la préparation
+var _skin: ShaderMaterial  # matériau propre (shaders/character.gdshader) : rougit pendant la préparation
 var _stop := 0.0  # temps depuis l'arrêt net (inertie de la tête)
 var _sway := 0.0
 var _sway_v := 0.0
@@ -35,10 +35,8 @@ func setup(path: String, tint: Color = Color(1, 1, 1), glow_energy: float = 3.0)
 	_glow_base = glow_energy * GLOW_SCALE
 	_eye_mat = _new_glow()
 	_lamp_mat = _new_glow()
-	_skin = (body_mat(tint) as StandardMaterial3D).duplicate()
-	_skin.emission_enabled = true
-	_skin.emission = RED_HOT
-	_skin.emission_energy_multiplier = 0.0
+	_skin = body_mat(tint).duplicate() as ShaderMaterial
+	_skin_heat(Color(1, 1, 1), RED_HOT, 0.0)
 	for mi in meshes:
 		var m: MeshInstance3D = mi
 		var nm := String(m.get_parent().name) + String(m.name)
@@ -57,6 +55,13 @@ func _new_glow() -> StandardMaterial3D:
 	m.vertex_color_is_srgb = true
 	m.albedo_color = Color(_glow_base, _glow_base, _glow_base)
 	return m
+
+
+## Teinte multipliée et lueur ajoutée de la coque (paramètres de shaders/character.gdshader).
+func _skin_heat(tint: Color, col: Color, e: float) -> void:
+	_skin.set_shader_parameter("tint", tint)
+	_skin.set_shader_parameter("heat_col", col)
+	_skin.set_shader_parameter("heat", e)
 
 
 func _energy(m: StandardMaterial3D, e: float) -> void:
@@ -151,8 +156,7 @@ func animate(dt: float) -> void:
 	_scaled("eye_glow", Vector3.ZERO, Vector3.ZERO, Vector3.ONE * es)
 	# il vire au rouge vif, par pulsations calées sur le voyant
 	var hot := smoothstep(0.0, 1.0, u) * (0.7 + 0.3 * blink)
-	_skin.albedo_color = Color(1, 1, 1).lerp(HOT_TINT, hot)
-	_skin.emission_energy_multiplier = 0.45 * hot
+	_skin_heat(Color(1, 1, 1).lerp(HOT_TINT, hot), RED_HOT, 0.45 * hot)
 
 
 func animate_death(dt_total: float) -> void:
@@ -160,9 +164,7 @@ func animate_death(dt_total: float) -> void:
 	var e := 1.0 - pow(1.0 - k, 2.0)
 	model.position = Vector3.ZERO
 	model.scale = Vector3.ONE * (1.25 + 0.4 * e) * Vector3(1.0, 1.0 + 0.06 * sin(k * PI), 1.0)
-	_skin.albedo_color = HOT_TINT.lerp(Color(1, 1, 1), e)
-	_skin.emission = RED_HOT.lerp(Color(1.0, 0.62, 0.32), e)
-	_skin.emission_energy_multiplier = 0.6 + 1.3 * e
+	_skin_heat(HOT_TINT.lerp(Color(1, 1, 1), e), RED_HOT.lerp(Color(1.0, 0.62, 0.32), e), 0.6 + 1.3 * e)
 	_energy(_lamp_mat, _glow_base * 2.0)
 	_energy(_eye_mat, _glow_base * (1.6 + 0.8 * e))
 	model.visible = k < 1.0
@@ -172,8 +174,6 @@ func revive() -> void:
 	super.revive()
 	model.visible = true
 	model.scale = Vector3.ONE
-	_skin.albedo_color = Color(1, 1, 1)
-	_skin.emission = RED_HOT
-	_skin.emission_energy_multiplier = 0.0
+	_skin_heat(Color(1, 1, 1), RED_HOT, 0.0)
 	_roll_v = 0.0
 	_has_last = false

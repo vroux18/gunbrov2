@@ -1,7 +1,7 @@
 """Sentinelle (code « drone ») : petit drone flottant de la faction du Portique, en essaim, qui fonce au contact.
-Coque ronde claire en deux tons, ceinture de métal sombre, GROS œil unique lumineux incliné vers le haut
-(lisible depuis la caméra haute de 56°), sourcil de visière, deux antennes à boules orange, ailerons latéraux,
-dérive arrière orange (sens du drone vu du dessus), bague de propulsion flottante à nacelles qui tourne autour
+Coque ronde en deux tons (calotte rouge : sa signature vue du dessus, dessous clair), ceinture de métal sombre, GROS œil unique rouge lumineux incliné vers le haut
+(lisible depuis la caméra haute de 56°), sourcil de visière, deux antennes à boules orange, ailerons latéraux clairs,
+dérive arrière rouge sombre (sens du drone vu du dessus), bague de propulsion flottante à nacelles qui tourne autour
 du corps, tuyère lumineuse dessous.
 Regarde vers +Z ; sa droite est en -X. Pas de pieds : le corps flotte, centre à y = 0,5.
 Variante élite (build(elite=True)) : accent lumineux or, double dérive en crête, ailerons à double pointe,
@@ -20,11 +20,14 @@ HULL = "#9AA4B6"     # coque (dessous)
 METAL = "#2C3350"    # métal sombre
 METAL_L = "#454E70"  # métal sombre éclairci (détails)
 ORANGE = "#FF7A2F"
-RED = "#FF4D6D"
-RED_IRIS = "#FF1A3C"  # iris : #FF4D6D poussé (la lueur ×3 le délave vers le rose)
-RED_RIM = "#A8001A"  # bord de l'œil (plus saturé : reste rouge une fois lumineux)
-GOLD = "#FFB347"
-GOLD_RIM = "#F08A10"
+RED = "#FF2A1E"      # lueur rouge : ni bleu ni vert (multipliée par l'énergie, elle virerait au rose)
+RED_IRIS = "#FF2414"  # iris rouge franc
+RED_RIM = "#B00A06"  # bord de l'œil
+RED_HULL = "#E5333B"  # calotte rouge : la signature de la Sentinelle vue du dessus
+RED_HULL_D = "#B4222E"
+GOLD = "#EE8530"     # or franc des élites (tire vers l'orange, jamais jaune pâle)
+GOLD_G = "#FF8410"   # lueur or (énergie GLOW_E : rendu proche de #FFA41C)
+GOLD_RIM = "#C86200"
 PUPIL = "#1A0610"
 PUPIL_E = "#2A1404"
 WHITE = "#FFFFFF"
@@ -82,8 +85,8 @@ def at(x, y, z):
 
 
 def build(elite=False):
-    glow_col = GOLD if elite else RED
-    iris_col = GOLD if elite else RED_IRIS
+    glow_col = GOLD_G if elite else RED
+    iris_col = GOLD_G if elite else RED_IRIS
     glow_rim = GOLD_RIM if elite else RED_RIM
     trim = GOLD if elite else ORANGE
     parts = []
@@ -95,15 +98,17 @@ def build(elite=False):
     low = body.piece(HULL, tris=int(550 * q))
     low.add(ellipsoid(at(0, 0.0, 0), (0.2, 0.175, 0.195)))
     low.add(ellipsoid(at(0, -0.09, 0), (0.12, 0.1, 0.12)), k=0.06)
-    # coque haute : calotte claire légèrement plus grande, coupée sous l'équateur -> ligne de panneau nette
-    top = body.piece(HULL_L, tris=int(760 * q))
+    # coque haute : calotte rouge légèrement plus grande, coupée sous l'équateur -> ligne de panneau nette
+    eye_dir = np.array([0.0, math.sin(math.radians(32)), math.cos(math.radians(32))])
+    top = body.piece(RED_HULL, tris=int(860 * q))
     top.add(ellipsoid(at(0, 0.005, 0), (0.206, 0.182, 0.201)))
     top.sub(rbox(at(0, -0.2, 0), (0.3, 0.2, 0.3), 0.01))
+    # bande sombre au sommet, d'avant en arrière (lisible du dessus, donne le sens)
+    top.paint(rbox(at(0, 0.17, -0.08), (0.022, 0.05, 0.13), 0.01), RED_HULL_D)
     # ceinture sombre à l'équateur
     belt = body.piece(METAL, tris=300)
     belt.add(cyl(at(0, -0.005, 0), 0.214, 0.016, 0.008))
     # orbite de l'œil : grand anneau sombre incliné vers le haut (60° : se lit du dessus comme de face)
-    eye_dir = np.array([0.0, math.sin(math.radians(32)), math.cos(math.radians(32))])
     rx = 90 - 32
     ec = C + eye_dir * 0.168
     sock = body.piece(METAL, tris=int(700 * q), res=0.004)
@@ -122,8 +127,8 @@ def build(elite=False):
     noz = body.piece(METAL, tris=140)
     noz.add(cyl(at(0, -0.175, 0), 0.07, 0.03, 0.014))
     noz.add(cyl(at(0, -0.2, 0), 0.055, 0.02, 0.01), k=0.01)
-    # dérive arrière : petit aileron vertical orange (indique le sens du drone vu du dessus)
-    tail = body.piece(trim, tris=260 if elite else 200, res=0.004)
+    # dérive arrière : petit aileron vertical (indique le sens du drone vu du dessus)
+    tail = body.piece(trim if elite else RED_HULL_D, tris=260 if elite else 200, res=0.004)
     tail.add(ellipsoid(at(0, 0.11, -0.165), (0.017, 0.062, 0.075), rot=(-45, 0, 0)))
     if elite:
         tail.add(ellipsoid(at(0, 0.16, -0.12), (0.015, 0.05, 0.07), rot=(-25, 0, 0)), k=0.02)
@@ -162,7 +167,7 @@ def build(elite=False):
     for side, sx in (("r", -1.0), ("l", 1.0)):
         piv = C + np.array([sx * 0.19, 0.01, -0.02])
         fin = Part("fin_" + side, pivot=piv.tolist(), parent="body", res=0.005)
-        f = fin.piece(trim, tris=200)
+        f = fin.piece(trim if elite else HULL_L, tris=200)
         f.add(ellipsoid(at(sx * 0.225, 0.03, -0.06), (0.022, 0.085, 0.07), rot=(-35, 0, sx * -28)))
         f.add(ellipsoid(at(sx * 0.2, 0.005, -0.02), (0.03, 0.045, 0.05)), k=0.02)
         if elite:

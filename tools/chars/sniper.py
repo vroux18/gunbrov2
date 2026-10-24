@@ -1,7 +1,8 @@
 """Vigie (code « sniper ») : tireuse d'élite robot de la sécurité de la station.
 Silhouette élancée (plus grande et plus fine que le Garde) : longues jambes à genouillères, taille étroite,
 buste court, tête ronde à GRANDE lentille-viseur violette (iris, pupille, reflet : un regard, pas une lampe),
-télémètre et antenne à pointe violette, capeline courte violette sur les épaules, très long fusil de
+télémètre et antenne à pointe violette, capuchon de casque, épaulières et grande cape violets (lisibles du
+dessus), très long fusil de
 précision à lunette et bobines violettes, tenu à deux mains.
 Regarde vers +Z ; sa droite est en -X. Hauteur ~1,3 (Jo : 1,10).
 
@@ -25,16 +26,17 @@ PLATE_M = "#9AA4B6"
 UNDER = "#2D2B5C"   # sous-couche bleu nuit teintée violet (propre à la Vigie)
 UNDER_D = "#1C1C3C"
 JOINT = "#46467A"
-CAPE = "#5B3FCB"
-CAPE_D = "#3B2896"
-PAINT = "#7A5CF0"   # peinture violette (crête du casque, vue de dessus)
+CAPE = "#6A36D6"
+CAPE_D = "#43209C"
+PAINT = "#7A5CF0"   # peinture violette
+VIO_HULL = "#7446E0"  # coque violette : capuchon du casque et épaulières (la signature vue du dessus)
 VIO = "#6A5CFF"     # lueur violette (énergie ~1 : rendu proche de #8E6BFF, sans virer au lavande)
 VIO_RIM = "#4A2FE0"  # bord de la lentille : plus saturé, reste violet une fois lumineux
 VIO_IRIS = "#6E58FF"
 PUPIL = "#120A2A"
 WHITE = "#FFFFFF"
-GOLD = "#FFB347"
-GOLD_P = "#E8A53A"
+GOLD = "#FF8410"     # lueur or (rendu proche de #FFA41C)
+GOLD_P = "#EE8530"   # or franc, pas jaune pâle
 GOLD_D = "#A8661E"
 
 # repères partagés avec scripts/mobs/sniper.gd
@@ -55,7 +57,7 @@ FORE_GRIP = 0.33  # main gauche sous le garde-main, à cette distance devant la 
 MUZZLE_Z = 0.74  # bout du canon devant la poignée
 BARREL_Y = 0.058  # axe du canon au-dessus de la poignée
 LENS_TILT = 22.0  # la lentille regarde un peu vers le haut (se lit depuis la caméra haute)
-TRI = 0.62  # facteur global du budget de triangles (~9 000)
+TRI = 0.57  # facteur global du budget de triangles (~9 000)
 
 
 class Part(_Part):
@@ -193,7 +195,7 @@ def build(elite=False):
     plate.sub(side((0, 0.775, 0), (0, -1, 0.3)), k=0.01)
     plate.sub(slab((0, 0, 0), (1, 0, 0), 0.008), k=0.004)  # rainure (ligne de lumière dans chest_glow)
     # épaulières rondes, fixées au buste
-    pads = chest.piece(PLATE, tris=T(420))
+    pads = chest.piece(VIO_HULL, tris=T(420))
     for sx in (-1, 1):
         pads.add(ellipsoid((sx * 0.186, 0.965, -0.005), (0.08, 0.052, 0.082), rot=(0, 0, -sx * 22)))
     chest.piece(trim, tris=T(260)).add(union([ellipsoid((sx * 0.205, 0.936, -0.005), (0.064, 0.034, 0.072), rot=(0, 0, -sx * 34)) for sx in (-1, 1)]))
@@ -216,20 +218,21 @@ def build(elite=False):
 
     # capeline courte (pivot au col, flotte en marche)
     cape = Part("cape", pivot=(0, 0.99, -0.02), parent="chest", res=0.005)
-    cone = capsule((0, 1.0, -0.01), (0, 0.73, -0.06), 0.14, 0.235)
+    # (grande : elle couvre le dos et se lit du dessus)
+    cone = capsule((0, 1.0, -0.01), (0, 0.63, -0.085), 0.15, 0.285)
     flat = Shape(lambda P, f=cone: f(P * np.array((1.0, 1.0, 1.45)) + np.array((0, 0, -0.01 * 0.45))) / 1.2,
                  cone.lo, cone.hi)
-    cp = cape.piece(CAPE, tris=T(560))
+    cp = cape.piece(CAPE, tris=T(640))
     cp.add(shell(flat, 0.0, -0.015))
     cp.sub(side((0, 0, -0.03), (0, 0, 1)), k=0.02)  # ouverte devant
     cp.sub(side((0, 0.99, 0), (0, 1, 0)), k=0.015)
-    cp.sub(side((0, 0.735, 0), (0, -1, -0.35)), k=0.015)
+    cp.sub(side((0, 0.64, 0), (0, -1, -0.35)), k=0.015)
     cp.add(torus((0, 0.995, -0.005), 0.088, 0.019), k=0.01)  # col roulé
     hem = cape.piece(GOLD_P if elite else CAPE_D, tris=T(260))  # ourlet (pièce à part : bord net)
     hem.add(shell(flat, 0.003, -0.018))
     hem.sub(side((0, 0, -0.03), (0, 0, 1)), k=0.02)
-    hem.sub(side((0, 0.79, -0.1), (0, 1, 0.35)), k=0.004)
-    hem.sub(side((0, 0.735, 0), (0, -1, -0.35)), k=0.015)
+    hem.sub(side((0, 0.695, -0.1), (0, 1, 0.35)), k=0.004)
+    hem.sub(side((0, 0.64, 0), (0, -1, -0.35)), k=0.015)
     parts.append(cape)
 
     # ================================================================== tête (pivot au cou)
@@ -247,6 +250,11 @@ def build(elite=False):
     helm = head.piece(PLATE, tris=T(680))
     helm.add(head_sh)
     helm.sub(cyl((ec - eye_dir * 0.01).tolist(), LR - 0.002, 0.05, 0.01, rot=(rx, 0, 0)), k=0.01)
+    # capuchon violet : dessus et arrière du casque (la face claire autour de la lentille reste lisible)
+    hood = head.piece(VIO_HULL, tris=T(460))
+    hood.add(grow(head_sh, 0.011))  # assez épais : le casque clair ne transperce pas après allègement
+    hood.sub(side(add(HC, (0, 0.028, 0)), (0, -1, 0.62)), k=0.006)
+    hood.sub(cyl((ec - eye_dir * 0.01).tolist(), LR + 0.012, 0.06, 0.01, rot=(rx, 0, 0)), k=0.01)
     # dessous de la tête et joues plus foncés
     jaw = head.piece(PLATE_M, tris=T(280))
     jaw.add(grow(head_sh, 0.006))
@@ -264,9 +272,9 @@ def build(elite=False):
             a = math.radians(ang)
             crest.sub(sphere(add(HC, (0, (HR + 0.08) * math.cos(a), -0.02 + (HR + 0.08) * math.sin(a))), 0.036), k=0.003)
     else:
-        # nervure violette du front à la nuque
-        rib = head.piece(PAINT, tris=T(220), res=0.0035)
-        rib.add(torus(HC, HR * 0.985, 0.017, rot=(0, 0, 90)))
+        # nervure claire du front à la nuque (sur le capuchon violet)
+        rib = head.piece(PLATE, tris=T(220), res=0.0035)
+        rib.add(torus(HC, HR * 0.985 + 0.011, 0.017, rot=(0, 0, 90)))
         rib.sub(sphere(HC, HR * 0.8))
         rib.sub(side(HC, (0, -1, 0.75)), k=0.01)
         rib.sub(side(add(HC, (0, -0.03, 0)), (0, -1, -0.6)), k=0.01)

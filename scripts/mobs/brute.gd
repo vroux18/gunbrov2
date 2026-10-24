@@ -8,6 +8,9 @@ extends "res://scripts/rig3d.gd"
 ## « charge » (0,45 s) penché en avant, foulée rapide, poings en bélier. Mort : à genoux puis affaissé.
 
 const TELL_TIME := 0.7
+## La couleur du GLB est multipliée par cette énergie : à 3, les yeux rouges viraient au rose et le réacteur au blanc.
+const GLOW_SCALE := 0.55
+const GLOW_SCALE_GOLD := 0.42
 
 var _cur := {}  # nom -> [rotation, décalage] lissés
 var _jit := {}  # nom -> [rotation, décalage] ajoutés après lissage (tremblements, chocs)
@@ -23,7 +26,7 @@ const PARTS := ["torso", "head", "arm_r", "arm_l", "pad_r", "pad_l", "fore_r", "
 
 func setup(path: String, tint: Color = Color(1, 1, 1), glow_energy: float = 3.0) -> void:
 	super.setup(path, tint, glow_energy)
-	_glow_base = glow_energy
+	_glow_base = glow_energy * (GLOW_SCALE_GOLD if elite else GLOW_SCALE)
 	_core_mat = _own_glow("core_glow")
 	_back_mat = _own_glow("back_glow")
 	_eye_mat = _own_glow("head_glow")

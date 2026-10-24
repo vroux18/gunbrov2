@@ -1,7 +1,7 @@
 """Mortier (code « mortar ») : petit robot d'artillerie de la sécurité de la station.
-Châssis trapu en galet arrondi (coque claire, ventre sombre, plaques jaunes sur les flancs, pare-chocs à
+Châssis trapu en galet arrondi (dessus vert citron, ventre sombre, plaques claires sur les flancs, pare-chocs à
 bandes de danger), petite tête-capteur à l'avant (visière sombre, deux grands yeux vert citron, casquette
-claire), quatre pattes courtes et écartées à semelles rondes, et sur le dos une tourelle qui porte un GROS
+vert citron), quatre pattes courtes et écartées à semelles rondes, et sur le dos une tourelle qui porte un GROS
 tube de mortier trapu (bague de danger, bouche évasée vert citron).
 Regarde vers +Z ; sa droite est en -X. Largeur ~0,85 (pattes comprises), hauteur ~0,85 (tube couché).
 
@@ -9,7 +9,7 @@ Parts (pivots) : body (racine, centre du châssis) > head (cou) > head_glow (yeu
 (voyants), tube (tourillons ; axe du tube vers +Y au repos, le script le couche ou le lève autour de X)
 > muzzle_glow (bouche) ; body > leg_fr, leg_fl, leg_br, leg_bl (hanches).
 Variante élite (build(elite=True), tools/chars/mortar_elite.py) : bouche toujours vert citron (signature),
-yeux et voyants or, plaques dorées, couronne de pointes dorées autour de la tourelle, cornes sur la tête.
+yeux et voyants or, plaques dorées (or franc, loin du vert), couronne de pointes dorées autour de la tourelle, cornes sur la tête.
 """
 import math
 import os
@@ -28,11 +28,13 @@ HAZ = "#FFC83A"   # plaques jaunes
 HAZ_D = "#E0A21E"
 LIME = "#7AD03A"  # lueur vert citron (énergie ~1 : rendu proche de #9BE15D, sans virer au jaune)
 LIME_RIM = "#4E9E1C"
+LIME_HULL = "#86C83A"  # coque vert citron : le dessus du châssis (la signature vue du dessus, tube couché ou levé)
+LIME_HULL_D = "#5E9A22"
 PUPIL = "#0C1A08"
 WHITE = "#FFFFFF"
-GOLD = "#FFB347"
-GOLD_P = "#E8A53A"
-GOLD_D = "#A8661E"
+GOLD = "#FF8410"     # lueur or (rendu proche de #FFA41C)
+GOLD_P = "#EE8530"   # or franc des élites : loin du vert du châssis
+GOLD_D = "#B05A12"
 
 # repères partagés avec scripts/mobs/mortar.gd
 BC = (0.0, 0.34, 0.0)  # centre du châssis (pivot racine)
@@ -42,7 +44,7 @@ NECK = (0.0, 0.36, 0.2)
 HIPS = {"fr": (-1, 1), "fl": (1, 1), "br": (-1, -1), "bl": (1, -1)}
 HIP_X, HIP_Y, HIP_Z = 0.2, 0.27, 0.16
 FOOT_X, FOOT_Z = 0.33, 0.225
-TRI = 0.9
+TRI = 0.84
 
 
 def helix(c, n, pitch, frac=0.5):
@@ -89,7 +91,7 @@ def build(elite=False):
     def T(n):
         return max(50, int(n * q * TRI))
 
-    plate_col = GOLD_P if elite else HAZ
+    plate_col = GOLD_P if elite else HULL
     glow2 = GOLD if elite else LIME  # yeux et voyants (la bouche reste vert citron)
     rim2 = GOLD_D if elite else LIME_RIM
     trim = GOLD_P if elite else HULL_M
@@ -105,10 +107,10 @@ def build(elite=False):
     belly = body.piece(METAL, tris=T(380))
     belly.add(ellipsoid((0, 0.28, -0.01), (0.235, 0.1, 0.245)))
     belly.add(cyl((0, 0.31, -0.01), 0.262, 0.035, 0.02), k=0.03)
-    top = body.piece(HULL, tris=T(1000))
+    top = body.piece(LIME_HULL, tris=T(1000))
     top.add(shell_sh)
     top.sub(side((0, 0.315, 0), (0, -1, 0)), k=0.01)
-    # plaques jaunes sur les flancs (épousent la coque), deux rivets chacune
+    # plaques claires (or pour l'élite) sur les flancs (épousent la coque), deux rivets chacune
     pl = body.piece(plate_col, tris=T(500), res=0.005)
     riv = body.piece(METAL_D, tris=T(120), res=0.004)
     for sx in (-1, 1):
@@ -117,7 +119,7 @@ def build(elite=False):
             riv.add(sphere(onsurf(shell_sh, (sx * 0.3, 0.43, zz), 0.008), 0.014))
     # pare-chocs avant à bandes de danger (sous la tête)
     bump_sh = capsule((-0.17, 0.27, 0.235), (0.17, 0.27, 0.235), 0.04)
-    body.piece(plate_col, tris=T(220), res=0.005).add(bump_sh)
+    body.piece(GOLD_P if elite else HAZ, tris=T(220), res=0.005).add(bump_sh)
     body.piece(METAL_D, tris=T(420), res=0.0035).add(inter(grow(bump_sh, 0.007), stripes((1, 1, 0), 0.07)))
     # tourelle : bague sombre, joues qui portent les tourillons
     tur = body.piece(METAL, tris=T(420))
@@ -166,7 +168,7 @@ def build(elite=False):
     pod.add(rbox(hc, (0.155, 0.08, 0.075), 0.06, rot=tilt))
     pod.add(cyl((0, 0.37, 0.215), 0.06, 0.04, 0.02), k=0.02)  # cou
     # visière de casquette claire au-dessus des yeux (sourcils)
-    cap = head.piece(HULL, tris=T(300))
+    cap = head.piece(LIME_HULL, tris=T(300))
     cap_sh = ellipsoid((0, 0.472, 0.3), (0.162, 0.03, 0.078), rot=(-16, 0, 0))
     cap.add(cap_sh)
     capst = head.piece(plate_col, tris=T(140), res=0.0035)
@@ -210,7 +212,7 @@ def build(elite=False):
     breech = tube.piece(HULL_M, tris=T(300))
     breech.add(ellipsoid((tx, ty - 0.075, tz), (TR + 0.014, 0.085, TR + 0.014)))
     breech.add(cyl((tx, ty, tz), TR + 0.016, 0.05, 0.022), k=0.02)  # manchon des tourillons
-    sl = tube.piece(HULL, tris=T(300))
+    sl = tube.piece(LIME_HULL, tris=T(300))
     sl.add(cyl((tx, ty + 0.105, tz), TR + 0.01, 0.045, 0.022))  # frette claire
     hz = tube.piece(plate_col, tris=T(220))
     hz.add(cyl((tx, my - 0.075, tz), TR + 0.008, 0.03, 0.01))

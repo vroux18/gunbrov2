@@ -3,13 +3,15 @@ Il tient à deux mains, devant lui, un grand bouclier d'énergie bombé (arc de 
 lisible depuis la caméra haute) : cadre métallique, surface de tuiles hexagonales ambre lumineuses, émetteur
 central. Il faut le contourner : le dos est vulnérable, avec un gros module générateur à cœur lumineux,
 cheminées et bande de danger, bien lisible du dessus. Casque rond à visière rouge qui dépasse du bouclier,
-grosses épaulières à liseré orange, jambes courtes et trapues.
+grosses épaulières à liseré ambre, jambes courtes et trapues.
 Regarde vers +Z ; sa droite est en -X. Pieds à y = 0. Hauteur ~1,2, largeur ~0,9 bouclier compris.
 
 Parts : torso (pivot aux hanches), back_glow (cœur et cheminées du générateur), head (pivot au cou) + head_glow
 (visière), arm_r / arm_l (épaule, avec épaulière, avant-bras et main), leg_r / leg_l (hanche) + shin_r / shin_l
 (genou, avec le pied), shield (pivot au bas du bouclier, enfant du torse) + shield_glow (tuiles et émetteur).
-Variante élite (build(elite=True), tools/chars/shield_elite.py) : accents or, cadre doré à pointes,
+Coque acier moyen (pas le blanc du Garde : vu du dessus, le Rempart se lit sombre, bouclier ambre).
+Variante élite (build(elite=True), tools/chars/shield_elite.py) : accents or, équerres et pointes dorées sur
+le cadre sombre,
 cornes de casque, épaulières à pointes."""
 import math
 
@@ -19,17 +21,19 @@ from skimage import measure
 from sculpt import *
 from sculpt import Part as _Part
 
-SHELL = "#C8CEDC"
-SHELL_D = "#9AA4B6"
+# coque acier moyen (pas le blanc du Garde : vu du dessus, le Rempart se lit sombre, avec son bouclier ambre)
+SHELL = "#8592B0"
+SHELL_D = "#5F6B8C"
 METAL = "#2C3350"
 METAL_L = "#454E70"
 METAL_D = "#1C2238"
 ORANGE = "#FF7A2F"
+AMBER = "#FF9A1E"   # ambre des garnitures (rappel du bouclier)
 RED = "#EE3F5C"
 HAZ = "#FFC83A"
 EYE = "#E80E2C"
-GOLD = "#FFB347"
-GOLD_D = "#D98A1E"
+GOLD = "#EE8530"     # or franc des élites
+GOLD_D = "#C8650E"
 # tuiles lumineuses (multipliées par l'énergie du matériau : couleurs saturées, sinon elles blanchissent)
 HEX_MID = "#F45000"
 HEX_CORE = "#FFB040"
@@ -220,8 +224,10 @@ def hex_local(s, v, size):
 
 def build(elite=False):
     name = "shield_elite" if elite else "shield"
-    TRIM = GOLD if elite else ORANGE
-    FRAME = GOLD_D if elite else SHELL_D
+    TRIM = GOLD if elite else AMBER
+    # cadre sombre pour tous : les tuiles ambre ressortent ; l'élite garde ses équerres et pointes dorées
+    # (un cadre entièrement doré faisait tache)
+    FRAME = METAL_L
     parts = []
 
     # ================================================================== torse (pivot aux hanches)
@@ -304,8 +310,8 @@ def build(elite=False):
     mask = head.piece(METAL_D, tris=200)
     mask.add(inter(grow(helm_sh, 0.006), inter(rbox((0, 1.03, 0.1), (0.2, 0.045, 0.12), 0.02, rot=(-12, 0, 0)),
                                                 half((0, 0, 0.02), (0, 0, -1)))))
-    # crête rouge de faction (dessus du casque)
-    head.piece(GOLD if elite else RED, tris=140).add(
+    # crête ambre (dessus du casque : le rouge est la signature du Garde)
+    head.piece(GOLD if elite else AMBER, tris=140).add(
         inter(grow(helm_sh, 0.008), rbox((0, 1.15, -0.0), (0.035, 0.1, 0.2), 0.01)))
     # oreillettes
     ear = head.piece(METAL, tris=100)
@@ -376,7 +382,7 @@ def build(elite=False):
     frame.add(sh_shape(lambda s, v: np.maximum(rrect2(s, v, W, SH_H * 0.5, 0.1), -rrect2(s, v - 0.04, inner_w, inner_h, 0.065)),
                        RS - 0.05, RS + 0.03, 0.012))
     # arête claire sur le dessus du cadre (lisible de la caméra haute)
-    top = shield.piece(SHELL if not elite else GOLD, tris=200, res=0.0045)
+    top = shield.piece(SHELL, tris=200, res=0.0045)
     top.add(sh_shape(lambda s, v: np.maximum(np.abs(s) - (W - 0.085), np.abs(v - (SH_H - 0.022)) - 0.026),
                      RS - 0.058, RS + 0.04, 0.02))
     # fond sombre derrière les tuiles
