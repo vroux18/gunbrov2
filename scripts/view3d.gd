@@ -92,6 +92,8 @@ func build(arena_node: Node, hero_node: Node2D, joy_node: Node) -> void:
 	arena.enemy_spawned.connect(_on_enemy_spawned)
 	arena.chest_opened.connect(_on_chest_opened)
 	arena.bullet_blocked.connect(_on_blocked)
+	arena.exploded.connect(_on_exploded)
+	arena.shell_launched.connect(_on_shell)
 	hero2d.damaged.connect(_on_hero_damaged)
 
 static func p3(v: Vector2, h: float = 0.0) -> Vector3:
@@ -860,6 +862,15 @@ func _tick_fx(dt: float) -> void:
 				node.scale = Vector3.ONE * (1.0 - p * p)
 			"column":
 				node.scale = Vector3(1.0 - p, 1.0 + p * 0.4, 1.0 - p)
+			"marker":
+				var mat: ShaderMaterial = (node as MeshInstance3D).material_override
+				mat.set_shader_parameter("progress", p)
+				mat.set_shader_parameter("energy", 1.4 + 1.4 * p * absf(sin(f["t"] * (8.0 + 18.0 * p))))
+			"lob":
+				var a: Vector3 = f["from"]
+				var b: Vector3 = f["to"]
+				node.position = a.lerp(b, p) + Vector3(0, f["h"] * 4.0 * p * (1.0 - p), 0)
+				node.rotation.x += dt * 9.0
 			"shell":
 				var s: float = f["size"] * (0.3 + 0.7 * sqrt(p))
 				node.scale = Vector3(s, s, s)
@@ -963,6 +974,47 @@ func _on_enemy_killed(e: Node2D) -> void:
 		for k in range(6):
 			_spawn_ring(pos + Vector3(randf_range(-1, 1), 0.05, randf_range(-1, 1)), MAGENTA, 6.0, 0.6 + k * 0.1)
 		_spawn_debris(pos, Color("#C8D0DA"), 18, 6.0)
+
+## Explosion (pétard, obus du mortier) : éclair, onde au sol de la taille du rayon de dégâts, débris.
+func _on_exploded(pos: Vector2, radius: float, col: Color) -> void:
+	if not active:
+		return
+	var p := p3(pos)
+	var rr := radius * K
+	_spawn_flash(p + Vector3(0, 0.5, 0), Color(1.0, 0.85, 0.55), rr * 1.6, 0.2)
+	_spawn_ring(p + Vector3(0, 0.05, 0), col, rr * 2.3, 0.4, 0.14)
+	_flash_light(p + Vector3(0, 1.0, 0), col, 4.0, rr * 3.5)
+	_spawn_debris(p, Color("#3A3F52"), 7, 5.0)
+	var shell := Models.sphere(0.5, Models.add_mat(Color(1, 0.6, 0.3, 0.8), 1.0))
+	shell.position = p + Vector3(0, 0.4, 0)
+	shell.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	shell.material_override = (shell.material_override as StandardMaterial3D).duplicate()
+	_add_fx(shell, 0.35, "shell", {"size": rr * 2.0, "col": col})
+	add_shake(0.45)
+
+## Obus du mortier : zone d'impact annoncée au sol (se remplit jusqu'à l'impact) et obus en cloche.
+func _on_shell(from: Vector2, to: Vector2, flight: float, radius: float) -> void:
+	if not active:
+		return
+	var mi := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(radius * 2.0 * K, radius * 2.0 * K)
+	mi.mesh = pm
+	var m := ShaderMaterial.new()
+	m.shader = _ring_shader
+	m.set_shader_parameter("color", RED)
+	m.set_shader_parameter("width", 0.1)
+	m.set_shader_parameter("fill", 0.3)
+	m.set_shader_parameter("progress", 0.0)
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = p3(to, 0.04)
+	_add_fx(mi, flight, "marker")
+	var ball := Models.sphere(0.16, Models.glow_mat(Color("#9BE15D"), 2.2))
+	ball.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var a := p3(from, 1.1)
+	ball.position = a
+	_add_fx(ball, flight, "lob", {"from": a, "to": p3(to, 0.1), "h": 2.6 + (to - from).length() * K * 0.25})
 
 func _on_enemy_spawned(e: Node2D) -> void:
 	if not active:

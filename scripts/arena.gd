@@ -20,6 +20,8 @@ signal enemy_killed(e: Node2D)
 signal enemy_spawned(e: Node2D)
 signal chest_opened(pos: Vector2)
 signal bullet_blocked(pos: Vector2, color: Color)
+signal exploded(pos: Vector2, radius: float, color: Color)
+signal shell_launched(from: Vector2, to: Vector2, flight: float, radius: float)
 
 const W := 2400.0
 const H := 1400.0
@@ -51,6 +53,7 @@ var enemies: Array = []
 var bullets: Array = []
 var pickups: Array = []
 var particles: Array = []
+var shells: Array = []  # obus du mortier en vol : {from, to, t, flight, r, dmg}
 var turrets: Array = []
 var allies: Array = []
 var chest := {}
@@ -152,6 +155,7 @@ func _clear_entities() -> void:
 	bullets.clear()
 	pickups.clear()
 	particles.clear()
+	shells.clear()
 	chest = {}
 	boss = null
 
@@ -257,7 +261,15 @@ func _process(dt: float) -> void:
 			for e in enemies:
 				if e.dead or e in b.hits:
 					continue
-				if (e.position - b.position).length() < e.radius + b.radius:
+				if (e.position - b.position).length() < e.radius + b.radius + (10.0 if e.kind == "shield" else 0.0):
+					if e.blocks(b.position - b.vel.normalized() * 30.0):
+						bullet_blocked.emit(b.position, b.color)
+						sfx.play("hit", randf_range(1.4, 1.7), -8.0)
+						_burst(b.position, ORANGE, 5, 200.0, 2.0)
+						dead_bullets.append(b)
+						break
+					if (e.position - b.position).length() >= e.radius + b.radius:
+						continue
 					enemy_hit.emit(e, b.position, b.dmg, b.radius > 6.0)
 					e.hit(b.dmg)
 					sfx.play("hit", randf_range(0.8, 1.2), -10.0)
@@ -276,6 +288,15 @@ func _process(dt: float) -> void:
 	for b in dead_bullets:
 		bullets.erase(b)
 		b.queue_free()
+	# obus du mortier : explosent à l'arrivée sur la zone annoncée au sol
+	var landed := []
+	for sh in shells:
+		sh["t"] += dt
+		if sh["t"] >= sh["flight"]:
+			landed.append(sh)
+	for sh in landed:
+		shells.erase(sh)
+		explode(sh["to"], sh["r"], sh["dmg"], 0.0, Color("#9BE15D"))
 	# tourelles et drones
 	for tr in turrets:
 		tr["cd"] -= dt
@@ -387,7 +408,7 @@ func boss_summon(pos: Vector2, n: int) -> void:
 		var e := Enemy.new()
 		e.arena = self
 		e.hero = hero
-		e.setup("drone", false, hp_scale)
+		e.setup("bomber" if i % 2 == 1 and Data.has_model("bomber") else "drone", false, hp_scale)
 		e.position = pos + Vector2.RIGHT.rotated(TAU * i / n) * 90.0
 		ents.add_child(e)
 		enemies.append(e)
@@ -395,7 +416,38 @@ func boss_summon(pos: Vector2, n: int) -> void:
 		_burst(e.position, RED, 8, 180.0, 3.0)
 	sfx.play("portal", 0.8)
 
-func on_enemy_died(e: Node2D) -> void:
+## Explosion : blesse Jo dans le rayon, et les autres ennemis si `enemy_dmg` > 0 (pétard abattu).
+func explode(pos: Vector2, r: float, hero_dmg: float, enemy_dmg: float, col: Color) -> void:
+	exploded.emit(pos, r, col)
+	sfx.play("boom", randf_range(1.0, 1.2), -3.0)
+	_burst(pos, col, 18, 320.0, 5.0)
+	shake_t = maxf(shake_t, 0.12)
+	if hero_dmg > 0.0 and (hero.position - pos).length() < r + hero.radius * 0.5:
+		if hero.take_damage(hero_dmg):
+			sfx.play("hurt", 1.0)
+	if enemy_dmg > 0.0:
+		for o in enemies.duplicate():
+			if not o.dead and (o.position - pos).length() < r + o.radius:
+				o.hit(enemy_dmg)
+
+## Obus en cloche vers `to`, qui tombe après `flight` secondes (zone annoncée au sol par le rendu).
+func lob(from: Vector2, to: Vector2, flight: float, r: float, dmg: float) -> void:
+	to.x = clampf(to.x, WALL + 20.0, W - WALL - 20.0)
+	to.y = clampf(to.y, TOP + 20.0, H - WALL - 20.0)
+	shells.append({"from": from, "to": to, "t": 0.0, "flight": flight, "r": r, "dmg": dmg})
+	shell_launched.emit(from, to, flight, r)
+	sfx.play("eshoot", 0.6, -6.0)
+
+## Mort d'un ennemi. `rewarded` faux : il s'est détruit lui-même (pétard), sans butin ni énergie.
+func on_enemy_died(e: Node2D, rewarded: bool = true) -> void:
+	if e.kind == "bomber" and rewarded:
+		# un pétard abattu explose quand même, plus faiblement, et blesse ses voisins
+		explode(e.position, 70.0, e.dmg * 0.5, 30.0, Color("#FF9A3C"))
+	if not rewarded:
+		enemy_killed.emit(e)
+		enemies.erase(e)
+		e.queue_free()
+		return
 	kills += 1
 	energy += float(e.energy) * hero.energy_mult
 	sfx.play("kill", randf_range(0.9, 1.2), -4.0)

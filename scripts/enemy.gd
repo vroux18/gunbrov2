@@ -1,5 +1,7 @@
 extends Node2D
-## Ennemis du monde 1 (Nébuleuse 7) : sentinelle (fonce), garde (tire à distance), colosse (charge), boss Le Portique.
+## Ennemis du monde 1 (Nébuleuse 7) : sentinelle (fonce), garde (tire à distance), colosse (charge),
+## pétard (kamikaze qui explose), vigie (tireuse d'élite à laser de visée), rempart (bouclier frontal qui bloque
+## les tirs), mortier (tir en cloche annoncé au sol), boss Le Portique.
 ## Élite : ×3 PV, ×1.25 vitesse, anneau d'or, lâche un objet. Dessin en code, deux tons, contour sombre.
 
 const Data = preload("res://scripts/data.gd")
@@ -13,6 +15,9 @@ const PLATE_DARK := Color("#8A939E")
 const RED := Color("#FF4D6D")
 const GOLD := Color("#FFB347")
 const MAGENTA := Color("#F23CB8")
+const VIOLET := Color("#B36BFF")
+const ORANGE_BOOM := Color("#FF9A3C")
+const SHIELD_COS := 0.42  # demi-angle du bouclier du rempart : ~65°
 
 var kind := "drone"
 var elite := false
@@ -40,10 +45,10 @@ var facing := Vector2.DOWN
 var spawned_at := {}  # boss : seuils de PV déjà utilisés
 var pattern_t := 0.0
 var charge_cd := 3.0
+var aim_dir := Vector2.DOWN  # vigie : direction du laser de visée (figée juste avant le tir)
 var _spr: Sprite2D
 var _glow: Sprite2D
 
-const SPRITES := {"drone": [Art.DRONE, 0.5], "trooper": [Art.GARDE, 0.56], "brute": [Art.COLOSSE, 0.6], "boss": [Art.PORTIQUE, 0.62]}
 
 func setup(k: String, is_elite: bool, hp_scale: float) -> void:
 	kind = k
@@ -60,8 +65,8 @@ func setup(k: String, is_elite: bool, hp_scale: float) -> void:
 	wobble = randf() * TAU
 	fire_cd = randf_range(0.8, 1.8)
 	charge_cd = randf_range(1.5, 3.0)
-	var sp: Array = SPRITES[k]
-	var sc: float = float(sp[1]) * (1.2 if elite else 1.0)
+	if k == "sniper" or k == "mortar":
+		fire_cd = randf_range(1.6, 2.6)
 	# rendu 2D d'origine coupé : l'ennemi est dessiné en 3D par view3d.gd (mob3d.gd)
 
 func hit(d: float) -> void:
@@ -137,6 +142,14 @@ func tick(dt: float) -> void:
 					state = "move"
 					charge_cd = randf_range(2.2, 3.4)
 			_contact(dist)
+		"bomber":
+			_bomber(dt, dir, dist, slow)
+		"sniper":
+			_sniper(dt, dir, dist, slow)
+		"shield":
+			_shield(dt, dir, dist, slow)
+		"mortar":
+			_mortar(dt, dir, dist, slow)
 		"boss":
 			_boss(dt, dir, dist, slow)
 	if _spr != null:
@@ -161,6 +174,115 @@ func _contact(dist: float) -> void:
 		if kind == "drone":
 			# la sentinelle rebondit après contact
 			position -= (hero.position - position).normalized() * 18.0
+
+## Pétard : roule vers Jo, s'arrête à portée, gonfle 0,55 s et explose (il meurt sans rapporter de butin).
+func _bomber(dt: float, dir: Vector2, dist: float, slow: float) -> void:
+	if state == "move":
+		var v: Vector2 = arena.steer(position, dir, radius) * speed * slow
+		position += v * dt
+		facing = dir
+		if dist < radius + hero.radius + 46.0:
+			state = "tell"
+			state_t = 0.55
+			arena.sfx.play("eshoot", 0.55, -6.0)
+	elif state == "tell":
+		state_t -= dt
+		if state_t <= 0.0:
+			dead = true
+			arena.explode(position, 82.0, dmg, 30.0, ORANGE_BOOM)
+			arena.on_enemy_died(self, false)
+
+## Vigie : reste loin, se cale 1,1 s en suivant Jo du laser, fige la visée 0,25 s, puis tir très rapide.
+func _sniper(dt: float, dir: Vector2, dist: float, slow: float) -> void:
+	if state == "move":
+		var want := Vector2.ZERO
+		if dist > 600.0:
+			want = dir
+		elif dist < 400.0:
+			want = -dir
+		else:
+			want = dir.orthogonal() * sin(t * 0.9 + wobble)
+		want = arena.steer(position, want, radius)
+		position += want * speed * slow * dt
+		facing = dir
+		aim_dir = dir
+		fire_cd -= dt
+		if fire_cd <= 0.0 and dist < 900.0:
+			state = "aim"
+			state_t = 1.1
+			arena.sfx.play("eshoot", 0.45, -10.0)
+	elif state == "aim":
+		state_t -= dt
+		if state_t > 0.25:
+			aim_dir = aim_dir.slerp(dir, clampf(dt * 6.0, 0.0, 1.0))
+		facing = aim_dir
+		if state_t <= 0.0:
+			state = "move"
+			arena.spawn_bullet(position + aim_dir * (radius + 10.0), aim_dir * 900.0, dmg, false, 0, 0, VIOLET, 5.0)
+			fire_cd = randf_range(2.4, 3.2)
+	_contact(dist)
+
+## Rempart : avance bouclier en avant ; le bouclier pivote lentement, il faut le contourner. Coup de bouclier de près.
+func _shield(dt: float, dir: Vector2, dist: float, slow: float) -> void:
+	charge_cd -= dt
+	var turn := (1.9 if elite else 1.4) * dt
+	if state == "move":
+		var a := facing.angle_to(dir)
+		facing = facing.rotated(clampf(a, -turn, turn))
+		var wd: Vector2 = arena.steer(position, dir, radius)
+		position += wd * speed * slow * dt
+		if charge_cd <= 0.0 and dist < 190.0 and absf(a) < 0.6:
+			state = "tell"
+			state_t = 0.5
+	elif state == "tell":
+		state_t -= dt
+		var a2 := facing.angle_to(dir)
+		facing = facing.rotated(clampf(a2, -turn, turn))
+		if state_t <= 0.0:
+			state = "charge"
+			state_t = 0.35
+			charge_dir = facing
+			arena.sfx.play("hurt", 1.3, -6.0)
+	elif state == "charge":
+		state_t -= dt
+		position += charge_dir * 430.0 * slow * dt
+		if state_t <= 0.0:
+			state = "move"
+			charge_cd = randf_range(2.4, 3.4)
+	_contact(dist)
+
+## Vrai si un tir venant de `from` touche le bouclier (devant le rempart).
+func blocks(from: Vector2) -> bool:
+	if kind != "shield" or dead:
+		return false
+	return (from - position).normalized().dot(facing) > SHIELD_COS
+
+## Mortier : garde ses distances, se plante 0,9 s, puis tire un obus en cloche là où Jo va être.
+func _mortar(dt: float, dir: Vector2, dist: float, slow: float) -> void:
+	if state == "move":
+		var want := Vector2.ZERO
+		if dist > 560.0:
+			want = dir
+		elif dist < 300.0:
+			want = -dir
+		else:
+			want = dir.orthogonal() * sin(t * 0.7 + wobble) * 0.6
+		want = arena.steer(position, want, radius)
+		position += want * speed * slow * dt
+		facing = dir
+		fire_cd -= dt
+		if fire_cd <= 0.0 and dist < 760.0:
+			state = "tell"
+			state_t = 0.9
+	elif state == "tell":
+		state_t -= dt
+		facing = dir
+		if state_t <= 0.0:
+			state = "move"
+			var target: Vector2 = hero.position + hero.move_dir * hero.speed * 0.55
+			arena.lob(position + dir * (radius + 6.0), target, 1.1, 62.0, dmg)
+			fire_cd = randf_range(3.0, 4.0)
+	_contact(dist)
 
 func _boss(dt: float, dir: Vector2, dist: float, slow: float) -> void:
 	pattern_t += dt

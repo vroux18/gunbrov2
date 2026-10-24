@@ -7,9 +7,12 @@ const Models = preload("res://scripts/models.gd")
 const Actor3D = preload("res://scripts/actor3d.gd")
 const Rig3D = preload("res://scripts/rig3d.gd")
 ## Échelle des modèles sculptés (conçus à l'échelle de Jo, qui est affichée à 1,75).
-const RIG_SCALE := {"drone": 1.75, "trooper": 1.75, "brute": 1.3, "boss": 1.05}
+const RIG_SCALE := {"drone": 1.75, "trooper": 1.75, "brute": 1.3, "boss": 1.05, "bomber": 1.75, "sniper": 1.75, "shield": 1.75, "mortar": 1.75}
 ## Durée de l'animation de mort avant suppression du nœud.
-const DEATH_T := {"drone": 0.35, "trooper": 1.3, "brute": 1.0, "boss": 1.6}
+const DEATH_T := {"drone": 0.35, "trooper": 1.3, "brute": 1.0, "boss": 1.6, "bomber": 0.2, "sniper": 1.2, "shield": 1.2, "mortar": 1.1}
+## Durée du télégraphe (état « tell ») par genre, pour remplir l'anneau au sol.
+const TELL_T := {"brute": 0.7, "boss": 0.8, "bomber": 0.55, "shield": 0.5, "mortar": 0.9}
+const VIOLET := Color("#B36BFF")
 
 const METAL := Color("#2C3350")
 const METAL_D := Color("#1C2238")
@@ -38,6 +41,8 @@ var _meshes: Array = []
 var _elite_ring: MeshInstance3D = null
 var _tell: MeshInstance3D = null
 var _tell_mat: ShaderMaterial = null
+var _laser: MeshInstance3D = null  # vigie : laser de visée
+var _laser_mat: StandardMaterial3D = null
 var yaw := 0.0
 var dying := 0.0  # > 0 : animation de mort en cours
 var ground_y := 0.0
@@ -83,6 +88,22 @@ func _build_legacy(k: String, r: float) -> void:
 			_build_brute(r)
 		"boss":
 			_build_boss(r)
+		_:
+			_build_placeholder(k, r)
+
+## Silhouette provisoire d'un genre sans modèle sculpté (le jeu reste jouable en attendant le modèle).
+func _build_placeholder(k: String, r: float) -> void:
+	var col: Color = {"bomber": Color("#FFC93C"), "sniper": VIOLET, "shield": ORANGE, "mortar": Color("#9BE15D")}.get(k, PLATE)
+	var b := Models.sphere(r, Models.toon(col, 0.3))
+	b.position.y = r
+	body.add_child(b)
+	var eye := _eye(r * 0.3, RED)
+	eye.position = Vector3(0, r * 1.2, r * 0.8)
+	body.add_child(eye)
+	if k == "shield":
+		var sh := Models.box(Vector3(r * 2.4, r * 1.8, 0.08), Models.glow_mat(ORANGE, 1.2))
+		sh.position = Vector3(0, r * 1.1, r * 1.2)
+		body.add_child(sh)
 
 func _finish_setup(r: float) -> void:
 	_meshes = Models.meshes(body)
@@ -98,6 +119,23 @@ func _finish_setup(r: float) -> void:
 	_tell.visible = false
 	add_child(_tell)
 	_tell_mat = _tell.material_override
+	if kind == "bomber":
+		# l'anneau du pétard montre le rayon réel de l'explosion (82 px)
+		_tell.scale = Vector3.ONE * (82.0 * 2.0 * K) / (r * 3.0)
+	if kind == "sniper":
+		_laser = MeshInstance3D.new()
+		var q := PlaneMesh.new()
+		q.size = Vector2(0.07, 1.0)
+		_laser.mesh = q
+		_laser_mat = StandardMaterial3D.new()
+		_laser_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_laser_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_laser_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		_laser_mat.albedo_color = Color(VIOLET, 0.0)
+		_laser.material_override = _laser_mat
+		_laser.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_laser.visible = false
+		add_child(_laser)
 
 func _ground_ring(size: float, col: Color, width: float, fill: float) -> MeshInstance3D:
 	if _ring_shader == null:
@@ -363,7 +401,7 @@ func sync(e: Node2D, dt: float) -> void:
 	body.scale = Vector3(1.0 + _punch * 0.12, 1.0 - _punch * 0.08, 1.0 + _punch * 0.12)
 	var st: String = e.state
 	if st != _last_state:
-		if _last_state == "aim" and rig != null:
+		if rig != null and (_last_state == "aim" or (_last_state == "tell" and kind == "mortar")):
 			rig.fire()
 		_last_state = st
 		_state_el = 0.0
@@ -383,6 +421,15 @@ func sync(e: Node2D, dt: float) -> void:
 				sh = 1.0 if st == "aim" else 0.0
 			"brute", "boss":
 				spd = 1.0 if st == "charge" else (0.0 if st == "tell" or st == "ring" else 0.55)
+			"bomber":
+				spd = 0.0 if st == "tell" else 1.0
+			"sniper":
+				spd = 0.0 if st == "aim" else 0.6
+				sh = 1.0 if st == "aim" else 0.0
+			"shield":
+				spd = 1.0 if st == "charge" else (0.0 if st == "tell" else 0.5)
+			"mortar":
+				spd = 0.0 if st == "tell" else 0.5
 		rig.set_motion(spd, sh)
 	match kind if rig == null else "":
 		"drone":
@@ -420,9 +467,11 @@ func sync(e: Node2D, dt: float) -> void:
 	if telling:
 		var p := 1.0
 		if st == "tell":
-			p = 1.0 - clampf(e.state_t / (0.8 if kind == "boss" else 0.7), 0.0, 1.0)
+			p = 1.0 - clampf(e.state_t / float(TELL_T.get(kind, 0.7)), 0.0, 1.0)
 		_tell_mat.set_shader_parameter("progress", p)
 		_tell_mat.set_shader_parameter("color", MAGENTA if (kind == "boss" and st == "ring") else RED)
+	if _laser != null:
+		_sync_laser(e, st)
 	if _elite_ring != null:
 		_elite_ring.rotation.y = t * 1.5
 	if _flash_t > 0.0:
@@ -433,9 +482,30 @@ func sync(e: Node2D, dt: float) -> void:
 				(mi as MeshInstance3D).material_overlay = null
 
 ## Mort : le garde s'effondre, les machines s'affaissent ; le rendu supprime le nœud à la fin.
+## Laser de visée de la vigie : suit la cible, se fige et clignote dans le dernier quart de seconde.
+func _sync_laser(e: Node2D, st: String) -> void:
+	_laser.visible = st == "aim"
+	if st != "aim":
+		return
+	var ad: Vector2 = e.aim_dir
+	var d := Vector3(ad.x, 0, ad.y).normalized()
+	var start := Vector3(0, 0.95, 0) + d * 0.5
+	if rig != null and rig.has_method("muzzle_position"):
+		start = rig.muzzle_position() - global_position
+	var len := 15.0
+	_laser.position = start + d * (len * 0.5)
+	_laser.rotation = Vector3(0, atan2(d.x, d.z), 0)
+	var locked: bool = e.state_t < 0.25
+	var prog := 1.0 - clampf(e.state_t / 1.1, 0.0, 1.0)
+	_laser.scale = Vector3(2.2 if locked else 1.0, 1, len)
+	var a := (0.9 if int(t * 30.0) % 2 == 0 else 0.4) if locked else 0.2 + 0.45 * prog
+	_laser_mat.albedo_color = Color(VIOLET.r * 1.6, VIOLET.g * 1.6, VIOLET.b * 1.6, a)
+
 func start_death() -> void:
 	dying = 0.001
 	_tell.visible = false
+	if _laser != null:
+		_laser.visible = false
 	if _elite_ring:
 		_elite_ring.visible = false
 	if actor != null:

@@ -106,6 +106,10 @@ const ENEMIES := {
 	"drone": {"name": "Sentinelle", "hp": 22.0, "speed": 185.0, "radius": 15.0, "dmg": 8.0, "energy": 1, "tickets": 1},
 	"trooper": {"name": "Garde", "hp": 48.0, "speed": 120.0, "radius": 18.0, "dmg": 8.0, "energy": 2, "tickets": 2},
 	"brute": {"name": "Colosse", "hp": 170.0, "speed": 78.0, "radius": 30.0, "dmg": 22.0, "energy": 4, "tickets": 4},
+	"bomber": {"name": "Pétard", "hp": 16.0, "speed": 175.0, "radius": 14.0, "dmg": 20.0, "energy": 1, "tickets": 1},
+	"sniper": {"name": "Vigie", "hp": 34.0, "speed": 95.0, "radius": 16.0, "dmg": 16.0, "energy": 2, "tickets": 2},
+	"shield": {"name": "Rempart", "hp": 110.0, "speed": 70.0, "radius": 24.0, "dmg": 14.0, "energy": 3, "tickets": 3},
+	"mortar": {"name": "Mortier", "hp": 60.0, "speed": 60.0, "radius": 22.0, "dmg": 18.0, "energy": 3, "tickets": 3},
 	"boss": {"name": "Le Portique", "hp": 1700.0, "speed": 70.0, "radius": 58.0, "dmg": 25.0, "energy": 0, "tickets": 40},
 }
 
@@ -113,29 +117,61 @@ const ENEMIES := {
 const ROOMS := 10
 const WORLD_NAME := "Nébuleuse 7"
 
+## Poids d'apparition par genre selon la salle : les nouveaux ennemis arrivent un par un.
+static func _weights(room: int) -> Dictionary:
+	var w := {"drone": 1.0, "bomber": 0.35}
+	if room >= 2:
+		w["trooper"] = 0.8
+	if room >= 3:
+		w["brute"] = 0.16 + room * 0.015
+		w["shield"] = 0.26 + room * 0.02
+	if room >= 4:
+		w["sniper"] = 0.3
+	if room >= 5:
+		w["mortar"] = 0.26
+	for k in w.keys():
+		if not has_model(k):
+			w.erase(k)
+	return w
+
+## Un genre n'entre dans les vagues que si son modèle sculpté est livré.
+static func has_model(kind: String) -> bool:
+	return kind in ["drone", "trooper", "brute", "boss"] or ResourceLoader.exists("res://assets/chars3d/%s.glb" % kind)
+
+static func _pick(w: Dictionary) -> String:
+	var total := 0.0
+	for k in w:
+		total += float(w[k])
+	var r := randf() * total
+	for k in w:
+		r -= float(w[k])
+		if r <= 0.0:
+			return String(k)
+	return "drone"
+
 ## Vagues d'une salle : tableau de vagues, chaque vague = liste de genres ("elite:brute" = élite).
 static func waves_for(room: int, modifier: String) -> Array:
 	if room >= ROOMS:
 		return [["boss"]]
 	var n_waves := 3 if room < 5 else 4
+	var w := _weights(room)
 	var out := []
-	for w in range(n_waves):
-		var count := 4 + int(room * 1.4) + w
+	for wi in range(n_waves):
+		var count := 6 + int(room * 1.9) + wi * 2
 		if modifier == "tresor":
 			count = maxi(3, int(count * 0.6))
 		var wave := []
 		for i in range(count):
-			var r := randf()
-			var kind := "drone"
-			if room >= 2 and r < 0.38:
-				kind = "trooper"
-			if room >= 3 and r < 0.10 + room * 0.012:
-				kind = "brute"
-			wave.append(kind)
-		if w == n_waves - 1:
+			wave.append(_pick(w))
+		if wi == n_waves - 1:
 			if modifier == "elite":
 				wave.append("elite:brute" if room >= 3 else "elite:trooper")
-			if room == 5 or room == 8:
-				wave.append("elite:trooper")
+			if room == 5:
+				wave.append("elite:shield" if has_model("shield") else "elite:trooper")
+			if room == 8:
+				wave.append("elite:sniper" if has_model("sniper") else "elite:trooper")
+			if room >= 6 and randf() < 0.5:
+				var ek: String = ["trooper", "shield", "sniper", "mortar"].pick_random()
+				wave.append("elite:" + (ek if has_model(ek) else "trooper"))
 		out.append(wave)
 	return out
