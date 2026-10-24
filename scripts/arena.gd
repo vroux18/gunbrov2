@@ -26,6 +26,7 @@ signal doors_opened
 signal shockwave_started(pos: Vector2, max_r: float, speed: float, color: Color)
 signal door_taken(door: Dictionary)
 signal shield_blocked(e: Node2D, pos: Vector2, vel: Vector2)  # tir de Jo arrêté par le bouclier d'un rempart
+signal partner_item(item: Dictionary)  # duo : objet pour la Jo de l'invité (coffre, élite qu'elle ramasse)
 signal elite_killed(e: Node2D)  # élite abattue : chance de box (main.gd)
 
 const W := 2400.0
@@ -64,6 +65,10 @@ var doors: Array = []  # portails de fin de salle : {pos, kind, title, desc, col
 var turrets: Array = []
 var allies: Array = []
 var chest := {}
+## Mode duo (scripts/net/duo.gd), chez l'hôte : la Jo de l'invité, simulée ici comme un second héros.
+## Nul en solo : tout le code duo de ce fichier est alors sans effet.
+var partner: Node2D = null
+var partner_tickets := 0
 
 var room := 1
 var modifier := "combat"
@@ -161,6 +166,7 @@ func reset_run() -> void:
 	_clear_entities()
 	kills = 0
 	tickets = 0
+	partner_tickets = 0
 	energy = 0.0
 	energy_need = 10.0
 	energy_level = 0
@@ -186,6 +192,7 @@ func _clear_entities() -> void:
 func start_room(r: int, mod: String) -> void:
 	room = r
 	Music.play(("boss" if r >= Data.ROOMS else "combat") + String(Data.WORLDS[Data.world]["music"]))
+	Music.ambience(Data.world_id())
 	modifier = mod
 	_clear_entities()
 	hero.position = Vector2(W * 0.5, (TOP + H) * 0.5)
@@ -258,7 +265,10 @@ func _process(dt: float) -> void:
 	hero.update(dt, joy.move, joy.aim, joy.aim_active)
 	_clamp_circle(hero, hero.radius)
 	cam.position = hero.position
-	# ennemis
+	# ennemis (duo : chacun vise la Jo vivante la plus proche)
+	if partner != null:
+		for e in enemies:
+			e.hero = nearest_hero(e.position)
 	for e in enemies:
 		e.tick(dt)
 	for i in range(enemies.size()):
@@ -308,17 +318,24 @@ func _process(dt: float) -> void:
 						dead_bullets.append(b)
 					break
 		else:
-			if (hero.position - b.position).length() < hero.radius + b.radius:
-				if hero.take_damage(b.dmg):
-					sfx.play("hurt", 1.0)
-				dead_bullets.append(b)
+			for h in heroes():
+				if (h.position - b.position).length() < h.radius + b.radius:
+					if h.take_damage(b.dmg) and h == hero:
+						sfx.play("hurt", 1.0)
+					dead_bullets.append(b)
+					break
 	for b in dead_bullets:
 		bullets.erase(b)
 		b.queue_free()
 	# portails de fin de salle : Jo choisit sa route en entrant dans l'un d'eux
+	# (duo : la première des deux qui entre décide)
 	if not doors.is_empty():
 		for d in doors:
-			if (hero.position - d["pos"]).length() < hero.radius + 44.0:
+			var who: Node2D = null
+			for h in live_heroes():
+				if (h.position - d["pos"]).length() < h.radius + 44.0:
+					who = h
+			if who != null:
 				var taken: Dictionary = d
 				doors.clear()
 				door_taken.emit(taken)
@@ -331,6 +348,9 @@ func _process(dt: float) -> void:
 			wv["hit"] = true
 			if hero.take_damage(wv["dmg"]):
 				sfx.play("hurt", 1.0)
+		if partner != null and not wv.get("hit2", false) and absf((partner.position - wv["pos"]).length() - wv["r"]) < 22.0 + partner.radius * 0.5:
+			wv["hit2"] = true
+			partner.take_damage(wv["dmg"])
 		if wv["r"] >= wv["max"]:
 			spent.append(wv)
 	for wv in spent:
@@ -372,13 +392,25 @@ func _process(dt: float) -> void:
 		pk["t"] += dt
 		pk["pos"] += pk["vel"] * dt
 		pk["vel"] *= 0.9
-		var d: Vector2 = hero.position - pk["pos"]
+		var to: Node2D = hero if partner == null else nearest_hero(pk["pos"])  # duo : la Jo la plus proche
+		var d: Vector2 = to.position - pk["pos"]
 		if d.length() < attract:
 			pk["pos"] += d.normalized() * 520.0 * dt
-		if d.length() < hero.radius + 14.0:
+		if d.length() < to.radius + 14.0:
+			pk["by"] = to
 			taken.append(pk)
 	for pk in taken:
 		pickups.erase(pk)
+		if pk.get("by") == partner and partner != null:
+			# duo : butin de l'invité, gardé pour son propre profil
+			match String(pk["kind"]):
+				"ticket":
+					partner_tickets += 1
+				"hp":
+					partner.heal(20.0)
+				"item":
+					partner_item.emit(pk["item"])
+			continue
 		match String(pk["kind"]):
 			"ticket":
 				tickets += 1
@@ -391,7 +423,11 @@ func _process(dt: float) -> void:
 				item_found.emit(pk["item"])
 	# coffre
 	if not chest.is_empty() and not chest["open"]:
-		if (hero.position - chest["pos"]).length() < hero.radius + 30.0:
+		var opener: Node2D = null
+		for h in live_heroes():
+			if (h.position - chest["pos"]).length() < h.radius + 30.0:
+				opener = h
+		if opener != null:
 			chest["open"] = true
 			var bonus := 0
 			if modifier == "elite":
@@ -404,6 +440,8 @@ func _process(dt: float) -> void:
 			chest_opened.emit(chest["pos"])
 			_burst(chest["pos"], GOLD, 24, 260.0, 4.0)
 			item_found.emit(Data.roll_item(bonus))
+			if partner != null:
+				partner_item.emit(Data.roll_item(bonus))  # duo : un objet pour chacune
 	# particules
 	var i := 0
 	while i < particles.size():
@@ -504,6 +542,8 @@ func explode(pos: Vector2, r: float, hero_dmg: float, enemy_dmg: float, col: Col
 	if hero_dmg > 0.0 and (hero.position - pos).length() < r + hero.radius * 0.5:
 		if hero.take_damage(hero_dmg):
 			sfx.play("hurt", 1.0)
+	if hero_dmg > 0.0 and partner != null and (partner.position - pos).length() < r + partner.radius * 0.5:
+		partner.take_damage(hero_dmg)
 	if enemy_dmg > 0.0:
 		for o in enemies.duplicate():
 			if not o.dead and (o.position - pos).length() < r + o.radius:
@@ -593,6 +633,28 @@ func _blocked(p: Vector2, r: float) -> bool:
 		if o.grow(r * 0.8).has_point(p):
 			return true
 	return false
+
+## Les héros de la partie : Jo, et en duo la Jo de l'invité.
+func heroes() -> Array:
+	return [hero] if partner == null else [hero, partner]
+
+func live_heroes() -> Array:
+	var r := []
+	for h in heroes():
+		if not h.dead:
+			r.append(h)
+	return r
+
+## Jo vivante la plus proche (en solo : Jo).
+func nearest_hero(pos: Vector2) -> Node2D:
+	var best: Node2D = hero
+	var bd := INF
+	for h in live_heroes():
+		var d: float = (h.position - pos).length_squared()
+		if d < bd:
+			bd = d
+			best = h
+	return best
 
 func nearest_enemy(pos: Vector2, max_d: float) -> Node2D:
 	var best: Node2D = null

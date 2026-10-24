@@ -4,6 +4,7 @@ extends RefCounted
 
 const PATH := "user://passeurs.json"
 const Data = preload("res://scripts/data.gd")
+const Talents = preload("res://scripts/talents.gd")
 const Loot = preload("res://scripts/loot.gd")
 
 static func default_profile() -> Dictionary:
@@ -21,6 +22,7 @@ static func default_profile() -> Dictionary:
 		"kills": 0,
 		"seen_enemies": [],  # genres déjà présentés par la carte « NOUVEL ENNEMI »
 		"tutorial_done": false,  # tutoriel des deux pouces fait
+		"talents": {},  # talents permanents du Relais : id -> niveau (talents.gd)
 	}
 	# box à ouvrir, apparences et traînées de tir (scripts/loot.gd)
 	p.merge(Loot.default_fields())
@@ -58,6 +60,8 @@ static func load_profile() -> Dictionary:
 	if ars.is_empty():
 		ars = Data.DEFAULT_ARSENAL.duplicate()
 	p["arsenal"] = ars
+	# talents : absents des anciennes sauvegardes ; niveaux entiers, bornés, talents connus seulement
+	p["talents"] = Talents.sanitize(p["talents"])
 	Loot.sanitize(p)  # ancienne sauvegarde : pas de box, apparence et traînée d'origine
 	return p
 

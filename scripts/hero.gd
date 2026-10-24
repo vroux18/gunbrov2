@@ -112,6 +112,7 @@ func recalc() -> void:
 	boom = n.call("boom")
 	ally = n.call("ally")
 	turrets = n.call("turret")
+	if ResourceLoader.exists("res://scripts/talents.gd"): load("res://scripts/talents.gd").apply(self)
 	if hp_max > old_max:
 		hp += hp_max - old_max
 	hp = minf(hp, hp_max)

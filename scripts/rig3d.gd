@@ -75,8 +75,6 @@ func setup(path: String, tint: Color = Color(1, 1, 1), glow_energy: float = 3.0)
 	_flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	_flash_mat.albedo_color = Color(1, 1, 1, 0)
-	if path.ends_with("/jo.glb"):
-		_skin_register()
 
 ## Lumière teintée (équipement : couleur de rareté) — les pièces lumineuses de l'équipement sont blanches.
 static func tint_glow_mat(col: Color, energy: float) -> StandardMaterial3D:
@@ -235,7 +233,8 @@ func _veil(dt: float) -> void:
 
 # ---------------------------------------------------------------- Jo : apparence (scripts/loot.gd)
 ## Apparence équipée : palette {suit, accent, light, rainbow} remappée par shaders/skin_remap.* ;
-## vide = couleurs et matériaux d'origine. Tous les modèles de Jo (Relais, partie) suivent.
+## vide = couleurs et matériaux d'origine. Les modèles de Jo du joueur (Relais, partie) suivent, inscrits par
+## follow_skin() ; la Jo d'un partenaire en duo garde les siennes.
 static var hero_skin: Dictionary = {}
 static var _skin_rigs: Array = []  # WeakRef des modèles de Jo
 static var _skin_mats := {}
@@ -250,8 +249,9 @@ static func set_hero_skin(pal: Dictionary) -> void:
 		else:
 			r.apply_skin()
 
-func _skin_register() -> void:
-	_skin_rigs.append(weakref(self))
+func follow_skin() -> void:
+	if not _skin_rigs.any(func(w): return (w as WeakRef).get_ref() == self):
+		_skin_rigs.append(weakref(self))
 	apply_skin()
 
 func apply_skin() -> void:
