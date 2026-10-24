@@ -1,5 +1,5 @@
 extends RefCounted
-## Nébuleuse 7 — obstacles (fret de la compagnie VEKTA posé sur les rectangles bloquants de la simulation)
+## Nébuleuse 7 — obstacles (fret de la compagnie HÉLIX FRET posé sur les rectangles bloquants de la simulation)
 ## et accessoires non bloquants au ras des murs ouest, est et sud. Appelé par view3d.gd avec la vue `v`.
 ## Modèles sculptés en SDF : tools/decor/props.py -> assets/decor/props/*.glb (couleurs par sommet).
 
@@ -85,7 +85,7 @@ static func body_mat() -> Material:
 		_body.set_shader_parameter("noise", load(PR + "noise.png"))
 	return _body
 
-## Marquages (logo VEKTA, pochoirs, étiquettes, bandes de danger) : quads texturés par la planche decals.png.
+## Marquages (logo HÉLIX FRET, pochoirs, étiquettes, bandes de danger) : quads texturés par la planche decals.png.
 static func decal_mat() -> StandardMaterial3D:
 	if _decal == null:
 		_decal = StandardMaterial3D.new()

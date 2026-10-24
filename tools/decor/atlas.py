@@ -1,5 +1,5 @@
 """Planche de marquages des objets de fret (assets/decor/props/decals.png) : logo et pochoirs de la compagnie
-VEKTA, codes de lot, étiquettes de fret, bandes de danger. Les objets sculptés (props.py) y posent des quads
+HÉLIX FRET (HXF), codes de lot, étiquettes de fret, bandes de danger. Les objets sculptés (props.py) y posent des quads
 fins collés à leurs faces planes : un marquage net coûte deux triangles au lieu de centaines de sommets.
 Pochoirs usés : l'alpha est rongé par un bruit, comme une peinture écaillée.
 
@@ -40,7 +40,7 @@ R = {
     "acces": (768, 320, 256, 128),
     "N7": (0, 448, 256, 96), "07": (256, 448, 256, 96), "A3": (512, 448, 256, 96), "N7-4": (768, 448, 256, 96),
     "R-12": (0, 544, 256, 96), "F-9": (256, 544, 256, 96), "73": (512, 544, 256, 96), "E-7": (768, 544, 256, 96),
-    "VK-3": (0, 640, 256, 96),
+    "HX-3": (0, 640, 256, 96),
     "line": (256, 640, 512, 64),
     "gauge": (768, 640, 64, 256),
     "scuff": (832, 640, 192, 192),
@@ -48,7 +48,7 @@ R = {
     "tread": (0, 768, 256, 256),
     "vent": (256, 768, 128, 128),
 }
-CODES = ["N7", "07", "A3", "N7-4", "R-12", "F-9", "73", "E-7", "VK-3"]
+CODES = ["N7", "07", "A3", "N7-4", "R-12", "F-9", "73", "E-7", "HX-3"]
 
 
 def _noise(w, h, seed, scale):
@@ -85,21 +85,25 @@ def _down(img, w, h):
     return img.resize((w, h), Image.LANCZOS)
 
 
-def logo(col, w=256):
-    """Anneau orbital ouvert à droite, traversé d'un chevron et d'un trait de vitesse."""
+def logo(col, w=256, col2=None):
+    """Logo HÉLIX FRET (dessin du sol, tools/decor/shell_floor.py) : hexagone, double hélice à barreaux."""
+    col2 = col2 or col
     im = _canvas(w, w)
     d = ImageDraw.Draw(im)
     s = w * SS
-    c = s * 0.5
-    r = s * 0.4
-    t = s * 0.085
-    d.arc((c - r, c - r, c + r, c + r), 38, 322, fill=col + (255,), width=int(t))
-    # chevron
-    ch = [(c - s * 0.12, c - s * 0.2), (c + s * 0.14, c), (c - s * 0.12, c + s * 0.2)]
-    d.line(ch, fill=col + (255,), width=int(t * 1.05), joint="curve")
-    # traits de vitesse
-    d.line([(c - s * 0.46, c), (c - s * 0.02, c)], fill=col + (255,), width=int(t * 0.6))
-    d.line([(c + s * 0.14, c), (c + s * 0.48, c)], fill=col + (255,), width=int(t * 1.05))
+    cx, cy, rr = s * 0.5, s * 0.5, s * 0.44
+    hexa = [(cx + rr * math.cos(math.pi / 6 + k * math.pi / 3), cy + rr * math.sin(math.pi / 6 + k * math.pi / 3)) for k in range(6)]
+    d.line(hexa + [hexa[0], hexa[1]], fill=col + (255,), width=int(s * 0.07), joint="curve")
+    # barreaux, puis deux brins d'hélice entrelacés
+    for k in range(5):
+        y = cy - rr * 0.6 + k * rr * 0.3
+        t = (y - (cy - rr * 0.75)) / (rr * 1.5)
+        xa = abs(rr * 0.55 * math.sin(t * 2.2 * math.pi))
+        if xa > s * 0.02:
+            d.line([(cx - xa, y), (cx + xa, y)], fill=col2 + (255,), width=int(s * 0.03))
+    for ph0 in (0.0, math.pi):
+        pts = [(cx + rr * 0.55 * math.sin(t * 2.2 * math.pi + ph0), cy - rr * 0.75 + t * rr * 1.5) for t in np.linspace(0, 1, 60)]
+        d.line(pts, fill=col2 + (255,), width=int(s * 0.06), joint="curve")
     return _down(im, w, w)
 
 
@@ -138,7 +142,7 @@ def tag(w, h, variant=0, seed=0):
             d.rectangle((bx, 60 * S, bx + bw, (h - 14) * S), fill=INK + (255,))
             bx += bw + int(rng.integers(1, 3)) * S * 2
         f = ImageFont.truetype(FONT2, 26 * S)
-        d.text((x, 10 * S), "VEKTA  N7 > 04", font=f, fill=INK + (255,))
+        d.text((x, 10 * S), "HXF  N7 > TRI 04", font=f, fill=INK + (255,))
         f2 = ImageFont.truetype(FONT2, 18 * S)
         d.text((x, 36 * S), "LOT 2291-B   48 KG", font=f2, fill=INK + (255,))
     else:
@@ -291,10 +295,10 @@ def build():
         x, y, w, h = R[key]
         atlas.alpha_composite(img.resize((w, h), Image.LANCZOS) if img.size != (w, h) else img, (x, y))
 
-    put("logo", _wear(logo(CREAM), 1, 0.3))
+    put("logo", _wear(logo(CREAM, col2=ORANGE), 1, 0.3))
     put("logo_o", _wear(logo(ORANGE), 2, 0.26))
-    put("word", _wear(text_img("VEKTA", 512, 128, CREAM, fill=0.82), 3, 0.34, 9))
-    put("word_k", _wear(text_img("VEKTA", 512, 128, BLACK, fill=0.82), 4, 0.3, 9))
+    put("word", _wear(text_img("HÉLIX FRET", 512, 128, CREAM, fill=0.82), 3, 0.24, 11))
+    put("word_k", _wear(text_img("HÉLIX FRET", 512, 128, BLACK, fill=0.82), 4, 0.3, 9))
     put("tag", tag(256, 128, 0, 5))
     put("tag2", tag(256, 128, 1, 6))
     put("haz", _wear(hazard(512, 64), 7, 0.16, 10))
@@ -303,7 +307,7 @@ def build():
     put("acces", _wear(text_img("ACCES", 256, 128, YELLOW, fill=0.6), 10, 0.3, 8))
     for i, c in enumerate(CODES):
         put(c, _wear(text_img(c, R[c][2], R[c][3], CREAM, fill=0.84), 20 + i, 0.24, 11))
-    put("line", _wear(text_img("FRET ORBITAL  -  NEBULEUSE 7  -  TRI 04", 512, 64, CREAM, font=FONT2, fill=0.7), 40, 0.3, 10))
+    put("line", _wear(text_img("HXF  -  TRANSIT  NÉBULEUSE 7  -  TRI 04", 512, 64, CREAM, font=FONT2, fill=0.7), 40, 0.3, 10))
     put("gauge", gauge(64, 256))
     put("scuff", scuff(192))
     put("tape", tape(128, 32))
