@@ -33,12 +33,14 @@ def visiere():
 def casque_garde():
     a = part("head", "casque_garde", res=0.006)
     dome = a.piece(LIGHT, tris=1500)
-    dome.add(ellipsoid((0, 0.905, -0.03), (0.258, 0.222, 0.25)))
+    # assez ample pour couvrir la mèche turquoise qui gonfle sur le crâne (les lunettes sont masquées)
+    dome.add(ellipsoid((0, 0.91, -0.03), (0.276, 0.24, 0.268)))
+    dome.add(ellipsoid((0, 0.985, 0.12), (0.215, 0.095, 0.15)), k=0.05)  # avancée sur la frange
     dome.sub(rbox((0, 0.765, 0.21), (0.19, 0.13, 0.14), 0.07), k=0.02)
-    dome.sub(ellipsoid((0, 0.88, -0.03), (0.236, 0.2, 0.228)))
-    a.piece(NAVY, tris=300).add(rbox((0, 1.11, -0.02), (0.035, 0.04, 0.17), 0.03))
+    dome.sub(ellipsoid((0, 0.885, -0.03), (0.254, 0.218, 0.246)))
+    a.piece(NAVY, tris=300).add(rbox((0, 1.13, -0.02), (0.035, 0.04, 0.17), 0.03))
     g = part("head", "casque_garde", glow=True)
-    g.piece(W, tris=300).add(torus((0, 0.905, 0.16), 0.13, 0.012, rot=(90, 0, 0)))
+    g.piece(W, tris=300).add(torus((0, 0.905, 0.175), 0.13, 0.012, rot=(90, 0, 0)))
     return [a, g]
 
 
@@ -79,25 +81,27 @@ def legs(gid, col, y_band):
 def back(gid):
     a = part("torso", gid)
     g = part("torso", gid, glow=True)
+    # posés sur le panneau arrière du sac (z = -0.235), entre les deux réacteurs
     if gid == "pile":
-        a.piece(DARK, tris=400).add(cyl((0, 0.5, -0.225), 0.05, 0.11, 0.02))
-        g.piece(W, tris=200).add(cyl((0, 0.5, -0.226), 0.053, 0.05, 0.01))
+        a.piece(DARK, tris=400).add(cyl((0, 0.5, -0.272), 0.046, 0.1, 0.02))
+        g.piece(W, tris=200).add(cyl((0, 0.5, -0.273), 0.049, 0.045, 0.01))
     else:
-        a.piece(DARK, tris=400).add(cyl((0, 0.5, -0.215), 0.03, 0.03, 0.01, rot=(90, 0, 0)))
-        g.piece(W, tris=400).add(torus((0, 0.5, -0.235), 0.075, 0.016, rot=(90, 0, 0)))
+        a.piece(DARK, tris=400).add(cyl((0, 0.5, -0.255), 0.03, 0.03, 0.01, rot=(90, 0, 0)))
+        g.piece(W, tris=400).add(torus((0, 0.5, -0.275), 0.07, 0.016, rot=(90, 0, 0)))
     return [a, g]
 
 
 def shoulder(gid):
     a = part("arm_l", gid)
     g = part("arm_l", gid, glow=True)
+    # posés sur l'épaulière orange (centre (0.222, 0.598, 0), rayons 0.094 / 0.07 / 0.09)
     if gid == "module_canon":
-        a.piece(GUNC, tris=500).add(rbox((0.235, 0.63, 0.02), (0.04, 0.035, 0.07), 0.025))
-        a.piece(GUNL, tris=300).add(cyl((0.235, 0.63, 0.1), 0.02, 0.04, 0.006, rot=(90, 0, 0)))
-        g.piece(W, tris=100).add(cyl((0.235, 0.63, 0.14), 0.014, 0.006, 0.002, rot=(90, 0, 0)))
+        a.piece(GUNC, tris=500).add(rbox((0.235, 0.69, 0.02), (0.04, 0.035, 0.07), 0.025))
+        a.piece(GUNL, tris=300).add(cyl((0.235, 0.69, 0.1), 0.02, 0.04, 0.006, rot=(90, 0, 0)))
+        g.piece(W, tris=100).add(cyl((0.235, 0.69, 0.14), 0.014, 0.006, 0.002, rot=(90, 0, 0)))
     else:
-        a.piece(GUNC, tris=300).add(cyl((0.25, 0.6, 0.0), 0.035, 0.03, 0.01, rot=(0, 0, 90)))
-        g.piece(W, tris=200).add(sphere((0.275, 0.6, 0.0), 0.024))
+        a.piece(GUNC, tris=300).add(cyl((0.33, 0.6, 0.0), 0.035, 0.03, 0.01, rot=(0, 0, 90)))
+        g.piece(W, tris=200).add(sphere((0.358, 0.6, 0.0), 0.024))
     return [a, g]
 
 

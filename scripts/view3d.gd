@@ -30,7 +30,7 @@ const MAGENTA := Color("#F23CB8")
 const CAM_PITCH := 56.0
 const CAM_DIST := 11.5
 const CAM_FOV := 38.0
-const HERO_SCALE := 1.75
+const HERO_SCALE := 1.85
 
 var arena: Node
 var hero2d: Node2D
@@ -260,23 +260,48 @@ func _build_hero() -> void:
 	hero = Rig3D.new()
 	hero_root.add_child(hero)
 	hero.setup(JO_MODEL, Color(1, 1, 1), 1.7)
+	# en jeu : liseré turquoise propre à Jo (la détache de la mêlée), voile rouge quand elle est touchée
+	hero.make_hero(Color(0.5, 1.0, 0.94), 0.009, Color(1.0, 0.22, 0.28))
 	hero.scale = Vector3.ONE * HERO_SCALE
 	hero_root.add_child(Models.shadow_blob(1.1))
-	# anneau de sélection au sol (lisible même en pleine mêlée)
+	hero2d.damaged.connect(func():
+		hero.hit()
+		hero.flash(0.22))
+	arena.room_cleared.connect(hero.cheer)
+	# poussière de pas, traînée des réacteurs
+	var jfx: Node3D = load("res://scripts/jo_fx.gd").new()
+	hero_root.add_child(jfx)
+	jfx.setup(hero)
+	# anneau au sol : net, avec crans et flèche de visée ; testé en profondeur (les pieds passent devant),
+	# doublé d'un anneau discret visible à travers le décor
 	var ring := MeshInstance3D.new()
 	var pm := PlaneMesh.new()
-	pm.size = Vector2(1.25, 1.25)
+	pm.size = Vector2(1.9, 1.9)
 	ring.mesh = pm
 	var rm := ShaderMaterial.new()
-	rm.shader = _ring_shader
+	rm.shader = load("res://shaders/hero_ring.gdshader")
 	rm.set_shader_parameter("color", CYAN)
-	rm.set_shader_parameter("width", 0.14)
-	rm.set_shader_parameter("fill", 0.06)
+	rm.set_shader_parameter("accent", ORANGE)
 	rm.render_priority = 5
 	ring.material_override = rm
-	ring.position.y = 0.03
+	ring.position.y = 0.035
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	hero_root.add_child(ring)
 	hero_ring = ring
+	var ghost := MeshInstance3D.new()
+	var gm := PlaneMesh.new()
+	gm.size = Vector2(1.33, 1.33)
+	ghost.mesh = gm
+	var gmat := ShaderMaterial.new()
+	gmat.shader = _ring_shader
+	gmat.set_shader_parameter("color", Color(CYAN, 0.55))
+	gmat.set_shader_parameter("width", 0.1)
+	gmat.set_shader_parameter("fill", 0.0)
+	gmat.render_priority = 4
+	ghost.material_override = gmat
+	ghost.position.y = 0.03
+	ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	ring.add_child(ghost)
 	# ligne de visée (s'affiche quand le stick droit est poussé)
 	aim_line = MeshInstance3D.new()
 	var q := PlaneMesh.new()
@@ -484,12 +509,15 @@ func _sync_hero(dt: float) -> void:
 	var moving: bool = hero2d.moving
 	var shooting: bool = joy != null and joy.aim_active
 	var spd: float = 0.0
+	var mv := Vector3.ZERO
 	if moving:
-		spd = 0.55 + 0.35 * (hero2d.move_dir as Vector2).length()
+		var md: Vector2 = hero2d.move_dir
+		spd = 0.55 + 0.35 * md.length()
+		mv = Vector3(md.x, 0, md.y).limit_length(1.0)
 	hero.set_motion(spd, 1.0 if shooting else 0.0)
-	# clignote pendant l'invulnérabilité
-	var inv: float = hero2d.invuln
-	hero.visible = not (inv > 0.0 and int(inv * 20.0) % 2 == 0)
+	hero.set_move(mv)
+	# invulnérable : voile pulsé (Jo reste visible dans la mêlée)
+	hero.invuln = hero2d.invuln
 	if hero2d.dead and not hero.dead:
 		hero.die()
 	elif not hero2d.dead and hero.dead:
@@ -509,7 +537,9 @@ func _sync_hero(dt: float) -> void:
 	var full: bool = arena.energy >= arena.energy_need
 	var rmat: ShaderMaterial = hero_ring.material_override
 	rmat.set_shader_parameter("color", GOLD.lerp(Color.WHITE, 0.3 + 0.3 * sin(t * 10.0)) if full else CYAN)
-	hero_ring.scale = Vector3.ONE * ((1.15 + 0.08 * sin(t * 10.0)) if full else 1.0)
+	rmat.set_shader_parameter("aim", hero.rotation.y)
+	rmat.set_shader_parameter("spin", t * (2.4 if moving else 0.8))
+	hero_ring.scale = Vector3.ONE * ((1.12 + 0.06 * sin(t * 10.0)) if full else 1.0)
 
 func set_hero_items(items: Array) -> void:
 	hero.apply_items(items)
