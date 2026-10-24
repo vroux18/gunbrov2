@@ -11,6 +11,9 @@ render_mode cull_back, depth_draw_opaque;
 uniform float skin_on = 0.0;
 
 uniform vec4 tint : source_color = vec4(1.0);
+// éclat propre à un personnage (Jo : plus vive que les ennemis)
+uniform float exposure = 1.0;
+uniform float saturation = 1.0;
 // paliers de la rampe (N·L) : ombre -> demi-teinte -> lumière, et douceur des transitions
 uniform float ramp_mid = 0.0;
 uniform float ramp_high = 0.42;
@@ -51,6 +54,8 @@ void vertex() {
 void fragment() {
 	// couleurs par sommet en sRGB (même règle que vertex_color_is_srgb : rien à convertir si la sortie l'est)
 	vec3 base = (OUTPUT_IS_SRGB ? COLOR.rgb : srgb_to_linear(COLOR.rgb)) * tint.rgb;
+	float l0 = dot(base, vec3(0.299, 0.587, 0.114));
+	base = max(mix(vec3(l0), base, saturation), vec3(0.0)) * exposure;
 	float luma = dot(base, vec3(0.299, 0.587, 0.114));
 	base *= mix(1.0, white_cap, smoothstep(0.4, 0.9, luma));
 	ALBEDO = base;

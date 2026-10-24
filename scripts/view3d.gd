@@ -417,8 +417,19 @@ func _build_hero() -> void:
 	hero_root.add_child(hero)
 	hero.setup(JO_MODEL, Color(1, 1, 1), 1.7)
 	# en jeu : liseré turquoise propre à Jo (la détache de la mêlée), voile rouge quand elle est touchée
-	hero.make_hero(Color(0.5, 1.0, 0.94), 0.009, Color(1.0, 0.22, 0.28))
+	hero.make_hero(Color(0.5, 1.0, 0.94), 0.007, Color(1.0, 0.22, 0.28))
 	hero.scale = Vector3.ONE * Dev.get_f("hero_scale")
+	# lumière d'appoint côté caméra, qui n'éclaire que Jo (calque HERO_LAYER) : on voit surtout son dos et le
+	# soleil l'éclaire de l'autre côté ; sans elle, Jo paraît éteinte
+	var key := OmniLight3D.new()
+	key.position = Vector3(0.0, 2.4, 1.8)
+	key.omni_range = 4.5
+	key.omni_attenuation = 0.6
+	key.light_energy = 1.0
+	key.light_color = Color(1.0, 0.97, 0.94)
+	key.light_cull_mask = Rig3D.HERO_LAYER
+	key.shadow_enabled = false
+	hero_root.add_child(key)
 	hero_root.add_child(Models.shadow_blob(1.1))
 	hero2d.damaged.connect(func():
 		hero.hit()

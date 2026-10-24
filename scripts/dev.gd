@@ -4,9 +4,10 @@ extends Node
 ## compteur d'images par seconde. La vue (view3d.gd) lit ces valeurs à chaque image.
 
 const CFG := "user://dev.cfg"
+const VERSION := 2  # 2 : Jo plus petite par défaut (1,15)
 ## Valeurs par défaut (et bornes des curseurs du mode développeur). all_worlds : version de démo, le monde 2
 ## est ouvert sans finir le monde 1 (le mode développeur le referme).
-const DEFAULTS := {"cam_dist": 11.5, "cam_pitch": 56.0, "cam_fov": 38.0, "hero_scale": 1.35, "mob_scale": 1.0, "fps": 60, "show_fps": false, "dev": false, "all_worlds": true, "quality": 1, "sticks_free": true}
+const DEFAULTS := {"cam_dist": 11.5, "cam_pitch": 56.0, "cam_fov": 38.0, "hero_scale": 1.15, "mob_scale": 1.0, "fps": 60, "show_fps": false, "dev": false, "all_worlds": true, "quality": 1, "sticks_free": true}
 const RANGES := {"cam_dist": [6.0, 24.0], "cam_pitch": [30.0, 85.0], "cam_fov": [24.0, 70.0], "hero_scale": [0.9, 2.2], "mob_scale": [0.6, 1.4]}
 ## Préréglages du menu pause (boutons VUE et ANGLE).
 const ZOOMS := [["PROCHE", 9.0], ["NORMALE", 11.5], ["LARGE", 14.0], ["TRÈS LARGE", 16.5]]
@@ -27,6 +28,9 @@ func _ready() -> void:
 	if cf.load(CFG) == OK:
 		for k in DEFAULTS.keys():
 			v[k] = cf.get_value("dev", k, DEFAULTS[k])
+		# réglages enregistrés avant un changement de valeur par défaut : la nouvelle valeur l'emporte
+		if int(cf.get_value("dev", "version", 1)) < VERSION:
+			v["hero_scale"] = DEFAULTS["hero_scale"]
 	_layer = CanvasLayer.new()
 	_layer.layer = 100
 	add_child(_layer)
@@ -58,6 +62,7 @@ func reset() -> void:
 
 func save() -> void:
 	var cf := ConfigFile.new()
+	cf.set_value("dev", "version", VERSION)
 	for k in v.keys():
 		cf.set_value("dev", k, v[k])
 	cf.save(CFG)

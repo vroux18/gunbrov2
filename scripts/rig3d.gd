@@ -134,6 +134,8 @@ func apply_items(items: Array) -> void:
 			nd.transform = Transform3D.IDENTITY
 			_gear.append(nd)
 			for mi in Models.meshes(nd):
+				if _hero_mat != null:
+					(mi as MeshInstance3D).layers |= HERO_LAYER
 				(mi as MeshInstance3D).material_override = tint_glow_mat(glow, 1.5) if "_glow" in String(mi.name) + String(mi.get_parent().name) else (_hero_mat if _hero_mat != null else body_mat(Color(1, 1, 1)))
 		inst.queue_free()
 		for nm in HIDES.get(id, []):
@@ -380,8 +382,15 @@ const XRAY_PARTS := ["torso", "head", "leg_r", "leg_l"]
 ## Le matériau de Jo est une copie de body_mat() (shaders/character.gdshader) ; son liseré turquoise
 ## remplace le contour sombre commun (next_pass) : un seul contour, pas deux.
 var _hero_mat: ShaderMaterial = null
+## Calque de rendu propre à Jo : sa lumière d'appoint (view3d.gd) n'éclaire qu'elle.
+const HERO_LAYER := 1 << 19
 func make_hero(outline: Color, width: float, hurt: Color) -> void:
 	_hero_mat = body_mat(Color(1, 1, 1)).duplicate() as ShaderMaterial
+	# Jo ressort de la mêlée : couleurs plus vives et plus claires que les ennemis, côté ombre moins sombre
+	_hero_mat.set_shader_parameter("exposure", 1.0)
+	_hero_mat.set_shader_parameter("saturation", 1.12)
+	_hero_mat.set_shader_parameter("white_cap", 0.9)
+	_hero_mat.set_shader_parameter("shade_amt", 0.5)
 	var xray_mat := _hero_mat
 	if width > 0.0:
 		var ol := StandardMaterial3D.new()
@@ -396,6 +405,7 @@ func make_hero(outline: Color, width: float, hurt: Color) -> void:
 		# permanence, même à découvert, et lui ôtait ses couleurs
 	for mi in Models.meshes(model):
 		var m: MeshInstance3D = mi
+		m.layers |= HERO_LAYER
 		if not ("_glow" in String(m.name) + String(m.get_parent().name)):
 			m.material_override = xray_mat if String(m.name) in XRAY_PARTS else _hero_mat
 	flash_color = hurt
