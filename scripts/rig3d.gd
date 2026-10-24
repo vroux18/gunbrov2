@@ -264,6 +264,17 @@ func follow_skin() -> void:
 		_skin_rigs.append(weakref(self))
 	apply_skin()
 
+## Vignette d'apparence (écran APPARENCES, scripts/ui/boxes_thumbs.gd) : ce modèle seul prend la palette `pal`
+## (vide : couleurs d'origine), sans suivre l'apparence équipée ni toucher aux autres Jo.
+func show_palette(pal: Dictionary) -> void:
+	var saved: Dictionary = hero_skin
+	var w: WeakRef = weakref(self)
+	hero_skin = pal
+	_skin_rigs.append(w)
+	apply_skin()
+	_skin_rigs.erase(w)
+	hero_skin = saved
+
 func apply_skin() -> void:
 	if model == null or not _skin_rigs.any(func(w): return (w as WeakRef).get_ref() == self):
 		return
