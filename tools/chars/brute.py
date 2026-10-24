@@ -12,16 +12,17 @@ Variante élite (build(elite=True), tools/chars/brute_elite.py) : accents lumine
 plaques et pointes dorées."""
 from sculpt import *
 
-SHELL = "#C8CEDC"  # coque claire
-SHELL_D = "#9AA4B6"  # coque moyenne
+SHELL = "#B3BCD2"  # coque claire (un cran sous #C8CEDC : vue du dessus, elle ne doit pas lire blanc)
+SHELL_D = "#8893AE"  # coque moyenne
 METAL = "#2C3350"  # métal sombre
 METAL_D = "#1C2238"
 CORE = "#FF7A2F"  # réacteur
-EYE = "#FF4D6D"
-RED = "#EE3F5C"  # peinture de faction (rappel des yeux)
+EYE = "#FF2414"  # yeux rouges (sans bleu : la lueur ne les délave pas en rose)
+RED = "#E8303A"  # peinture de faction (rappel des yeux) : rouge franc
 HAZ = "#FFC83A"  # jaune des bandes de danger
-GOLD = "#FFB347"
-GOLD_D = "#E39233"
+GOLD = "#EE8530"  # or franc des élites
+GOLD_D = "#C8650E"
+GOLD_G = "#FF8410"  # lueur or (rendu proche de #FFA41C)
 
 
 # ------------------------------------------------------------------ pièce robuste
@@ -137,7 +138,7 @@ def hazard_plate(part, shape, dirv, period, tris=(130, 200), res=0.0069, base=HA
 
 def build(elite=False):
     name = "brute_elite" if elite else "brute"
-    LIT = GOLD if elite else CORE  # couleur des lumières (réacteurs, cheminées)
+    LIT = GOLD_G if elite else CORE  # couleur des lumières (réacteurs, cheminées)
     PAINT = GOLD if elite else RED  # peinture d'accent (bandes d'épaule, crête)
     PLATE = GOLD if elite else SHELL  # plaques claires (élite : dorées)
     parts = []
@@ -279,7 +280,7 @@ def build(elite=False):
         pad.add(padshape)
         # bande de faction sur le dessus de l'épaulière (visible de la caméra haute)
         pads.piece(PAINT, tris=170, res=0.0059).add(
-            inter(grow(padshape, 0.006), rbox((sx * 0.6, 1.45, -0.01), (0.075, 0.3, 0.4), 0.01, rot=tilt)))
+            inter(grow(padshape, 0.006), rbox((sx * 0.6, 1.45, -0.01), (0.11, 0.3, 0.4), 0.01, rot=tilt)))
         rim_c = (sx * 0.585, 1.345, -0.01)
         if elite:
             pads.piece(GOLD, tris=200, res=0.0059).add(cyl(rim_c, 0.275, 0.035, 0.015, rot=tilt)).sub(

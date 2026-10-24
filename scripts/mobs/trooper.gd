@@ -8,6 +8,7 @@ const FOREGRIP := Vector3(0.0, -0.17, 0.035) * SC  # point du fusil saisi par la
 
 ## Rouge profond : la couleur du GLB est multipliée par cette énergie (au-delà de ~2, le rouge vire au rose pâle).
 const GLOW_SCALE := 0.4
+const GLOW_SCALE_GOLD := 0.33  # l'or de l'élite jaunit plus vite
 
 var _visor_mat: StandardMaterial3D
 var _gun_mat: StandardMaterial3D
@@ -18,7 +19,7 @@ var _aim := 0.0  # 0 garde basse -> 1 épaulé
 func setup(path: String, tint: Color = Color(1, 1, 1), glow_energy: float = 3.0) -> void:
 	super.setup(path, tint, glow_energy)
 	walk_amp = 0.8
-	_glow_base = glow_energy * GLOW_SCALE
+	_glow_base = glow_energy * (GLOW_SCALE_GOLD if elite else GLOW_SCALE)
 	# matériaux propres à ce garde : la visière et le canon pulsent quand il vise
 	_visor_mat = _new_glow()
 	_gun_mat = _new_glow()

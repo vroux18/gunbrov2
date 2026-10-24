@@ -1,7 +1,7 @@
 """Le Portique : gardien mécanique du portail volé (monde 1, Nébuleuse 7).
 
 Gros corps rond sur quatre pattes d'araignée trapues, grand œil cyclope magenta sous un sourcil en V,
-deux nacelles-canons rouges aux épaules (trois bouches chacune : les salves de trois), réacteur orange sur
+deux nacelles-canons magenta aux épaules (trois bouches chacune : les salves de trois), réacteur orange sur
 le dos, et surtout l'ANNEAU DU PORTAIL porté au-dessus du dos, incliné vers l'arrière : cadre fixe sur
 pylônes, anneau intérieur rotatif à tube magenta lumineux, voile de portail qui s'ouvre pendant l'attaque.
 Regarde vers +Z ; sa droite est en -X. Hauteur totale 3,2 (Jo : 1,1) ; emprise au sol 3,2 x 3,2 (griffes comprises).
@@ -18,10 +18,11 @@ PLATE = "#9AA4B6"
 PLATE_L = "#C8CEDC"
 METAL = "#2C3350"
 METAL_D = "#1C2238"
-RED = "#FF4D6D"
-RED_D = "#C42A4C"
-MAG = "#F23CB8"
-MAG_L = "#FF9BE2"
+RED = "#FF2414"     # lueur rouge (bouches des canons, antenne) : sans bleu, elle ne vire pas au rose
+MAG = "#E81EAE"     # lueur magenta (œil, anneau, portail) : saturé, la lueur l'éclaircit
+MAG_L = "#FF6ED6"
+MAG_P = "#D42C9E"   # nacelles-canons magenta : la signature du Portique vue du dessus, avec l'anneau
+MAG_PD = "#8E1A6C"
 ORANGE = "#FF7A2F"
 ORANGE_G = "#FF5A14"  # cœur du réacteur (plus saturé : il est lumineux)
 YELLOW = "#FFC83A"
@@ -276,10 +277,10 @@ def build():
         cn.piece(METAL_D, tris=140).add(sphere(pv, 0.18))
         px = sx * 1.12
         PY = 1.68
-        pod = cn.piece(RED, tris=450)
+        pod = cn.piece(MAG_P, tris=450)
         pod.add(capsule((px, PY, -0.32), (px, PY, 0.24), 0.28, 0.26))
         pod.sub(ocyl((px, PY, -0.04), 0.4, 0.016, 0.006, MZ), k=0.004)
-        cn.piece(RED_D, tris=100, res=0.012).add(ocyl((px, PY, -0.04), 0.275, 0.024, 0.012, MZ))
+        cn.piece(MAG_PD, tris=100, res=0.012).add(ocyl((px, PY, -0.04), 0.275, 0.024, 0.012, MZ))
         cn.piece(PLATE_L, tris=200, res=0.01).add(inter(capsule((px, PY + 0.01, -0.36), (px, PY + 0.01, 0.28), 0.292, 0.272),
                                                       Shape(lambda P, px=px: np.abs(P[:, 0] - px) - 0.045, (-2, 0, -2), (2, 3, 2)), 0.01))
         # évents latéraux

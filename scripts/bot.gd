@@ -34,6 +34,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	touch_test = "--touchtest" in OS.get_cmdline_user_args()
 	main.joy.bot = not touch_test
+	_give_loot()
 	print("BOT : démarrage" + (" (test tactile)" if touch_test else ""))
 	_test_profile()
 
@@ -102,6 +103,8 @@ func _capture_screen() -> bool:
 		match mode:
 			"loge":
 				main.show_loge()
+			"coffres", "collection":
+				main.show_coffres(mode)
 			"arsenal":
 				if "--tab=evo" in OS.get_cmdline_user_args():
 					main._ars_tab = "evo"
@@ -158,6 +161,11 @@ func _capture_events(mode: String) -> void:
 					main._show_end(false, "RAPPEL AU RELAIS", "Le butin reste, les pouvoirs partent.")
 			"pause":
 				main._show_pause()
+			"coffres":
+				# --open=or[,legendaire...] ouvre ces box (--serial : à la suite, comme TOUT OUVRIR)
+				for a in OS.get_cmdline_user_args():
+					if a.begins_with("--open="):
+						main.screen.open(Array(a.trim_prefix("--open=").split(",")), "--serial" in OS.get_cmdline_user_args())
 			"dev":
 				main._show_pause()
 				main._show_dev()
@@ -203,6 +211,37 @@ func _capture_talents() -> void:
 			else:
 				_touch(0, p, false)
 				print("TALENTS : glisser ok=%s (défilement %s)" % [str((sc.get("_pan") - get_meta("pan0")).length() > 100.0), str(sc.get("_pan") - get_meta("pan0"))])
+## Options de capture des box : --boxes=N (N box de test, raretés en alternance) ou --boxes=or,legendaire ;
+## --skin=<id> et --trail=<id> donnent et équipent un cosmétique (scripts/loot.gd) ;
+## --tapevery=S touche l'écran d'ouverture toutes les S secondes (après --open).
+func _give_loot() -> void:
+	var Loot = load("res://scripts/loot.gd")
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--boxes="):
+			var v := a.trim_prefix("--boxes=")
+			if v.is_valid_int():
+				for i in range(int(v)):
+					Loot.add_box(main.profile, Loot.BOXES[(Loot.BOXES.size() - 1 - i % Loot.BOXES.size())])
+			else:
+				for b in v.split(","):
+					if b in Loot.BOXES:
+						Loot.add_box(main.profile, b)
+		for k in ["skin", "trail"]:
+			if a.begins_with("--%s=" % k):
+				var id := a.trim_prefix("--%s=" % k)
+				if not (main.profile[k + "s"] as Array).has(id):
+					main.profile[k + "s"].append(id)
+				main.profile[k] = id
+	main.on_boxes_changed()
+
+var _tap_t := 0.0
+func _tap_opener(dt: float) -> void:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--tapevery=") and main.screen != null and main.screen.get("opener") != null:
+			_tap_t += dt
+			if _tap_t >= float(a.trim_prefix("--tapevery=")):
+				_tap_t = 0.0
+				main.screen.opener.tap()
 
 ## --screen=cards --page=N : planche des cartes de pouvoir (24 par page, faces visibles), évolutions en dernier.
 func _card_board() -> void:
@@ -254,7 +293,10 @@ func _give_stuff() -> void:
 func _process(dt: float) -> void:
 	t += dt
 	if _capture_screen():
+		_tap_opener(dt)
 		return
+	if (main.state == "duo" or main.state == "depart") and main.overlay == null:
+		return  # salon duo : la session (scripts/net/duo.gd) se connecte et lance d'elle-même
 	if main.overlay != null or main.screen != null:
 		click_t += dt
 		if click_t > 0.6:
@@ -365,6 +407,13 @@ func _process(dt: float) -> void:
 		if not arena.doors.is_empty():
 			dir = (arena.doors[_door_pick % arena.doors.size()]["pos"] - hero.position).normalized()
 			dir = arena.steer(hero.position, dir, hero.radius)
+		# duo : relever la partenaire à terre, rester à portée d'elle
+		if main.duo != null and main.duo.in_run():
+			var goal: Vector2 = main.duo.bot_goal(hero)
+			if goal != Vector2.INF:
+				dir = arena.steer(hero.position, (goal - hero.position).normalized(), hero.radius)
+				if hero.position.distance_to(goal) < 50.0:
+					dir = Vector2.ZERO
 	main.joy.bot_move = dir
 	var pt := Performance.get_monitor(Performance.TIME_PROCESS)
 	_proc_sum += pt

@@ -5,9 +5,10 @@ extends RefCounted
 const PATH := "user://passeurs.json"
 const Data = preload("res://scripts/data.gd")
 const Talents = preload("res://scripts/talents.gd")
+const Loot = preload("res://scripts/loot.gd")
 
 static func default_profile() -> Dictionary:
-	return {
+	var p := {
 		"version": 1,
 		"inventory": [],  # instances d'objets {id, rarity, uid}
 		"equipped": {},  # slot -> uid
@@ -23,6 +24,9 @@ static func default_profile() -> Dictionary:
 		"tutorial_done": false,  # tutoriel des deux pouces fait
 		"talents": {},  # talents permanents du Relais : id -> niveau (talents.gd)
 	}
+	# box à ouvrir, apparences et traînées de tir (scripts/loot.gd)
+	p.merge(Loot.default_fields())
+	return p
 
 ## `--fresh` (captures, essais) : profil neuf, écrit à part pour ne pas toucher la vraie sauvegarde.
 static func _path() -> String:
@@ -58,6 +62,7 @@ static func load_profile() -> Dictionary:
 	p["arsenal"] = ars
 	# talents : absents des anciennes sauvegardes ; niveaux entiers, bornés, talents connus seulement
 	p["talents"] = Talents.sanitize(p["talents"])
+	Loot.sanitize(p)  # ancienne sauvegarde : pas de box, apparence et traînée d'origine
 	return p
 
 static func save_profile(p: Dictionary) -> void:

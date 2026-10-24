@@ -192,12 +192,10 @@ class Piece:
         return lo - pad, hi + pad
 
 
-def simplify_to(verts, faces, goal):
-    """Allège jusqu'au budget de triangles. Une seule passe de fast_simplification cale parfois à
-    quelques milliers de triangles (boîtes tournées, petites grilles) : on allège en plusieurs passes
-    d'au plus ~3x, en secouant imperceptiblement les sommets quand une passe est bloquée."""
-    v = verts.astype(np.float32)
-    f = faces.astype(np.int32)
+def _simplify_one(v, f, goal):
+    """Allège un volume d'un seul tenant. Une seule passe de fast_simplification cale parfois à quelques
+    milliers de triangles (boîtes tournées, petites grilles) : plusieurs passes d'au plus ~3x, en secouant
+    imperceptiblement les sommets quand une passe est bloquée."""
     rng = np.random.default_rng(7)
     for _ in range(14):
         if len(f) <= goal * 1.05:
@@ -209,6 +207,59 @@ def simplify_to(verts, faces, goal):
             continue
         v, f = v2, f2
     return v, f
+
+
+def _volume(v, f):
+    a, b, c = v[f[:, 0]].astype(np.float64), v[f[:, 1]].astype(np.float64), v[f[:, 2]].astype(np.float64)
+    return abs(float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum()) / 6.0)
+
+
+def simplify_to(verts, faces, goal):
+    """Allège jusqu'au budget de triangles, volume par volume : allégé d'un bloc, un objet à plusieurs volumes
+    séparés (sphère + petits fûts) voyait l'allègement en effondrer certains (un fût réduit à 5 % de son
+    volume, une sphère disparue). Chaque composante connexe reçoit une part du budget proportionnelle à
+    son aire (au moins MIN_TRIS), et on redonne du budget à celle dont le volume s'écarte de plus de 10 %."""
+    MIN_TRIS = 32
+    v = np.asarray(verts, dtype=np.float32)
+    f = np.asarray(faces, dtype=np.int32)
+    if len(f) <= goal * 1.05:
+        return v, f
+    # sommets fusionnés, triangles dégénérés retirés : les faces d'aire nulle du marching cubes (sommets
+    # pile sur la grille, faces planes alignées) bloquent fast_simplification (un fût calait à 1 450 triangles)
+    tm = trimesh.Trimesh(vertices=v, faces=f, process=True)
+    tm.update_faces(tm.nondegenerate_faces())
+    tm.remove_unreferenced_vertices()
+    v = np.asarray(tm.vertices, dtype=np.float32)
+    f = np.asarray(tm.faces, dtype=np.int32)
+    labels = trimesh.graph.connected_component_labels(tm.face_adjacency, node_count=len(f))
+    n_comp = int(labels.max()) + 1 if len(labels) else 0
+    if n_comp <= 1:
+        return _simplify_one(v, f, goal)
+    areas = np.bincount(labels, weights=tm.area_faces, minlength=n_comp)
+    total = max(float(areas.sum()), 1e-12)
+    out_v, out_f, base = [], [], 0
+    for ci in range(n_comp):
+        fi = f[labels == ci]
+        used, inv = np.unique(fi, return_inverse=True)
+        cv = v[used]
+        cf = inv.reshape(-1, 3).astype(np.int32)
+        g = max(MIN_TRIS, int(goal * areas[ci] / total))
+        rv, rf = cv, cf
+        if len(cf) > g * 1.05:
+            v0 = _volume(cv, cf)
+            d0 = float(np.linalg.norm(cv.max(axis=0) - cv.min(axis=0)))
+            for _ in range(4):
+                rv, rf = _simplify_one(cv, cf, g)
+                kv = _volume(rv, rf) / max(v0, 1e-12)
+                kd = float(np.linalg.norm(rv.max(axis=0) - rv.min(axis=0))) / max(d0, 1e-12)
+                # volume tenu, ou coque mince (volume sensible) dont l'encombrement n'a pas bougé
+                if v0 < 1e-12 or abs(kv - 1.0) <= 0.1 or (kd > 0.97 and kv > 0.7) or g * 1.6 >= len(cf):
+                    break
+                g = int(g * 1.6)
+        out_v.append(rv)
+        out_f.append(rf + base)
+        base += len(rv)
+    return np.concatenate(out_v).astype(np.float32), np.concatenate(out_f).astype(np.int32)
 
 
 class Part:

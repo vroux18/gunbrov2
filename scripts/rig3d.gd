@@ -29,20 +29,27 @@ var elite := false
 
 static var _body_mats := {}
 static var _glow_mats := {}
+static var _char_shader: Shader = null
+static var _outline_mat: ShaderMaterial = null
+## Contour des personnages (coque inversée) : une passe de plus par pièce ; « --no-outline » le coupe.
+static var outline_enabled := not ("--no-outline" in OS.get_cmdline_user_args())
 
-static func body_mat(tint: Color) -> StandardMaterial3D:
+## Matériau des pièces sculptées : shaders/character.gdshader (rampe douce, liseré, reflet net) et
+## son contour en deuxième passe. Paramètres : « tint » (couleur multipliée), « heat » (lueur ajoutée).
+static func body_mat(tint: Color) -> ShaderMaterial:
 	var key := tint.to_html()
 	if _body_mats.has(key):
 		return _body_mats[key]
-	var m := StandardMaterial3D.new()
-	m.vertex_color_use_as_albedo = true
-	m.vertex_color_is_srgb = true
-	m.albedo_color = tint
-	m.roughness = 0.62
-	m.metallic_specular = 0.35
-	m.rim_enabled = true
-	m.rim = 0.45
-	m.rim_tint = 0.35
+	if _char_shader == null:
+		_char_shader = load("res://shaders/character.gdshader")
+	var m := ShaderMaterial.new()
+	m.shader = _char_shader
+	m.set_shader_parameter("tint", tint)
+	if outline_enabled:
+		if _outline_mat == null:
+			_outline_mat = ShaderMaterial.new()
+			_outline_mat.shader = load("res://shaders/character_outline.gdshader")
+		m.next_pass = _outline_mat
 	_body_mats[key] = m
 	return m
 
@@ -147,6 +154,7 @@ func apply_items(items: Array) -> void:
 			if p(nm) != null:
 				p(nm).visible = not hidden.has(nm)
 	meshes = Models.meshes(model)
+	apply_skin()
 
 func p(name: String) -> Node3D:
 	return parts.get(name)
@@ -230,6 +238,84 @@ func _veil(dt: float) -> void:
 	_veil_mat.albedo_color = Color(0.9, 0.85, 0.8, 0.14 if int(invuln * 12.0) % 2 == 0 else 0.03)
 
 
+# ---------------------------------------------------------------- Jo : apparence (scripts/loot.gd)
+## Apparence équipée : palette {suit, accent, light, rainbow} remappée par shaders/skin_remap.* ;
+## vide = couleurs et matériaux d'origine. Les modèles de Jo du joueur (Relais, partie) suivent, inscrits par
+## follow_skin() ; la Jo d'un partenaire en duo garde les siennes.
+static var hero_skin: Dictionary = {}
+static var _skin_rigs: Array = []  # WeakRef des modèles de Jo
+static var _skin_mats := {}
+var _skin_orig := {}  # MeshInstance3D -> matériau d'origine
+
+static func set_hero_skin(pal: Dictionary) -> void:
+	hero_skin = pal
+	for w in _skin_rigs.duplicate():
+		var r = (w as WeakRef).get_ref()
+		if r == null:
+			_skin_rigs.erase(w)
+		else:
+			r.apply_skin()
+
+func follow_skin() -> void:
+	if not _skin_rigs.any(func(w): return (w as WeakRef).get_ref() == self):
+		_skin_rigs.append(weakref(self))
+	apply_skin()
+
+func apply_skin() -> void:
+	if model == null or not _skin_rigs.any(func(w): return (w as WeakRef).get_ref() == self):
+		return
+	var keep := {}
+	for mi in Models.meshes(model):
+		var m: MeshInstance3D = mi
+		if not (m.material_override is ShaderMaterial and m.material_override.has_meta("skin")):
+			_skin_orig[m] = m.material_override
+		keep[m] = _skin_orig.get(m)
+		var orig = keep[m]
+		if not hero_skin.is_empty() and orig is ShaderMaterial and (orig as ShaderMaterial).shader == _char_shader:
+			m.material_override = _skin_body_mat(orig, String(m.name) == "head")
+			continue
+		if hero_skin.is_empty() or not (orig is StandardMaterial3D):
+			m.material_override = orig
+			continue
+		var glow := (orig as StandardMaterial3D).shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.material_override = _skin_mat(orig, glow, String(m.name) == "head")
+	_skin_orig = keep
+
+## Corps au rendu premium (shaders/character.gdshader) : même matériau, remappage des couleurs activé.
+static func _skin_body_mat(orig: ShaderMaterial, head: bool) -> ShaderMaterial:
+	var key := "body|%s|%d|%d" % [String(hero_skin.get("id", "")), int(head), orig.get_instance_id()]
+	if _skin_mats.has(key):
+		return _skin_mats[key]
+	var sm := orig.duplicate() as ShaderMaterial
+	sm.set_meta("skin", true)
+	sm.set_shader_parameter("skin_on", 1.0)
+	for k in [["suit", "suit"], ["accent", "accent"], ["light", "lit_col"]]:
+		var c: Color = hero_skin[k[0]]
+		sm.set_shader_parameter(k[1], Vector3(c.r, c.g, c.b))
+	sm.set_shader_parameter("rainbow", 1.0 if bool(hero_skin.get("rainbow", false)) else 0.0)
+	sm.set_shader_parameter("suit_on", 0.0 if head else 1.0)
+	_skin_mats[key] = sm
+	return sm
+
+static func _skin_mat(orig: StandardMaterial3D, glow: bool, head: bool) -> ShaderMaterial:
+	var key := "%s|%d|%d|%d" % [String(hero_skin.get("id", "")), int(glow), int(head), orig.get_instance_id()]
+	if _skin_mats.has(key):
+		return _skin_mats[key]
+	var sm := ShaderMaterial.new()
+	sm.shader = preload("res://shaders/skin_remap_glow.gdshader") if glow else preload("res://shaders/skin_remap.gdshader")
+	sm.set_meta("skin", true)
+	for k in [["suit", "suit"], ["accent", "accent"], ["light", "lit_col"]]:
+		var c: Color = hero_skin[k[0]]
+		sm.set_shader_parameter(k[1], Vector3(c.r, c.g, c.b))
+	sm.set_shader_parameter("rainbow", 1.0 if bool(hero_skin.get("rainbow", false)) else 0.0)
+	sm.set_shader_parameter("suit_on", 0.0 if (glow or head) else 1.0)
+	if glow:
+		var a := orig.albedo_color  # en Compatibility, la teinte passe telle quelle (sortie sRGB)
+		sm.set_shader_parameter("tint", Vector3(a.r, a.g, a.b))
+	sm.next_pass = orig.next_pass  # liseré de Jo en jeu
+	_skin_mats[key] = sm
+	return sm
+
 # ---------------------------------------------------------------- Jo : locomotion, coup reçu, victoire, repos
 ## Déplacement voulu dans le monde (longueur 0..1). Les jambes le suivent, le buste suit la visée (orientation
 ## du rig) : Jo peut tirer en reculant ou en pas chassés. Sans appel, les jambes suivent l'orientation.
@@ -277,9 +363,11 @@ func gesture(i: int) -> void:
 ## quand un ennemi ou une caisse passe devant elle (tampon de stencil, sur les masses seulement : tête, torse,
 ## jambes), voile de coup teinté.
 const XRAY_PARTS := ["torso", "head", "leg_r", "leg_l"]
-var _hero_mat: StandardMaterial3D = null
+## Le matériau de Jo est une copie de body_mat() (shaders/character.gdshader) ; son liseré turquoise
+## remplace le contour sombre commun (next_pass) : un seul contour, pas deux.
+var _hero_mat: ShaderMaterial = null
 func make_hero(outline: Color, width: float, hurt: Color) -> void:
-	_hero_mat = (body_mat(Color(1, 1, 1)).duplicate() as StandardMaterial3D)
+	_hero_mat = body_mat(Color(1, 1, 1)).duplicate() as ShaderMaterial
 	var xray_mat := _hero_mat
 	if width > 0.0:
 		var ol := StandardMaterial3D.new()
@@ -298,6 +386,7 @@ func make_hero(outline: Color, width: float, hurt: Color) -> void:
 			m.material_override = xray_mat if String(m.name) in XRAY_PARTS else _hero_mat
 	flash_color = hurt
 	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
+	apply_skin()
 
 func _jo_reset() -> void:
 	_jo_vel = Vector3.ZERO
