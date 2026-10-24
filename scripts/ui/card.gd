@@ -7,6 +7,7 @@ extends Button
 
 const UI = preload("res://scripts/ui.gd")
 const Icon = preload("res://scripts/icon.gd")
+const ItemIcon = preload("res://scripts/item_icon.gd")
 const Fx = preload("res://scripts/ui/fx.gd")
 
 ## Couleurs de rareté : mêmes que les objets (data.gd), du commun au culte.
@@ -27,6 +28,9 @@ var _t := 0.0
 var _burst := 0.0  # 1 au retournement, décroît
 var _name_label: Label
 var evo := false  # carte d'évolution : liseré doré qui court autour
+## Carte d'objet trouvé : l'objet ({id, rarity}) à montrer en icône 3D (scripts/item_icon.gd) au lieu du
+## pictogramme ; à poser avant setup().
+var item := {}
 
 ## Carte de pouvoir : `p` est une entrée de Data.POWERS (ou Data.EVOLUTIONS si `is_evo`), `level` le niveau
 ## qu'elle donne.
@@ -167,9 +171,16 @@ func _build_face(sz: Vector2, icon_kind: String, title_text: String, body_text: 
 		art.draw_arc(ctr, 46, -2.4, -0.9, 16, Color(1, 1, 1, 0.35), 4.0, true))
 	c.add_child(art)
 	c.set_meta("art", art)
-	var ic := Icon.new(icon_kind, accent.lightened(0.25), 78.0)
-	ic.position = Vector2(sz.x * 0.5 - 39, art_h * 0.56 - 39)
-	c.add_child(ic)
+	if not item.is_empty():
+		# objet : son icône rendue en 3D, qui déborde un peu du médaillon
+		var isz := minf(184.0, art_h * 1.1)
+		var ii := ItemIcon.make(item, isz, accent.lightened(0.25), 78.0 / isz)
+		ii.position = Vector2(sz.x * 0.5, art_h * 0.56) - Vector2.ONE * isz * 0.5
+		c.add_child(ii)
+	else:
+		var ic := Icon.new(icon_kind, accent.lightened(0.25), 78.0)
+		ic.position = Vector2(sz.x * 0.5 - 39, art_h * 0.56 - 39)
+		c.add_child(ic)
 	if badge != "":
 		var bt := UI.tag(badge, UI.ORANGE if info.is_empty() else accent.lightened(0.1), UI.INK, 18)
 		c.add_child(bt)

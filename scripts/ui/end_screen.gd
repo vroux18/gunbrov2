@@ -1,6 +1,6 @@
 extends Control
 ## Écran de fin de partie (victoire, K.O., abandon) : grand titre tamponné sur un ruban, rayons qui tournent,
-## récapitulatif qui défile ligne par ligne (salles, ennemis abattus, tickets, objets trouvés, éclat),
+## récapitulatif qui défile ligne par ligne (salles, ennemis abattus, tickets, objets trouvés en icônes, éclat),
 ## puis REJOUER et RELAIS. Les chiffres comptent jusqu'à leur valeur.
 
 signal replay
@@ -9,6 +9,7 @@ signal relais
 const UI = preload("res://scripts/ui.gd")
 const Fx = preload("res://scripts/ui/fx.gd")
 const Icon = preload("res://scripts/icon.gd")
+const ItemIcon = preload("res://scripts/item_icon.gd")
 const Data = preload("res://scripts/data.gd")
 const BoxArt = preload("res://scripts/ui/boxes_art.gd")
 
@@ -168,20 +169,31 @@ func _row(icon: String, label_text: String, _value: int, _fmt: String, col: Colo
 		c.add_child(tg)
 		Fx.breathe(tg, 0.08, 0.9)
 	if not items.is_empty():
-		# un losange par objet, à la couleur de sa rareté
-		var dots := Control.new()
-		dots.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		dots.position = Vector2(250, 0)
-		dots.size = Vector2(sz.x - 250 - 100, sz.y)
-		dots.draw.connect(func():
-			var n := mini(items.size(), 9)
-			for k in range(n):
-				var it: Dictionary = items[k]
-				var p := Vector2(14 + k * 30, sz.y * 0.5)
-				var rc: Color = Data.RARITY_COLORS[clampi(int(it["rarity"]), 0, 3)]
-				dots.draw_colored_polygon(PackedVector2Array([p + Vector2(0, -13), p + Vector2(11, 0), p + Vector2(0, 13), p + Vector2(-11, 0)]), UI.INK)
-				dots.draw_colored_polygon(PackedVector2Array([p + Vector2(0, -10), p + Vector2(8, 0), p + Vector2(0, 10), p + Vector2(-8, 0)]), rc))
-		c.add_child(dots)
+		# un médaillon par objet : son icône 3D (scripts/item_icon.gd) sur un disque à la couleur de sa rareté
+		var isz := sz.y - 4.0
+		var step := isz + 6.0
+		var room := sz.x - 250.0 - 100.0
+		var n := mini(items.size(), int(room / step))
+		if n < items.size():
+			n = maxi(0, int((room - 44.0) / step))
+		for k in range(n):
+			var it: Dictionary = items[k]
+			var rc: Color = Data.RARITY_COLORS[clampi(int(it["rarity"]), 0, 3)]
+			var disc := Panel.new()
+			disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			disc.position = Vector2(250.0 + k * step + 4.0, 6.0)
+			disc.size = Vector2(isz - 8.0, sz.y - 12.0)
+			disc.add_theme_stylebox_override("panel", UI.flat(Color(rc, 0.22), rc, int((sz.y - 12.0) * 0.5), 2))
+			c.add_child(disc)
+			var ic := ItemIcon.make(it, isz, rc)
+			ic.position = Vector2(250.0 + k * step, (sz.y - isz) * 0.5)
+			c.add_child(ic)
+		if n < items.size():
+			var more := UI.label("+%d" % (items.size() - n), 22, UI.TEXT)
+			more.position = Vector2(250.0 + n * step + 2.0, 0)
+			more.size = Vector2(44, sz.y)
+			more.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			c.add_child(more)
 	return c
 
 func _process(dt: float) -> void:

@@ -29,6 +29,7 @@ extends RefCounted
 ## Listes qui défilent : UI.scroll() (défilement au doigt branché, scripts/ui/touch_scroll.gd).
 
 const Icon = preload("res://scripts/icon.gd")
+const ItemIcon = preload("res://scripts/item_icon.gd")
 const Fx = preload("res://scripts/ui/fx.gd")
 const TouchScroll = preload("res://scripts/ui/touch_scroll.gd")
 
@@ -490,7 +491,8 @@ static func scroll() -> ScrollContainer:
 
 ## Grande ligne cliquable des écrans du Relais : pictogramme dans un disque, nom (26 px), ligne d'effet (22 px)
 ## colorée, et à droite une zone libre (meta "right", HBox) pour un badge ou une comparaison.
-static func big_tile(icon_kind: String, title_text: String, body_text: String, accent: Color, body_col: Color, selected: bool = false, h: float = 92.0) -> Button:
+## `item` ({id, rarity}) : l'icône 3D de l'objet (scripts/item_icon.gd), plus grande, au lieu du pictogramme.
+static func big_tile(icon_kind: String, title_text: String, body_text: String, accent: Color, body_col: Color, selected: bool = false, h: float = 92.0, item: Dictionary = {}) -> Button:
 	load_fonts()
 	var b := Button.new()
 	b.focus_mode = Control.FOCUS_NONE
@@ -522,16 +524,23 @@ static func big_tile(icon_kind: String, title_text: String, body_text: String, a
 	hb.offset_bottom = -12
 	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(hb)
-	var rs := minf(64.0, h * 0.66)
+	var rs := minf(64.0, h * 0.66) if item.is_empty() else minf(76.0, h - 20.0)
 	var ring := Panel.new()
 	ring.custom_minimum_size = Vector2(rs, rs)
 	ring.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	ring.add_theme_stylebox_override("panel", flat(Color(accent, 0.18), Color(accent, 0.9), int(rs * 0.5), 3))
 	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(ring)
-	var ic := Icon.new(icon_kind, accent, rs * 0.62)
-	ic.position = Vector2(rs * 0.19, rs * 0.19)
-	ring.add_child(ic)
+	if item.is_empty():
+		var ic := Icon.new(icon_kind, accent, rs * 0.62)
+		ic.position = Vector2(rs * 0.19, rs * 0.19)
+		ring.add_child(ic)
+	else:
+		# l'objet déborde un peu du disque : plus grand, plus lisible
+		var isz := minf(rs * 1.28, h - 8.0)
+		var ii := ItemIcon.make(item, isz, accent, 0.62 * rs / isz)
+		ii.position = Vector2.ONE * (rs - isz) * 0.5
+		ring.add_child(ii)
 	var v := vbox(0)
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.alignment = BoxContainer.ALIGNMENT_CENTER

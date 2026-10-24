@@ -88,7 +88,8 @@ func _drag(index: int, pos: Vector2) -> void:
 
 var _screen_done := false
 
-## Options de capture : --screen=loge|arsenal|talents ouvre l'écran et ne touche à rien ; --stuff équipe des objets d'essai.
+## Options de capture : --screen=loge|arsenal|talents ouvre l'écran et ne touche à rien ; --stuff équipe des objets d'essai ;
+## --detail (avec loge) ouvre la fiche de l'objet porté.
 func _capture_screen() -> bool:
 	var mode := ""
 	for a in OS.get_cmdline_user_args():
@@ -103,6 +104,11 @@ func _capture_screen() -> bool:
 		match mode:
 			"loge":
 				main.show_loge()
+				# --detail : fiche de l'objet porté dans l'emplacement affiché (arme)
+				if "--detail" in OS.get_cmdline_user_args():
+					var worn: Dictionary = load("res://scripts/save.gd").find_item(main.profile, String(main.profile["equipped"].get(main._equip_slot, "")))
+					if not worn.is_empty():
+						main._equip_detail(worn, 1, worn)
 			"coffres", "collection":
 				main.show_coffres(mode)
 			"arsenal":

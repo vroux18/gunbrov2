@@ -1,12 +1,12 @@
 extends Control
 ## Carte de récompense sortie d'une box : fond à la couleur de la rareté, halo qui pulse (rayons tournants pour
-## l'épique et le légendaire), pictogramme (tickets, objet, buste de Jo, traînée de tir), nom, rareté.
+## l'épique et le légendaire), illustration (pile de tickets et objet : icônes 3D ; buste de Jo, traînée de tir),
+## nom, rareté.
 ## « NOUVEAU » sur un cosmétique gagné, « DOUBLON » quand il devient des tickets.
 
 const UI = preload("res://scripts/ui.gd")
 const Fx = preload("res://scripts/ui/fx.gd")
-const Icon = preload("res://scripts/icon.gd")
-const Data = preload("res://scripts/data.gd")
+const ItemIcon = preload("res://scripts/item_icon.gd")
 const Loot = preload("res://scripts/loot.gd")
 const Art = preload("res://scripts/ui/boxes_art.gd")
 
@@ -48,19 +48,20 @@ func setup(r: Dictionary, sz: Vector2, small: bool = false) -> void:
 		_halo.show_behind_parent = true
 		add_child(_halo)
 		Fx.pulse(_halo, 0.65, 1.0, 1.1)
-	# pictogramme
+	# illustration
 	var art_r := Rect2(sz.x * 0.2, sz.y * 0.1, sz.x * 0.6, sz.y * 0.4)
+	# tickets et objets : icônes rendues depuis leurs modèles 3D (scripts/item_icon.gd), un peu plus grandes
+	# que la zone pour bien remplir la carte ; cosmétiques : dessins animés (boxes_art.gd)
+	var ics := minf(art_r.size.x, art_r.size.y * 1.12)
+	var ic_pos := art_r.position + (art_r.size - Vector2.ONE * ics) * 0.5
 	match String(r["kind"]):
 		"tickets":
-			var ic := Icon.new("coin", UI.GOLD, art_r.size.y * 0.8)
-			ic.position = art_r.position + (art_r.size - Vector2.ONE * art_r.size.y * 0.8) * 0.5
-			ic.size = Vector2.ONE * art_r.size.y * 0.8
+			var ic := ItemIcon.tickets(ics, 0.72)
+			ic.position = ic_pos
 			add_child(ic)
 		"item":
-			var tpl := Data.item_template(String(r["item"]["id"]))
-			var ic2 := Icon.new(String(tpl["slot"]), col, art_r.size.y * 0.78)
-			ic2.position = art_r.position + (art_r.size - Vector2.ONE * art_r.size.y * 0.78) * 0.5
-			ic2.size = Vector2.ONE * art_r.size.y * 0.78
+			var ic2 := ItemIcon.make(r["item"], ics, col, 0.7)
+			ic2.position = ic_pos
 			add_child(ic2)
 		_:
 			_art = Control.new()

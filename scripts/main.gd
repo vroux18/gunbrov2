@@ -490,7 +490,7 @@ func show_loge() -> void:
 			b = UI.big_tile(slot, String(Data.SLOT_NAMES[slot]) + " : rien", ("%d objet%s possible%s" % [n, "s" if n > 1 else "", "s" if n > 1 else ""]) if n > 0 else "aucun objet", UI.MUTED, UI.SOFT, on, th)
 		else:
 			var rc: Color = Data.RARITY_COLORS[int(it["rarity"])]
-			b = UI.big_tile(slot, Data.item_label(it), Data.item_stat_text(it), rc, rc.lightened(0.25), on, th)
+			b = UI.big_tile(slot, Data.item_label(it), Data.item_stat_text(it), rc, rc.lightened(0.25), on, th, it)
 		var sl: String = slot
 		b.pressed.connect(func():
 			if _equip_slot == sl and not it.is_empty():
@@ -537,7 +537,7 @@ func show_loge() -> void:
 		var n: int = g["n"]
 		var is_worn: bool = g["worn"]
 		var rc: Color = Data.RARITY_COLORS[int(it["rarity"])]
-		var b := UI.big_tile(_equip_slot, Data.item_label(it) + ("  ×%d" % n if n > 1 else ""), Data.item_stat_text(it), rc, rc.lightened(0.25), is_worn, 96)
+		var b := UI.big_tile(_equip_slot, Data.item_label(it) + ("  ×%d" % n if n > 1 else ""), Data.item_stat_text(it), rc, rc.lightened(0.25), is_worn, 96, it)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var rz: HBoxContainer = b.get_meta("right")
 		if is_worn:
@@ -651,11 +651,11 @@ func _equip_detail(it: Dictionary, n: int, worn: Dictionary) -> void:
 	var top := UI.hbox(18)
 	v.add_child(top)
 	var ring := Panel.new()
-	ring.custom_minimum_size = Vector2(96, 96)
-	ring.add_theme_stylebox_override("panel", UI.flat(Color(rc, 0.18), rc, 48, 3))
+	ring.custom_minimum_size = Vector2(120, 120)
+	ring.add_theme_stylebox_override("panel", UI.flat(Color(rc, 0.18), rc, 60, 3))
 	top.add_child(ring)
-	var ic := UI.Icon.new(slot, rc, 60.0)
-	ic.position = Vector2(18, 18)
+	var ic := UI.ItemIcon.make(it, 136.0, rc, 60.0 / 136.0)
+	ic.position = Vector2(-8, -8)
 	ring.add_child(ic)
 	var tv := UI.vbox(4)
 	tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1156,6 +1156,7 @@ func _show_item(item: Dictionary) -> void:
 	var head := _deal_overlay("OBJET TROUVÉ", Data.SLOT_NAMES[tpl["slot"]].to_upper() + "  ·  " + Data.item_stat_text(item), rc)
 	var cs := Vector2(300, 356) if vs.y >= 700.0 else Vector2(270, 320)
 	var c: Button = CardScript.new()
+	c.set("item", item)  # icône 3D de l'objet (card.gd)
 	c.setup(String(tpl["slot"]), Data.item_label(item), Data.SLOT_NAMES[tpl["slot"]] + "\n" + Data.item_stat_text(item), rarity, Data.RARITY_NAMES[rarity].to_upper(), "", cs)
 	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.add_child(c)
