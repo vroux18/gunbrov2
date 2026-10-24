@@ -592,7 +592,7 @@ func _boss_title() -> String:
 
 ## Monde ouvert : le premier, ou le suivant d'un monde terminé.
 func _world_open(i: int) -> bool:
-	return i == 0 or (profile["worlds_done"] as Array).has(i - 1)
+	return i == 0 or bool(Dev.v["all_worlds"]) or (profile["worlds_done"] as Array).has(i - 1)
 
 ## Monde de la prochaine partie : celui choisi au Relais s'il est ouvert et livré, sinon Nébuleuse 7.
 ## `--world=N` (essais, captures) force un monde livré.
@@ -1059,6 +1059,12 @@ func _show_dev() -> void:
 		Dev.set_value("show_fps", not bool(Dev.v["show_fps"]))
 		_show_dev())
 	fps_row.add_child(cnt)
+	var aw := UI.button("TOUS LES MONDES OUVERTS : " + ("OUI" if bool(Dev.v["all_worlds"]) else "NON"), 20, UI.ACCENT if bool(Dev.v["all_worlds"]) else UI.MUTED, 420)
+	aw.custom_minimum_size = Vector2(420, 64)
+	aw.pressed.connect(func():
+		Dev.set_value("all_worlds", not bool(Dev.v["all_worlds"]))
+		_show_dev())
+	box.add_child(aw)
 	box.add_child(summary)
 	var end_row := UI.hbox(10)
 	box.add_child(end_row)

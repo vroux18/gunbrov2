@@ -4,8 +4,9 @@ extends Node
 ## compteur d'images par seconde. La vue (view3d.gd) lit ces valeurs à chaque image.
 
 const CFG := "user://dev.cfg"
-## Valeurs par défaut (et bornes des curseurs du mode développeur).
-const DEFAULTS := {"cam_dist": 11.5, "cam_pitch": 56.0, "cam_fov": 38.0, "hero_scale": 1.35, "mob_scale": 1.0, "fps": 60, "show_fps": false, "dev": false}
+## Valeurs par défaut (et bornes des curseurs du mode développeur). all_worlds : version de démo, le monde 2
+## est ouvert sans finir le monde 1 (le mode développeur le referme).
+const DEFAULTS := {"cam_dist": 11.5, "cam_pitch": 56.0, "cam_fov": 38.0, "hero_scale": 1.35, "mob_scale": 1.0, "fps": 60, "show_fps": false, "dev": false, "all_worlds": true}
 const RANGES := {"cam_dist": [6.0, 24.0], "cam_pitch": [30.0, 85.0], "cam_fov": [24.0, 70.0], "hero_scale": [0.9, 2.2], "mob_scale": [0.6, 1.4]}
 ## Préréglages du menu pause (boutons VUE et ANGLE).
 const ZOOMS := [["PROCHE", 9.0], ["NORMALE", 11.5], ["LARGE", 14.0], ["TRÈS LARGE", 16.5]]
