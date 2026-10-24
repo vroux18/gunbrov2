@@ -9,7 +9,7 @@ const Rig3D = preload("res://scripts/rig3d.gd")
 ## Échelle des modèles sculptés (conçus à l'échelle de Jo, qui est affichée à 1,75).
 const RIG_SCALE := {"drone": 1.75, "trooper": 1.75, "brute": 1.3, "boss": 1.05, "bomber": 1.75, "sniper": 1.75, "shield": 1.75, "mortar": 1.75, "roller": 1.75, "hacker": 1.75, "copter": 1.75, "bouncer": 1.3, "boss2": 1.05}
 ## Durée de l'animation de mort avant suppression du nœud.
-const DEATH_T := {"drone": 0.85, "trooper": 1.3, "brute": 1.0, "boss": 1.6, "bomber": 0.2, "sniper": 0.9, "shield": 1.0, "mortar": 0.7, "roller": 0.7, "hacker": 0.85, "copter": 0.6, "bouncer": 1.0, "boss2": 1.6}
+const DEATH_T := {"drone": 0.85, "trooper": 1.3, "brute": 1.0, "boss": 1.6, "bomber": 0.2, "sniper": 0.9, "shield": 1.0, "mortar": 0.7, "roller": 0.7, "hacker": 0.85, "copter": 0.7, "bouncer": 1.0, "boss2": 1.6}
 ## Durée du télégraphe (état « tell ») par genre, pour remplir l'anneau au sol.
 const TELL_T := {"brute": 0.7, "boss": 0.8, "bomber": 0.55, "shield": 0.5, "mortar": 0.9, "roller": 0.35, "hacker": 0.55, "bouncer": 0.8, "boss2": 0.8}
 const NEON_PINK := Color("#FF3CAC")
