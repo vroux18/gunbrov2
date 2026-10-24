@@ -170,7 +170,7 @@ const ITEMS := [
 	# Cité Néon : cyberpunk mignon (rose, bleu)
 	{"id": "pistolet_neon", "slot": "arme", "name": "Pistolet à rayons", "stat": "rate", "val": 0.11, "world": "neon"},
 	{"id": "antenne", "slot": "arme2", "name": "Antenne pirate", "stat": "range", "val": 0.1, "world": "neon"},
-	{"id": "oreilles_chat", "slot": "tete", "name": "Oreilles de chat", "stat": "pickup", "val": 0.45, "world": "neon"},
+	{"id": "oreilles_chat", "slot": "tete", "name": "Serre-tête néon", "stat": "pickup", "val": 0.45, "world": "neon"},
 	{"id": "echarpe", "slot": "torse", "name": "Écharpe fétiche", "stat": "crit", "val": 0.05, "world": "neon"},
 	{"id": "patins", "slot": "jambes", "name": "Patins néon", "stat": "speed", "val": 0.09, "world": "neon"},
 	{"id": "ailes", "slot": "gadget", "name": "Petites ailes", "stat": "speed", "val": 0.07, "world": "neon"},
