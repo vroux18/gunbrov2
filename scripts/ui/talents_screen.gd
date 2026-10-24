@@ -1,11 +1,13 @@
 extends Control
-## Écran TALENTS du Relais : l'arbre des talents permanents (talents.gd), cinq branches qui poussent depuis
-## leur socle. Nœuds ronds à pictogramme, liens qui s'allument, défilement au doigt (glisser, élan, butée
-## élastique). Toucher un nœud ouvre sa fiche (effet actuel → suivant, coût, AMÉLIORER). L'achat : tickets qui
-## volent du compteur vers le nœud, compteur qui défile, éclat, gerbe d'étoiles, liens suivants qui s'allument.
-## Tout est dessiné en code dans deux passes (arbre, effets) ; quelques pictogrammes et la fiche sont des nœuds.
-## L'arbre est découpé en calques (fond, liens, socles, deux par nœud) redessinés seulement quand ce qu'ils
-## montrent change : le fond une fois, un nœud figé jamais, un nœud animé (halo, couronne) à chaque image.
+## Écran TALENTS du Relais : les talents permanents (talents.gd), une branche à la fois.
+## Bandeau (RETOUR, titre, phrase, monnaies) ; à gauche cinq grands onglets de branche (SURVIE, PUISSANCE,
+## POUVOIRS, FORTUNE, MOUVEMENT) avec leur progression ; au centre l'arbre de la branche choisie, gros nœuds
+## ronds à pictogramme, niveau et nom lisibles ; à droite la fiche du talent choisi, toujours ouverte : effet
+## actuel → suivant, prix en gros, ACHETER, et en clair pourquoi l'achat est bloqué. Glisser l'arbre de côté
+## change de branche. L'achat : tickets qui volent du compteur vers le nœud, compteur qui défile, éclat,
+## gerbe d'étoiles, liens suivants qui s'allument.
+## L'arbre est découpé en calques (fond, liens, deux par nœud) redessinés seulement quand ce qu'ils montrent
+## change : le fond une fois par branche, un nœud figé jamais, un nœud animé (halo, couronne) à chaque image.
 
 const UI = preload("res://scripts/ui.gd")
 const Fx = preload("res://scripts/ui/fx.gd")
@@ -13,35 +15,40 @@ const Icon = preload("res://scripts/icon.gd")
 const Talents = preload("res://scripts/talents.gd")
 const Save = preload("res://scripts/save.gd")
 const CardScript = preload("res://scripts/ui/card.gd")
+const Screen = preload("res://scripts/ui/powers_screen.gd")  # bandeau d'écran (en attendant celui de ui.gd)
 
-const R := 40.0  # rayon d'un nœud (80 px du viewport = 120 px en 1080p)
-const RK := 48.0  # nœud clé (dernier rang de chaque branche)
-const GY := 146.0  # écart entre deux rangs
-const ROW4_Y := 132.0  # rang du haut, sous le bandeau
-const HEAD_H := 78.0
-const FICHE_W := 384.0
+const R := 42.0  # rayon d'un nœud
+const RK := 50.0  # nœud clé (dernier rang de chaque branche)
+const HEAD_H := Screen.HEAD_H
+const TAB_W := 252.0
 const DRAG_START := 14.0
+const SWIPE := 90.0  # glissé horizontal qui change de branche
+const SOFT := Color("#C4D2E4")
+const BAD := Color("#FF8FA8")
+const BRANCH_ICON := {"survie": "heart", "puissance": "dmg", "pouvoirs": "bolt", "fortune": "coins", "mouvement": "speed"}
 
 var main: Node
 var profile: Dictionary
-var _view: Control  # zone tactile plein écran
-var _canvas: Control  # l'arbre, déplacé par le défilement
+var _branch := "survie"
+var _view: Control  # zone tactile plein écran (sous les onglets et la fiche)
+var _canvas: Control  # l'arbre de la branche choisie
 var _fx: Control  # effets additifs (écran)
 var _fx_txt: Control  # textes flottants (écran)
+var _tabs: VBoxContainer
 var _fiche: PanelContainer
 var _fiche_box: VBoxContainer
-var _fiche_open := false
 var _tk_chip: PanelContainer
 var _tk_label: Label
 var _sh_chip: PanelContainer
-var _prog: Label
-var _icons := {}  # id -> Icon
-var _pos := {}  # id -> centre dans l'arbre
-var _links := []  # {from, to, pts, col, need, id}
-var _plates := []  # {pos, branch}
+var _icons := {}  # id -> Icon (branche affichée)
+var _pos := {}  # id -> centre dans l'arbre (branche affichée)
+var _links := []  # {from, to, pts, col, need, lit, line_l, dots_l}
 var _canvas_size := Vector2.ZERO
-var _bg: Control  # calques de l'arbre, dans l'ordre de dessin (enfants de _canvas, sous les pictogrammes)
-var _plates_l: Control
+var _tree_x0 := 0.0
+var _spread := 260.0  # écart entre les deux nœuds d'un même rang
+var _key_y := 0.0
+var _row1_y := 0.0
+var _bg: Control
 var _layer_a := {}  # id -> calque du dessous (halo, anneau d'achat, ombre, couronne, sélection)
 var _layer_b := {}  # id -> calque du nœud (corps, niveaux, pastille, nom)
 var _sig_a := {}
@@ -49,17 +56,13 @@ var _sig_b := {}
 var _info := {}  # id -> {st, lv, buyable, col} : recalculé quand le profil change (_profile_fp)
 var _fp := []
 var _fx_n := 0
-var _band := 260.0  # largeur d'une branche : plus large sur les écrans allongés
 var _sel := ""
 var _t := 0.0
-var _pan := Vector2.ZERO
-var _vel := Vector2.ZERO
+var _pan := Vector2.ZERO  # position de l'arbre à l'écran (glissé compris)
+var _swipe := 0.0  # décalage horizontal pendant un glissé, revient à 0
 var _press := false
 var _drag := false
 var _press_pos := Vector2.ZERO
-var _last_pos := Vector2.ZERO
-var _last_t := 0.0
-var _goto := Vector2.INF  # cible de défilement automatique (nœud choisi)
 var _shake := 0.0
 var _pop := {}  # id -> 1 au moment de l'achat, décroît
 var _flash := {}
@@ -67,7 +70,6 @@ var _wake := {}  # id -> 1 quand le nœud se déverrouille
 var _deny := {}  # id -> 1 quand l'achat est refusé (le nœud tremble)
 var _parts := []  # particules (écran)
 var _texts := []  # textes flottants (écran)
-var _shown_tickets := 0
 
 func build(m: Node, fresh: bool = true) -> void:
 	UI.load_fonts()
@@ -75,9 +77,27 @@ func build(m: Node, fresh: bool = true) -> void:
 	profile = m.profile
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	add_child(UI.dim(0.93))
-	_build_tree()
-	_build_header()
+	add_child(UI.dim(1.0))  # fond opaque : le Relais 3D derrière ne gêne plus la lecture
+	var tint := ColorRect.new()
+	tint.color = Color(UI.BG, 0.55)
+	tint.set_anchors_preset(Control.PRESET_FULL_RECT)
+	tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(tint)
+	_layout()
+	_view = Control.new()
+	_view.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_view.mouse_filter = Control.MOUSE_FILTER_STOP
+	_view.gui_input.connect(_on_input)
+	add_child(_view)
+	_canvas = Control.new()
+	_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_canvas.size = _canvas_size
+	_view.add_child(_canvas)
+	var hd := Screen.bandeau(self, "TALENTS", "Améliorations permanentes, achetées avec tes tickets et tes éclats.", UI.GOLD, func(): main.show_base(), profile)
+	_tk_chip = hd["tk_chip"]
+	_tk_label = hd["tk_label"]
+	_sh_chip = hd["sh_chip"]
+	_build_tabs()
 	_build_fiche()
 	_fx = Control.new()
 	_fx.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -92,88 +112,213 @@ func build(m: Node, fresh: bool = true) -> void:
 	_fx_txt.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_fx_txt.draw.connect(_draw_texts)
 	add_child(_fx_txt)
-	_shown_tickets = int(profile["tickets"])
+	_refresh_info()
+	# branche de départ : la première où un achat est possible
+	_branch = String(Talents.BRANCHES[0]["id"])
+	for b in Talents.BRANCHES:
+		if _buyable_in(String(b["id"])) > 0:
+			_branch = String(b["id"])
+			break
+	_show_branch(fresh)
 	_refresh_header()
-	# départ : arbre centré, en haut (les nœuds clés sous le bandeau)
-	var vs := _vs()
-	_pan = Vector2((vs.x - _canvas_size.x) * 0.5, 0.0)
-	_pan = _clamped(_pan)
-	_canvas.position = _pan
 	if fresh:
 		Fx.screen_in(self)
-		_canvas.modulate.a = 0.0
-		var tw := Fx._tw(_canvas)
-		tw.tween_property(_canvas, "modulate:a", 1.0, 0.35)
-		# les nœuds s'allument du bas vers le haut
-		for id in _pos.keys():
-			var row := float(Talents.talent(id)["pos"].y)
-			_wake[id] = 1.0 + row * 0.18
+		Fx.slide_in(_tabs, Vector2(-80, 0), 0.0, 0.34)
+		Fx.slide_in(_fiche, Vector2(120, 0), 0.05, 0.36)
 
 func _vs() -> Vector2:
 	return get_viewport().get_visible_rect().size
 
-# ---------------------------------------------------------------- construction
-func _node_r(id: String) -> float:
-	return RK if float(Talents.talent(id)["pos"].y) >= 4.0 else R
+## Zones de l'écran : onglets à gauche, fiche à droite, l'arbre entre les deux, rangs répartis en hauteur.
+var _fiche_w := 448.0
+func _layout() -> void:
+	var ins := UI.safe_insets(get_viewport())
+	var vs := _vs()
+	_fiche_w = clampf(vs.x * 0.35, 440.0, 520.0)
+	_tree_x0 = float(ins["left"]) + TAB_W + 12.0
+	var tree_w := vs.x - float(ins["right"]) - _fiche_w - 12.0 - _tree_x0
+	_canvas_size = Vector2(tree_w, vs.y)
+	_spread = clampf(tree_w * 0.5, 220.0, 300.0)
+	_key_y = HEAD_H + 70.0
+	_row1_y = vs.y - float(ins["bottom"]) - 94.0
+	_pan = Vector2(_tree_x0, 0)
 
-func _build_tree() -> void:
-	_view = Control.new()
-	_view.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_view.mouse_filter = Control.MOUSE_FILTER_STOP
-	_view.gui_input.connect(_on_input)
-	add_child(_view)
-	_canvas = Control.new()
-	_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_view.add_child(_canvas)
-	_band = clampf((_vs().x - 200.0) / 4.5, 250.0, 300.0)
-	var half := 2.25 * _band + 90.0
-	var cx := half
-	var row1_y := ROW4_Y + 3.0 * GY + 12.0
-	_canvas_size = Vector2(half * 2.0, row1_y + 128.0)
-	_canvas.size = _canvas_size
+# ---------------------------------------------------------------- onglets de branche
+func _build_tabs() -> void:
+	var ins := UI.safe_insets(get_viewport())
+	_tabs = UI.vbox(10)
+	_tabs.anchor_bottom = 1.0
+	_tabs.offset_left = float(ins["left"])
+	_tabs.offset_right = float(ins["left"]) + TAB_W
+	_tabs.offset_top = HEAD_H + 12.0
+	_tabs.offset_bottom = -float(ins["bottom"])
+	add_child(_tabs)
+
+func _buyable_in(bid: String) -> int:
+	var n := 0
 	for t in Talents.TALENTS:
-		var id := String(t["id"])
-		var b := Talents.branch(String(t["branch"]))
-		var row := float(t["pos"].y)
-		var y := row1_y - (row - 1.0) * GY - (12.0 if row >= 4.0 else 0.0)
-		_pos[id] = Vector2(cx + (float(b["x"]) + float(t["pos"].x) * 0.5) * _band, y)
-	# socles des branches, sous le premier rang
+		if String(t["branch"]) == bid and bool(_info.get(String(t["id"]), {}).get("buyable", false)):
+			n += 1
+	return n
+
+func _refresh_tabs() -> void:
+	for c in _tabs.get_children():
+		_tabs.remove_child(c)
+		c.queue_free()
 	for b in Talents.BRANCHES:
-		_plates.append({"pos": Vector2(cx + float(b["x"]) * _band, row1_y + 100.0), "branch": b})
-	# liens : prérequis → talent ; socle → premier talent
+		_tabs.add_child(_tab_button(b))
+
+## Onglet de branche : pictogramme, nom, niveaux pris / total ; une pièce dorée si un achat y est possible.
+func _tab_button(b: Dictionary) -> Button:
+	var bid := String(b["id"])
+	var col: Color = b["col"]
+	var on := bid == _branch
+	var bt := Button.new()
+	bt.focus_mode = Control.FOCUS_NONE
+	bt.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	bt.custom_minimum_size = Vector2(TAB_W, 76)
+	var face := col.darkened(0.64) if on else Color(UI.PANEL, 0.95)
+	var st := UI.chunky(face, col.darkened(0.3) if on else UI.INK, false, 16)
+	st.border_width_left = 6
+	st.border_color = col if on else col.darkened(0.5)
+	bt.add_theme_stylebox_override("normal", st)
+	var hv := st.duplicate()
+	hv.bg_color = face.lightened(0.07)
+	bt.add_theme_stylebox_override("hover", hv)
+	var pr := UI.chunky(face.darkened(0.1), UI.INK, true, 16)
+	pr.border_width_left = 6
+	pr.border_color = col
+	bt.add_theme_stylebox_override("pressed", pr)
+	bt.add_theme_stylebox_override("hover_pressed", pr)
+	bt.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	var h := UI.hbox(12)
+	h.set_anchors_preset(Control.PRESET_FULL_RECT)
+	h.offset_left = 16
+	h.offset_right = -10
+	h.offset_top = 4
+	h.offset_bottom = -10
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bt.add_child(h)
+	var ic := Icon.new(String(BRANCH_ICON.get(bid, "star")), col if on else col.darkened(0.1), 44.0)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(ic)
+	var v := UI.vbox(-2)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_child(v)
+	var nl := UI.title(String(b["name"]), 24, UI.TEXT if on else SOFT, col)
+	nl.add_theme_constant_override("shadow_offset_y", 3 if on else 0)
+	nl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(nl)
+	var own := 0
+	var tot := 0
 	for t in Talents.TALENTS:
+		if String(t["branch"]) == bid:
+			own += Talents.level(profile, String(t["id"]))
+			tot += int(t["max"])
+	var ph := UI.hbox(8)
+	ph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(ph)
+	var pl := UI.label("%d / %d niv." % [own, tot], 24, UI.GOLD if own >= tot else (UI.TEXT if on else SOFT))
+	pl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ph.add_child(pl)
+	if _buyable_in(bid) > 0:
+		var ci := Icon.new("coin", UI.GOLD, 26.0)
+		ci.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		ph.add_child(ci)
+		Fx.pulse(ci, 0.55, 1.0, 1.1)
+	Fx.press(bt, 0.95)
+	bt.pressed.connect(func(): set_branch(bid))
+	return bt
+
+## Change de branche : l'arbre glisse depuis le côté (dir : -1 depuis la gauche, 1 depuis la droite).
+func set_branch(bid: String, dir: int = 0) -> void:
+	if bid == _branch:
+		return
+	if dir == 0:
+		dir = 1 if _branch_index(bid) > _branch_index(_branch) else -1
+	_branch = bid
+	if main != null and main.get("sfx") != null:
+		main.sfx.play("click", 1.1, -6.0)
+	_show_branch(true)
+	_swipe = 160.0 * dir
+
+func _branch_index(bid: String) -> int:
+	for i in range(Talents.BRANCHES.size()):
+		if String(Talents.BRANCHES[i]["id"]) == bid:
+			return i
+	return 0
+
+# ---------------------------------------------------------------- arbre de la branche
+func _show_branch(anim: bool) -> void:
+	for c in _canvas.get_children():
+		_canvas.remove_child(c)
+		c.queue_free()
+	_pos.clear()
+	_links.clear()
+	_icons.clear()
+	_layer_a.clear()
+	_layer_b.clear()
+	_sig_a.clear()
+	_sig_b.clear()
+	var cx := _canvas_size.x * 0.5
+	var gy := (_row1_y - _key_y) / 3.0
+	var ids := []
+	for t in Talents.TALENTS:
+		if String(t["branch"]) != _branch:
+			continue
 		var id := String(t["id"])
-		var col := Talents.color(id)
+		ids.append(id)
+		var row := float(t["pos"].y)
+		_pos[id] = Vector2(cx + float(t["pos"].x) * _spread, _row1_y - (row - 1.0) * gy)
+	for id in ids:
+		var t := Talents.talent(id)
 		var req: Dictionary = t["req"]
-		if req.is_empty():
-			for pl in _plates:
-				if pl["branch"]["id"] == t["branch"]:
-					_links.append({"from": "", "to": id, "need": 0, "col": col, "pts": _curve(pl["pos"] + Vector2(0, -20), _pos[id])})
 		for r in req.keys():
-			_links.append({"from": String(r), "to": id, "need": int(req[r]), "col": col, "pts": _curve(_pos[String(r)], _pos[id])})
-	# calques de l'arbre (sous les pictogrammes)
+			_links.append({"from": String(r), "to": id, "need": int(req[r]), "col": Talents.color(id), "pts": _curve(_pos[String(r)], _pos[id])})
 	_bg = _layer(func(cv): _draw_bg(cv))
 	for l in _links:
-		# chaque lien : tracé (figé) puis énergie qui y monte (animée), dans l'ordre des liens
+		# chaque lien : tracé (figé) puis énergie qui y monte (animée)
 		l["lit"] = false
 		l["line_l"] = _layer(func(cv): _draw_link(cv, l))
 		l["dots_l"] = _layer(func(cv): _draw_link_dots(cv, l))
-	_plates_l = _layer(func(cv): _draw_plates(cv))
-	for t in Talents.TALENTS:
-		var id := String(t["id"])
+	for id in ids:
 		_layer_a[id] = _layer(func(cv): _draw_node_a(cv, id))
 		_layer_b[id] = _layer(func(cv): _draw_node_b(cv, id))
-	_refresh_info()
-	# pictogrammes
-	for t in Talents.TALENTS:
-		var id := String(t["id"])
-		var s := 54.0 if _node_r(id) > R else 46.0
+	for id in ids:
+		var t := Talents.talent(id)
+		var s := 60.0 if _node_r(id) > R else 50.0
 		var ic := Icon.new(String(t["icon"]), Talents.color(id), s)
 		ic.size = Vector2(s, s)
 		ic.position = _pos[id] - Vector2(s, s) * 0.5
 		ic.pivot_offset = Vector2(s, s) * 0.5
 		_canvas.add_child(ic)
 		_icons[id] = ic
+	_refresh_info()
+	_refresh_tabs()
+	if anim:
+		# les nœuds s'allument du bas vers le haut
+		for id in ids:
+			_wake[id] = 1.0 + float(Talents.talent(id)["pos"].y) * 0.14
+	# talent choisi : le premier achetable, sinon le premier ouvert, sinon le premier de la branche
+	var pick := ""
+	for id in ids:
+		if bool(_info[id]["buyable"]):
+			pick = id
+			break
+	if pick == "":
+		for id in ids:
+			if String(_info[id]["st"]) == "open" or String(_info[id]["st"]) == "owned":
+				pick = id
+				break
+	if pick == "":
+		pick = String(ids[0])
+	_sel = pick
+	_fill_fiche()
+
+func _node_r(id: String) -> float:
+	return RK if float(Talents.talent(id)["pos"].y) >= 4.0 else R
 
 func _layer(fn: Callable) -> Control:
 	var c := Control.new()
@@ -195,73 +340,20 @@ func _curve(a: Vector2, b: Vector2) -> PackedVector2Array:
 		pts.append(a * u * u * u + c1 * 3.0 * u * u * k + c2 * 3.0 * u * k * k + b * k * k * k)
 	return pts
 
-func _build_header() -> void:
-	var ins := UI.safe_insets(get_viewport())
-	var vs := _vs()
-	var shade := Control.new()
-	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	shade.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	shade.size = Vector2(vs.x, HEAD_H + 30)
-	shade.draw.connect(func():
-		var w := shade.size.x
-		var c0 := Color(UI.INK, 0.94)
-		var c1 := Color(UI.INK, 0.0)
-		shade.draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w, HEAD_H - 6), Vector2(0, HEAD_H - 6)]), PackedColorArray([c0, c0, c0, c0]))
-		shade.draw_polygon(PackedVector2Array([Vector2(0, HEAD_H - 6), Vector2(w, HEAD_H - 6), Vector2(w, HEAD_H + 30), Vector2(0, HEAD_H + 30)]), PackedColorArray([c0, c0, c1, c1]))
-		shade.draw_rect(Rect2(0, HEAD_H - 7, w, 2), Color(UI.GOLD, 0.25)))
-	add_child(shade)
-	var left := UI.hbox(16)
-	left.position = Vector2(float(ins["left"]) + 4.0, 8.0)
-	left.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(left)
-	var ic := Icon.new("tree", UI.GOLD, 44.0)
-	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	left.add_child(ic)
-	var tv := UI.vbox(-6)
-	tv.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	left.add_child(tv)
-	var title := UI.title("TALENTS", 40, UI.TEXT, UI.GOLD)
-	tv.add_child(title)
-	_prog = UI.label("", 18, UI.MUTED)
-	tv.add_child(_prog)
-	Fx.shine(title, 300.0, 3.2, 0.5)
-	var right := UI.hbox(12)
-	right.alignment = BoxContainer.ALIGNMENT_END
-	right.anchor_left = 0.4
-	right.anchor_right = 1.0
-	right.offset_right = -float(ins["right"])
-	right.offset_top = 8.0
-	right.offset_bottom = 72.0
-	add_child(right)
-	_sh_chip = UI.chip("shard", "", UI.ACCENT)
-	_sh_chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	right.add_child(_sh_chip)
-	_tk_chip = UI.chip("coin", "", UI.GOLD)
-	_tk_chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_tk_label = _tk_chip.get_meta("label")
-	_tk_label.add_theme_font_override("font", UI.TITLE)
-	_tk_label.add_theme_font_size_override("font_size", 24)
-	_tk_label.custom_minimum_size = Vector2(70, 0)
-	right.add_child(_tk_chip)
-	var back := UI.primary("RETOUR", 24)
-	back.custom_minimum_size = Vector2(150, 64)
-	back.pressed.connect(func(): main.show_base())
-	right.add_child(back)
-
+# ---------------------------------------------------------------- fiche
 func _build_fiche() -> void:
 	var ins := UI.safe_insets(get_viewport())
 	_fiche = PanelContainer.new()
 	_fiche.anchor_left = 1.0
 	_fiche.anchor_right = 1.0
 	_fiche.anchor_bottom = 1.0
-	_fiche.offset_left = -FICHE_W - float(ins["right"])
+	_fiche.offset_left = -_fiche_w - float(ins["right"])
 	_fiche.offset_right = -float(ins["right"])
-	_fiche.offset_top = HEAD_H + 6.0
-	_fiche.offset_bottom = -float(ins["bottom"]) - 6.0
+	_fiche.offset_top = HEAD_H + 12.0
+	_fiche.offset_bottom = -float(ins["bottom"])
 	_fiche.mouse_filter = Control.MOUSE_FILTER_STOP
-	_fiche.visible = false
 	add_child(_fiche)
-	_fiche_box = UI.vbox(10)
+	_fiche_box = UI.vbox(12)
 	_fiche.add_child(_fiche_box)
 
 # ---------------------------------------------------------------- état
@@ -270,6 +362,9 @@ func _profile_fp() -> Array:
 	return [int(profile.get("tickets", 0)), int(profile.get("shards", 0)), Talents.levels(profile).hash()]
 
 func _refresh_info() -> void:
+	var old := {}
+	for id in _info.keys():
+		old[id] = _info[id]["buyable"]
 	_fp = _profile_fp()
 	for t in Talents.TALENTS:
 		var id := String(t["id"])
@@ -279,7 +374,12 @@ func _refresh_info() -> void:
 		l["lit"] = from == "" or Talents.level(profile, from) >= int(l["need"])
 		(l["line_l"] as Control).queue_redraw()
 		(l["dots_l"] as Control).queue_redraw()
-	_plates_l.queue_redraw()
+	# pièces des onglets : à refaire si un talent devient achetable ou ne l'est plus
+	if _tabs != null and not old.is_empty():
+		for id in old.keys():
+			if old[id] != _info[id]["buyable"]:
+				_refresh_tabs()
+				break
 
 func _state(id: String) -> String:
 	var lv := Talents.level(profile, id)
@@ -292,59 +392,34 @@ func _state(id: String) -> String:
 	return "locked"
 
 func _refresh_header() -> void:
-	_prog.text = "%d / %d niveaux  ·  progression permanente" % [Talents.owned_levels(profile), Talents.total_levels()]
 	var sl: Label = _sh_chip.get_meta("label")
 	var free := Talents.shards_free(profile)
 	sl.text = "%d éclat%s" % [free, "s" if free > 1 else ""]
 	_tk_label.text = "%d" % int(profile["tickets"])
 
-# ---------------------------------------------------------------- fiche
-## Sélectionne un talent : fiche à droite, l'arbre glisse pour garder le nœud visible.
+## Sélectionne un talent (change de branche au besoin) : sa fiche s'affiche à droite.
 func select(id: String) -> void:
 	if Talents.talent(id).is_empty():
 		return
+	var bid := String(Talents.talent(id)["branch"])
+	if bid != _branch:
+		set_branch(bid)
 	_sel = id
 	if main != null and main.get("sfx") != null:
 		main.sfx.play("click", 1.15, -6.0)
 	_fill_fiche()
-	if not _fiche_open:
-		_fiche_open = true
-		_fiche.visible = true
-		Fx.slide_in(_fiche, Vector2(FICHE_W * 0.6, 0), 0.0, 0.32)
 	_bump_icon(id, 0.12)
-	_follow(id)
 
-func close_fiche() -> void:
-	_sel = ""
-	if not _fiche_open:
-		return
-	_fiche_open = false
-	var tw := Fx._tw(_fiche)
-	tw.tween_property(_fiche, "modulate:a", 0.0, 0.14)
-	tw.tween_callback(func():
-		if not _fiche_open:
-			_fiche.visible = false)
-	_goto = _clamped(_pan)
-
-func _follow(id: String) -> void:
-	var vs := _vs()
-	var p: Vector2 = _pos[id] + _pan
-	var target := _pan
-	var right_edge := vs.x - (FICHE_W + 60.0 if _fiche_open else 40.0)
-	if p.x > right_edge - 70.0:
-		target.x -= p.x - (right_edge - 90.0)
-	if p.x < 100.0:
-		target.x += 120.0 - p.x
-	if p.y < HEAD_H + 70.0:
-		target.y += HEAD_H + 80.0 - p.y
-	_goto = _clamped(target)
-
+## Fiche du talent choisi : nom, branche, niveau ; ce qu'il fait ; effet maintenant → après achat ; pourquoi
+## l'achat est bloqué ; prix et ACHETER.
 func _fill_fiche() -> void:
 	for c in _fiche_box.get_children():
 		_fiche_box.remove_child(c)
 		c.queue_free()
 	var id := _sel
 	var t := Talents.talent(id)
+	if t.is_empty():
+		return
 	var col := Talents.color(id)
 	var lv := Talents.level(profile, id)
 	var mx := int(t["max"])
@@ -355,7 +430,7 @@ func _fill_fiche() -> void:
 	s.content_margin_left = 22
 	s.content_margin_right = 22
 	s.content_margin_top = 16
-	s.content_margin_bottom = 16
+	s.content_margin_bottom = 18
 	s.shadow_color = Color(0, 0, 0, 0.5)
 	s.shadow_size = 14
 	_fiche.add_theme_stylebox_override("panel", s)
@@ -364,107 +439,102 @@ func _fill_fiche() -> void:
 	_fiche_box.add_child(head)
 	var ring := Panel.new()
 	ring.custom_minimum_size = Vector2(84, 84)
+	ring.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	ring.add_theme_stylebox_override("panel", UI.flat(col.darkened(0.6) if st != "max" else col, col, 42, 4))
 	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	head.add_child(ring)
 	var ic := Icon.new(String(t["icon"]), UI.INK if st == "max" else col.lightened(0.2), 54.0)
 	ic.position = Vector2(15, 15)
 	ring.add_child(ic)
-	var hv := UI.vbox(4)
+	var hv := UI.vbox(6)
 	hv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hv.alignment = BoxContainer.ALIGNMENT_CENTER
 	head.add_child(hv)
-	var name_l := UI.title(String(t["name"]), 26 if String(t["name"]).length() < 13 else 22, UI.TEXT, col)
+	var name_l := UI.title(String(t["name"]), 30 if String(t["name"]).length() < 13 else 26, UI.TEXT, col)
 	name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hv.add_child(name_l)
-	var tags := UI.hbox(6)
+	var tags := UI.hbox(8)
 	hv.add_child(tags)
-	tags.add_child(UI.tag(String(Talents.branch(String(t["branch"]))["name"]), col.darkened(0.15), UI.INK, 15))
-	tags.add_child(UI.tag("MAX" if st == "max" else "NIV. %d / %d" % [lv, mx], UI.GOLD if st == "max" else Color("#2A3F6E"), UI.INK if st == "max" else UI.TEXT, 15))
-	var close := UI.button("✕", 20, UI.MUTED)
-	close.custom_minimum_size = Vector2(52, 52)
-	close.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	var cs: StyleBoxFlat = close.get_theme_stylebox("normal")
-	cs.content_margin_left = 0
-	cs.content_margin_right = 0
-	close.pressed.connect(close_fiche)
-	head.add_child(close)
-	var d := UI.label(String(t["desc"]), 20, Color("#C4D2E4"))
+	tags.add_child(UI.tag(String(Talents.branch(String(t["branch"]))["name"]), col, UI.INK, 20))
+	tags.add_child(UI.tag("MAX" if st == "max" else "NIVEAU %d / %d" % [lv, mx], UI.GOLD if st == "max" else Color("#2A3F6E"), UI.INK if st == "max" else UI.TEXT, 20))
+	var d := UI.label(String(t["desc"]), 24, SOFT)
 	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_fiche_box.add_child(d)
-	# effet actuel → suivant
+	# effet maintenant → après achat
 	var eff := PanelContainer.new()
-	var es := UI.flat(Color(UI.INK, 0.55), Color(col, 0.25), 14, 2)
-	es.content_margin_top = 10
-	es.content_margin_bottom = 10
-	es.content_margin_left = 14
-	es.content_margin_right = 14
+	var es := UI.flat(Color(UI.INK, 0.6), Color(col, 0.3), 14, 2)
+	es.content_margin_top = 12
+	es.content_margin_bottom = 12
+	es.content_margin_left = 16
+	es.content_margin_right = 16
 	eff.add_theme_stylebox_override("panel", es)
 	_fiche_box.add_child(eff)
 	var ev := UI.vbox(2)
 	eff.add_child(ev)
-	ev.add_child(UI.label("ACTUEL", 15, UI.MUTED))
-	var now_l := UI.label(Talents.effect_text(id, lv) if lv > 0 else "Rien pour l'instant", 21, UI.TEXT if lv > 0 else UI.MUTED)
+	ev.add_child(UI.label("MAINTENANT", 20, SOFT))
+	var now_l := UI.label(Talents.effect_text(id, lv) if lv > 0 else "Rien pour l'instant", 24, UI.TEXT if lv > 0 else SOFT)
 	now_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	ev.add_child(now_l)
 	if st != "max":
 		var sp := Control.new()
-		sp.custom_minimum_size = Vector2(0, 4)
+		sp.custom_minimum_size = Vector2(0, 6)
 		ev.add_child(sp)
-		ev.add_child(UI.label("NIVEAU %d  →" % (lv + 1), 15, col))
-		var nx := UI.title(Talents.effect_text(id, lv + 1), 19, col.lightened(0.25), col)
-		nx.add_theme_constant_override("shadow_offset_y", 0)
-		nx.add_theme_constant_override("outline_size", 3)
+		ev.add_child(UI.label("APRÈS ACHAT  (NIVEAU %d)" % (lv + 1), 20, col.lightened(0.2)))
+		var nx := UI.label(Talents.effect_text(id, lv + 1), 26, col.lightened(0.35))
 		nx.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		ev.add_child(nx)
-	else:
-		ev.add_child(UI.label("Talent au maximum.", 18, UI.GOLD))
-	var miss := Talents.missing(profile, id)
-	if st == "locked" and not miss.is_empty():
-		var ml := UI.label("Requiert : " + ", ".join(miss), 19, Color("#FF7A9A"))
-		ml.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		_fiche_box.add_child(ml)
 	var grow := Control.new()
 	grow.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_fiche_box.add_child(grow)
 	if st == "max":
-		var done := UI.title("★  AU MAXIMUM  ★", 24, UI.GOLD, UI.ORANGE, HORIZONTAL_ALIGNMENT_CENTER)
-		_fiche_box.add_child(done)
+		_fiche_box.add_child(UI.title("★  AU MAXIMUM  ★", 28, UI.GOLD, UI.ORANGE, HORIZONTAL_ALIGNMENT_CENTER))
+		_fiche_box.add_child(UI.label("Touche un autre talent dans l'arbre.", 24, SOFT, HORIZONTAL_ALIGNMENT_CENTER))
 		return
-	# coût et bouton
+	# pourquoi c'est bloqué, en clair
 	var c := Talents.cost(id, lv)
 	var reason := Talents.block_reason(profile, id)
-	var cost_row := UI.hbox(10)
-	cost_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	_fiche_box.add_child(cost_row)
-	cost_row.add_child(UI.label("COÛT", 17, UI.MUTED))
-	cost_row.add_child(Icon.new("coin", UI.GOLD, 30.0))
-	var cl := UI.title("%d" % int(c["tickets"]), 30, UI.GOLD if reason != "tickets" else Color("#FF6A80"), UI.ORANGE)
+	var why := ""
+	match reason:
+		"locked":
+			why = "Bloqué : monte d'abord " + " et ".join(Talents.missing(profile, id)) + "."
+		"tickets":
+			why = "Il te manque %d tickets." % (int(c["tickets"]) - int(profile["tickets"]))
+		"shards":
+			why = "Il faut un éclat : termine un monde."
+	if why != "":
+		var wl := UI.label(why, 24, BAD)
+		wl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_fiche_box.add_child(wl)
+	# prix et bouton, côte à côte
+	var row := UI.hbox(14)
+	_fiche_box.add_child(row)
+	var cost_v := UI.vbox(-4)
+	cost_v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(cost_v)
+	cost_v.add_child(UI.label("PRIX", 20, SOFT))
+	var cost_row := UI.hbox(6)
+	cost_v.add_child(cost_row)
+	var coin := Icon.new("coin", UI.GOLD, 34.0)
+	coin.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	cost_row.add_child(coin)
+	var cl := UI.title("%d" % int(c["tickets"]), 34, UI.GOLD if reason != "tickets" else BAD, UI.ORANGE)
 	cl.add_theme_constant_override("shadow_offset_y", 2)
 	cost_row.add_child(cl)
 	if int(c["shards"]) > 0:
-		cost_row.add_child(UI.label("+", 24, UI.MUTED))
-		cost_row.add_child(Icon.new("shard", UI.ACCENT, 30.0))
-		var sl := UI.title("%d" % int(c["shards"]), 30, UI.ACCENT if reason != "shards" else Color("#FF6A80"), UI.ACCENT)
+		cost_row.add_child(UI.label("+", 26, SOFT))
+		var sh := Icon.new("shard", UI.ACCENT, 34.0)
+		sh.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		cost_row.add_child(sh)
+		var sl := UI.title("%d" % int(c["shards"]), 34, UI.ACCENT if reason != "shards" else BAD, UI.ACCENT)
 		sl.add_theme_constant_override("shadow_offset_y", 2)
 		cost_row.add_child(sl)
-	var txt := "AMÉLIORER" if lv > 0 else "DÉBLOQUER"
-	match reason:
-		"locked":
-			txt = "VERROUILLÉ"
-		"tickets":
-			txt = "IL MANQUE %d" % (int(c["tickets"]) - int(profile["tickets"]))
-		"shards":
-			txt = "FINIS UN MONDE"
-	var up := UI.primary(txt, 28)
-	up.custom_minimum_size = Vector2(0, 78)
+	var up := UI.primary("ACHETER", 30)
+	up.custom_minimum_size = Vector2(0, 84)
+	up.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	up.disabled = reason != ""
 	up.pressed.connect(buy_selected)
-	_fiche_box.add_child(up)
-	if reason == "shards":
-		var hint := UI.label("Un éclat du Cœur par monde terminé.", 17, UI.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-		_fiche_box.add_child(hint)
-	elif reason == "":
+	row.add_child(up)
+	if reason == "":
 		var halo := Fx.halo(Color(UI.ORANGE, 0.4), Vector2(10, 10))
 		halo.show_behind_parent = true
 		up.add_child(halo)
@@ -511,6 +581,8 @@ func buy_selected() -> void:
 	_fill_fiche()
 
 func _impact(id: String, maxed: bool, before: Dictionary) -> void:
+	if not _pos.has(id):
+		return  # branche changée entre-temps
 	var col := Talents.color(id)
 	var c: Vector2 = _pos[id] + _pan
 	_pop[id] = 1.0
@@ -526,7 +598,7 @@ func _impact(id: String, maxed: bool, before: Dictionary) -> void:
 	if maxed:
 		_parts.append({"kind": "ring", "p": c, "life": -0.1, "max": 0.7, "r0": _node_r(id), "r1": _node_r(id) + 220.0, "col": UI.GOLD})
 	var lv := Talents.level(profile, id)
-	_texts.append({"text": "MAX !" if maxed else "NIV. %d" % lv, "p": c + Vector2(0, -_node_r(id) - 18.0), "life": 0.0, "max": 1.1, "col": UI.GOLD if maxed else col.lightened(0.3), "size": 34 if maxed else 28})
+	_texts.append({"text": "MAX !" if maxed else "NIV. %d" % lv, "p": c + Vector2(0, -_node_r(id) - 18.0), "life": 0.0, "max": 1.1, "col": UI.GOLD if maxed else col.lightened(0.3), "size": 36 if maxed else 32})
 	# liens qui s'allument vers les talents qui viennent de s'ouvrir
 	var delay := 0.0
 	for l in _links:
@@ -537,6 +609,8 @@ func _impact(id: String, maxed: bool, before: Dictionary) -> void:
 				var tw := create_tween()
 				tw.tween_interval(0.5 + delay)
 				tw.tween_callback(func():
+					if not _pos.has(to):
+						return
 					_wake[to] = 1.0
 					main.sfx.play("pick", 1.5, -10.0)
 					_parts.append({"kind": "ring", "p": _pos[to] + _pan, "life": 0.0, "max": 0.45, "r0": _node_r(to), "r1": _node_r(to) + 70.0, "col": Talents.color(to)}))
@@ -553,31 +627,7 @@ func _bump_icon(id: String, amount: float) -> void:
 	tw.tween_property(ic, "scale", Vector2.ONE * (1.0 + amount), 0.07)
 	tw.tween_property(ic, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
-# ---------------------------------------------------------------- défilement au doigt
-func _bounds() -> Rect2:
-	var vs := _vs()
-	var room_w := vs.x - (FICHE_W + 30.0 if _fiche_open else 0.0)
-	var min_x := room_w - _canvas_size.x - 30.0
-	var max_x := 30.0
-	if _canvas_size.x + 60.0 < room_w:
-		min_x = (room_w - _canvas_size.x) * 0.5
-		max_x = min_x
-	var min_y := vs.y - _canvas_size.y - 10.0
-	var max_y := 10.0
-	if min_y > max_y:
-		min_y = (vs.y - _canvas_size.y) * 0.5
-		max_y = min_y
-	return Rect2(min_x, min_y, max_x - min_x, max_y - min_y)
-
-func _clamped(p: Vector2) -> Vector2:
-	var b := _bounds()
-	return Vector2(clampf(p.x, b.position.x, b.end.x), clampf(p.y, b.position.y, b.end.y))
-
-## Au-delà des bords, le défilement résiste (élastique).
-func _rubber(p: Vector2) -> Vector2:
-	var c := _clamped(p)
-	return c + (p - c) * 0.35
-
+# ---------------------------------------------------------------- toucher : choisir un nœud, glisser de côté
 func _on_input(ev: InputEvent) -> void:
 	var pos := Vector2.INF
 	var pressed := false
@@ -592,88 +642,56 @@ func _on_input(ev: InputEvent) -> void:
 		if (ev as InputEventScreenDrag).index != 0:
 			return
 		pos = (ev as InputEventScreenDrag).position
-	elif ev is InputEventMouseButton:
-		var mb := ev as InputEventMouseButton
-		if mb.pressed and mb.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN, MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT]:
-			var d := Vector2.ZERO
-			match mb.button_index:
-				MOUSE_BUTTON_WHEEL_UP:
-					d = Vector2(0, 60)
-				MOUSE_BUTTON_WHEEL_DOWN:
-					d = Vector2(0, -60)
-				MOUSE_BUTTON_WHEEL_LEFT:
-					d = Vector2(60, 0)
-				MOUSE_BUTTON_WHEEL_RIGHT:
-					d = Vector2(-60, 0)
-			if mb.shift_pressed:
-				d = Vector2(d.y, d.x)
-			_goto = _clamped((_goto if _goto != Vector2.INF else _pan) + d)
-		return
 	else:
 		return
 	if pressed:
 		_press = true
 		_drag = false
 		_press_pos = pos
-		_last_pos = pos
-		_last_t = _t
-		_vel = Vector2.ZERO
-		_goto = Vector2.INF
 	elif released:
 		if not _press:
 			return
 		_press = false
-		if not _drag:
+		var dx := pos.x - _press_pos.x
+		if _drag and absf(dx) > SWIPE:
+			# glissé vers la gauche : branche suivante ; vers la droite : précédente
+			var i := _branch_index(_branch) + (1 if dx < 0.0 else -1)
+			if i >= 0 and i < Talents.BRANCHES.size():
+				set_branch(String(Talents.BRANCHES[i]["id"]), 1 if dx < 0.0 else -1)
+		elif not _drag:
 			_tap(pos)
 		_drag = false
 	elif _press:
 		if not _drag and pos.distance_to(_press_pos) > DRAG_START:
 			_drag = true
-			_last_pos = pos
 		if _drag:
-			var dt := maxf(0.001, _t - _last_t)
-			var d := pos - _last_pos
-			_pan = _rubber(_pan + d)
-			_vel = _vel.lerp(d / dt, 0.5)
-			_last_pos = pos
-			_last_t = _t
+			_swipe = (pos.x - _press_pos.x) * 0.6
 
 func _tap(pos: Vector2) -> void:
 	var best := ""
 	var best_d := 1e9
 	for id in _pos.keys():
 		var d: float = (_pos[id] + _pan).distance_to(pos)
-		if d < _node_r(id) + 16.0 and d < best_d:
+		if d < _node_r(id) + 22.0 and d < best_d:
 			best = id
 			best_d = d
 	if best != "":
 		select(best)
-	elif _fiche_open:
-		close_fiche()
 
 # ---------------------------------------------------------------- boucle
 func _process(dt: float) -> void:
 	_t += dt
-	if not _press:
-		if _goto != Vector2.INF:
-			_pan = _pan.lerp(_goto, minf(1.0, dt * 10.0))
-			if _pan.distance_to(_goto) < 0.5:
-				_pan = _goto
-				_goto = Vector2.INF
-		elif _vel.length() > 5.0:
-			_pan = _rubber(_pan + _vel * dt)
-			_vel *= exp(-dt * 4.5)
-			if _clamped(_pan) != _pan:
-				_vel *= exp(-dt * 12.0)
-		else:
-			_vel = Vector2.ZERO
-			var c := _clamped(_pan)
-			_pan = _pan.lerp(c, minf(1.0, dt * 12.0))
+	if not _press or not _drag:
+		_swipe = lerpf(_swipe, 0.0, minf(1.0, dt * 12.0))
+		if absf(_swipe) < 0.5:
+			_swipe = 0.0
+	_pan = Vector2(_tree_x0 + _swipe, 0.0)
 	_shake = maxf(0.0, _shake - dt * 1.6)
 	var sh := Vector2.ZERO
 	if _shake > 0.0:
 		sh = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake * 10.0
 	_canvas.position = (_pan + sh).round()
+	_canvas.modulate.a = clampf(1.0 - absf(_swipe) / 260.0, 0.3, 1.0)
 	# animations des nœuds : retirées une fois finies (une valeur absente vaut 0)
 	for dict in [_pop, _flash, _deny]:
 		for k in dict.keys():
@@ -711,7 +729,7 @@ func _update_layers() -> void:
 			_sig_a[id] = sa
 			(_layer_a[id] as Control).queue_redraw()
 		var w := float(_wake.get(id, 0.0))
-		var sb := [st, inf["lv"], pop, dn, w if w <= 1.0 else 0.0, float(_flash.get(id, 0.0))]
+		var sb := [st, inf["lv"], pop, dn, w if w <= 1.0 else 0.0, float(_flash.get(id, 0.0)), id == _sel]
 		if sb != _sig_b.get(id):
 			_sig_b[id] = sb
 			(_layer_b[id] as Control).queue_redraw()
@@ -732,7 +750,7 @@ func _update_icon(id: String) -> void:
 		"open":
 			c = col
 		_:
-			c = Color(col.lerp(UI.MUTED, 0.5), 0.36)
+			c = Color(col.lerp(UI.MUTED, 0.5), 0.45)
 	var w := float(_wake.get(id, 0.0))
 	if w > 0.0 and w <= 1.0 and st != "locked":
 		c = c.lerp(Color.WHITE, w * 0.7)
@@ -769,19 +787,19 @@ func _update_parts(dt: float) -> void:
 	_texts = keep_t
 
 # ---------------------------------------------------------------- dessin de l'arbre
-## Fond : pointillés et colonnes de couleur des branches (dessiné une fois).
+## Fond : pointillés et colonne de couleur de la branche (dessiné une fois par branche).
 func _draw_bg(cv: Control) -> void:
 	var sz := _canvas_size
-	for gx in range(0, int(sz.x) + 1, 40):
-		for gy in range(0, int(sz.y) + 1, 40):
+	for gx in range(20, int(sz.x), 40):
+		for gy in range(int(HEAD_H) + 20, int(sz.y), 40):
 			cv.draw_rect(Rect2(gx - 1, gy - 1, 2, 2), Color(0.5, 0.65, 1.0, 0.07))
-	for pl in _plates:
-		var col: Color = pl["branch"]["col"]
-		var x: float = pl["pos"].x
-		var top := ROW4_Y - RK - 30.0
-		var bot: float = pl["pos"].y
-		cv.draw_polygon(PackedVector2Array([Vector2(x - _band * 0.47, top), Vector2(x + _band * 0.47, top), Vector2(x + _band * 0.47, bot), Vector2(x - _band * 0.47, bot)]),
-			PackedColorArray([Color(col, 0.0), Color(col, 0.0), Color(col, 0.07), Color(col, 0.07)]))
+	var col: Color = Talents.branch(_branch)["col"]
+	var top := _key_y - RK - 30.0
+	var bot := sz.y
+	var hw := minf(sz.x * 0.5, _spread + 20.0)
+	var x := sz.x * 0.5
+	cv.draw_polygon(PackedVector2Array([Vector2(x - hw, top), Vector2(x + hw, top), Vector2(x + hw, bot), Vector2(x - hw, bot)]),
+		PackedColorArray([Color(col, 0.0), Color(col, 0.0), Color(col, 0.09), Color(col, 0.09)]))
 
 func _draw_link(cv: Control, l: Dictionary) -> void:
 	var pts: PackedVector2Array = l["pts"]
@@ -789,22 +807,22 @@ func _draw_link(cv: Control, l: Dictionary) -> void:
 	var from := String(l["from"])
 	var lit: bool = l["lit"]
 	var part := from != "" and not lit and Talents.level(profile, from) > 0
-	cv.draw_polyline(pts, Color(UI.INK, 0.9), 12.0, true)
+	cv.draw_polyline(pts, Color(UI.INK, 0.9), 14.0, true)
 	if lit:
-		cv.draw_polyline(pts, Color(col, 0.16), 22.0, true)
-		cv.draw_polyline(pts, col.darkened(0.1), 7.0, true)
-		cv.draw_polyline(pts, Color(col.lightened(0.5), 0.7), 2.5, true)
+		cv.draw_polyline(pts, Color(col, 0.16), 24.0, true)
+		cv.draw_polyline(pts, col.darkened(0.1), 8.0, true)
+		cv.draw_polyline(pts, Color(col.lightened(0.5), 0.7), 3.0, true)
 	elif part:
-		cv.draw_polyline(pts, Color(col, 0.38), 6.0, true)
+		cv.draw_polyline(pts, Color(col, 0.38), 7.0, true)
 		var lv := Talents.level(profile, from)
 		var f2 := float(lv) / float(maxi(1, int(l["need"])))
 		var sub := PackedVector2Array()
 		for i in range(int(round(f2 * (pts.size() - 1))) + 1):
 			sub.append(pts[i])
 		if sub.size() > 1:
-			cv.draw_polyline(sub, col.darkened(0.1), 7.0, true)
+			cv.draw_polyline(sub, col.darkened(0.1), 8.0, true)
 	else:
-		cv.draw_polyline(pts, Color("#1E2E52"), 6.0, true)
+		cv.draw_polyline(pts, Color("#1E2E52"), 7.0, true)
 		cv.draw_polyline(pts, Color(col, 0.16), 4.0, true)
 
 ## Énergie qui monte le long d'un lien allumé.
@@ -817,28 +835,6 @@ func _draw_link_dots(cv: Control, l: Dictionary) -> void:
 		var f := fmod(_t * 0.55 + k / 3.0 + pts[0].x * 0.0013, 1.0)
 		var q := _along(pts, f)
 		cv.draw_circle(q, 5.0, Color(col.lightened(0.6), 0.85 * sin(f * PI)))
-
-## Socles des branches : nom et niveaux pris sur le total de la branche.
-func _draw_plates(cv: Control) -> void:
-	var font := UI.TITLE
-	for pl in _plates:
-		var b: Dictionary = pl["branch"]
-		var col: Color = b["col"]
-		var p: Vector2 = pl["pos"]
-		var own := 0
-		var tot := 0
-		for t in Talents.TALENTS:
-			if t["branch"] == b["id"]:
-				own += Talents.level(profile, String(t["id"]))
-				tot += int(t["max"])
-		var w := 196.0
-		var r := Rect2(p.x - w * 0.5, p.y - 22.0, w, 44.0)
-		_round_rect(cv, Rect2(r.position + Vector2(0, 5), r.size), 18.0, Color(0, 0, 0, 0.45))
-		_round_rect(cv, r, 18.0, col.darkened(0.55))
-		_round_rect(cv, Rect2(r.position + Vector2(3, 3), r.size - Vector2(6, 9)), 15.0, Color("#101C38"))
-		cv.draw_rect(Rect2(r.position.x + 18, r.position.y + 3, w - 36, 3), Color(col, 0.8))
-		cv.draw_string(font, Vector2(r.position.x, p.y + 6.0), String(b["name"]), HORIZONTAL_ALIGNMENT_CENTER, w - 54.0, 18, col.lightened(0.15))
-		cv.draw_string(UI.BODY, Vector2(r.position.x + w - 62.0, p.y + 6.0), "%d/%d" % [own, tot], HORIZONTAL_ALIGNMENT_RIGHT, 50.0, 18, UI.MUTED if own < tot else UI.GOLD)
 
 ## Centre (le nœud tremble quand l'achat est refusé) et rayon (il gonfle à l'achat) d'un nœud.
 func _node_c(id: String) -> Vector2:
@@ -864,7 +860,7 @@ func _draw_node_a(cv: Control, id: String) -> void:
 		cv.draw_texture_rect(Fx.halo_texture(), Rect2(c - Vector2(hs, hs) * 0.5, Vector2(hs, hs)), false, Color(col, ha))
 	if buyable:
 		var pa := 0.35 + 0.35 * sin(_t * 4.0)
-		cv.draw_arc(c, r + 17.0 + 2.0 * sin(_t * 4.0), 0.0, TAU, 48, Color(UI.GOLD, pa), 3.0, true)
+		cv.draw_arc(c, r + 18.0 + 2.0 * sin(_t * 4.0), 0.0, TAU, 48, Color(UI.GOLD, pa), 3.0, true)
 	# ombre, tranche, face
 	cv.draw_circle(c + Vector2(0, 6), r + 6.0, Color(0, 0, 0, 0.5))
 	var rim := _rim(st, col)
@@ -878,7 +874,7 @@ func _draw_node_a(cv: Control, id: String) -> void:
 	if id == _sel:
 		for k in range(16):
 			var a := TAU * k / 16.0 + _t * 0.9
-			cv.draw_arc(c, r + (30.0 if key else 24.0), a, a + 0.22, 6, Color(1, 1, 1, 0.9), 3.0, true)
+			cv.draw_arc(c, r + (30.0 if key else 25.0), a, a + 0.22, 6, Color(1, 1, 1, 0.95), 4.0, true)
 
 func _rim(st: String, col: Color) -> Color:
 	match st:
@@ -934,34 +930,34 @@ func _draw_node_b(cv: Control, id: String) -> void:
 			cv.draw_arc(c, r + 11.0, a0, a0 + seg - gap, 12, (col.lightened(0.3) if st != "max" else UI.GOLD) if on else Color("#2A3F6E"), 5.0, true)
 	# éclat du Cœur à dépenser
 	if int(t.get("shards", 0)) > 0:
-		var sp := c + Vector2(r * 0.72, -r * 0.72)
-		cv.draw_circle(sp, 16.0, UI.INK)
+		var sp := c + Vector2(r * 0.74, -r * 0.74)
+		cv.draw_circle(sp, 18.0, UI.INK)
 		var sc := UI.ACCENT if st == "locked" or st == "open" else Color(UI.ACCENT, 0.5)
-		cv.draw_colored_polygon(PackedVector2Array([sp + Vector2(0, -11), sp + Vector2(8, -2), sp + Vector2(0, 12), sp + Vector2(-8, -2)]), sc)
+		cv.draw_colored_polygon(PackedVector2Array([sp + Vector2(0, -12), sp + Vector2(9, -2), sp + Vector2(0, 13), sp + Vector2(-9, -2)]), sc)
 	# cadenas
 	if st == "locked":
-		var lp := c + Vector2(r * 0.7, r * 0.62)
-		cv.draw_circle(lp, 14.0, UI.INK)
-		cv.draw_arc(lp + Vector2(0, -3), 5.5, PI, TAU, 10, UI.MUTED, 2.5, true)
-		cv.draw_rect(Rect2(lp + Vector2(-7, -3), Vector2(14, 10)), UI.MUTED)
+		var lp := c + Vector2(r * 0.72, r * 0.6)
+		cv.draw_circle(lp, 16.0, UI.INK)
+		cv.draw_arc(lp + Vector2(0, -3), 6.5, PI, TAU, 10, SOFT, 3.0, true)
+		cv.draw_rect(Rect2(lp + Vector2(-8, -3), Vector2(16, 12)), SOFT)
 	# pastille de niveau sur la tranche basse
 	var pill_txt := "MAX" if st == "max" else "%d/%d" % [lv, mx]
-	var pw := 48.0 if st == "max" else 40.0
-	var pr := Rect2(c.x - pw * 0.5, c.y + r - 6.0, pw, 22.0)
+	var pw := 66.0 if st == "max" else 58.0
+	var pr := Rect2(c.x - pw * 0.5, c.y + r - 8.0, pw, 28.0)
 	var pill_bg := UI.GOLD if st == "max" else (col if lv > 0 else Color("#1A2A4E"))
-	_round_rect(cv, Rect2(pr.position + Vector2(-2, -2), pr.size + Vector2(4, 4)), 11.0, UI.INK)
-	_round_rect(cv, pr, 9.0, pill_bg)
-	cv.draw_string(UI.TITLE, Vector2(pr.position.x, pr.position.y + 17.0), pill_txt, HORIZONTAL_ALIGNMENT_CENTER, pw, 14, UI.INK if lv > 0 else UI.MUTED)
+	_round_rect(cv, Rect2(pr.position + Vector2(-2, -2), pr.size + Vector2(4, 4)), 13.0, UI.INK)
+	_round_rect(cv, pr, 11.0, pill_bg)
+	cv.draw_string(UI.TITLE, Vector2(pr.position.x, pr.position.y + 22.0), pill_txt, HORIZONTAL_ALIGNMENT_CENTER, pw, 20, UI.INK if lv > 0 else SOFT)
 	# nom
 	var name_t := String(t["name"])
-	var fs := 15
-	var nw := UI.TITLE.get_string_size(name_t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	if nw > 128.0:
-		fs = 13
-	var ncol := UI.TEXT if lv > 0 else (Color("#B8C8DC") if st == "open" else Color(UI.MUTED, 0.55))
-	var np := Vector2(c.x - 90.0, c.y + r + 34.0)
-	cv.draw_string_outline(UI.TITLE, np, name_t, HORIZONTAL_ALIGNMENT_CENTER, 180.0, fs, 5, UI.INK)
-	cv.draw_string(UI.TITLE, np, name_t, HORIZONTAL_ALIGNMENT_CENTER, 180.0, fs, ncol)
+	var room := _spread - 12.0
+	var fs := 22
+	if UI.TITLE.get_string_size(name_t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > room:
+		fs = 20
+	var ncol := UI.TEXT if lv > 0 or st == "open" or id == _sel else SOFT
+	var np := Vector2(c.x - room * 0.5, c.y + r + 41.0)
+	cv.draw_string_outline(UI.TITLE, np, name_t, HORIZONTAL_ALIGNMENT_CENTER, room, fs, 6, UI.INK)
+	cv.draw_string(UI.TITLE, np, name_t, HORIZONTAL_ALIGNMENT_CENTER, room, fs, ncol)
 
 func _along(pts: PackedVector2Array, f: float) -> Vector2:
 	var x := clampf(f, 0.0, 1.0) * (pts.size() - 1)
