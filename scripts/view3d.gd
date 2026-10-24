@@ -349,7 +349,22 @@ func _billboard_mm(max_count: int, energy: float) -> MultiMeshInstance3D:
 	add_child(mmi)
 	return mmi
 
+const Fx3D = preload("res://scripts/fx/fx3d.gd")
+var fxs: Fx3D  # réserves d'effets (scripts/fx/fx3d.gd)
+var _last_hit := {}  # id d'instance de l'ennemi -> [direction du dernier coup (Vector3), heure]
+var _shells: Array = []  # obus du mortier en vol : [point d'arrivée (Vector2), heure d'arrivée]
+var _fx_room := -1
+var _fx_el := 0.0
+var _markers: Array = []  # nœuds recyclés : zones d'impact du mortier
+var _lobs: Array = []  # nœuds recyclés : obus en vol
+
 func _build_pools() -> void:
+	fxs = Fx3D.new()
+	add_child(fxs)
+	fxs.setup(self)
+	arena.shield_blocked.connect(_on_shield_blocked)
+	arena.wave_changed.connect(_on_wave)
+	arena.energy_full.connect(_on_energy_full)
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
@@ -370,21 +385,21 @@ func _build_pools() -> void:
 	bolt_mm.extra_cull_margin = 200.0
 	add_child(bolt_mm)
 	halo_mm = _billboard_mm(400, 1.3)
-	part_mm = _billboard_mm(900, 1.8)
-	for i in range(28):
+	part_mm = _billboard_mm(16, 1.8)  # étincelles 2D de l'arène : remplacées par fxs, gardé vide
+	for i in range(32):
 		var l := Label3D.new()
 		l.font = _font
 		l.font_size = 64
 		l.pixel_size = 0.005
-		l.outline_size = 14
-		l.outline_modulate = Color(0.05, 0.05, 0.12, 0.9)
+		l.outline_size = 18
+		l.outline_modulate = Color(0.05, 0.05, 0.12, 0.95)
 		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		l.no_depth_test = true
 		l.visible = false
 		l.render_priority = 10
 		l.outline_render_priority = 9
 		add_child(l)
-		_dmg_labels.append({"node": l, "t": 0.0, "life": 0.0, "vel": Vector3.ZERO})
+		_dmg_labels.append({"node": l, "t": 0.0, "life": 0.0, "vel": Vector3.ZERO, "id": 0, "sum": 0.0, "crit": false, "pop": 1.0, "base": Vector3.ZERO})
 
 # ---------------------------------------------------------------- partie
 func start_room() -> void:
@@ -584,35 +599,43 @@ func _sync_bullets() -> void:
 	var mm := bolt_mm.multimesh
 	var hm := halo_mm.multimesh
 	var n := mini(arena.bullets.size(), mm.instance_count)
+	fxs.trail_begin()
 	for i in range(n):
 		var b: Node2D = arena.bullets[i]
 		var v: Vector2 = b.vel
 		var yaw := atan2(v.x, v.y)
 		var r: float = b.radius * K
+		var c: Color = b.color
+		var v3 := Vector3(v.x, 0.0, v.y) * K
 		var basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, PI * 0.5)
-		basis = basis.scaled(Vector3(r * 1.6, r * 2.2, r * 1.6))
-		var h := 0.55 if b.hero_shot else 0.6
-		var pos := p3(b.position, h)
-		mm.set_instance_transform(i, Transform3D(basis, pos))
-		mm.set_instance_color(i, b.color)
-		var hs := r * 9.0
-		hm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3(hs, hs, hs)), pos))
-		hm.set_instance_color(i, Color(b.color, 0.55))
+		if b.hero_shot:
+			# trait de Jo : capsule fine, halo discret, longue traînée (plus longue si le tir transperce)
+			var pos := p3(b.position, 0.55)
+			basis = basis * Basis.from_scale(Vector3(r * 1.7, r * 2.3, r * 1.7))
+			mm.set_instance_transform(i, Transform3D(basis, pos))
+			mm.set_instance_color(i, c)
+			var hs := r * 6.5
+			hm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3(hs, hs, hs)), pos))
+			hm.set_instance_color(i, Color(c, 0.4))
+			fxs.trail_add(pos, v3, c, r * 2.4, 0.075 if b.pierce == 0 else 0.12, Color(c.r * 0.5, c.g * 0.6, c.b, 1.0))
+		else:
+			# tir ennemi : orbe plus rond et plus gros, halo large qui palpite, traînée courte,
+			# pour rester lisible au milieu des effets
+			var pos := p3(b.position, 0.6)
+			var pulse := 1.0 + 0.18 * sin(t * 28.0 + float(i))
+			basis = basis * Basis.from_scale(Vector3(r * 2.5, r * 1.15, r * 2.5))
+			mm.set_instance_transform(i, Transform3D(basis, pos))
+			mm.set_instance_color(i, c)
+			var hs := r * 11.0 * pulse
+			hm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3(hs, hs, hs)), pos))
+			hm.set_instance_color(i, Color(c, 0.8))
+			fxs.trail_add(pos, v3, c, r * 2.6, 0.05)
 	mm.visible_instance_count = n
 	hm.visible_instance_count = n
 
+## Les étincelles 2D de l'arène (arena.particles) doublaient les effets 3D de fxs : on ne les dessine plus.
 func _sync_particles() -> void:
-	var mm := part_mm.multimesh
-	var n := mini(arena.particles.size(), mm.instance_count)
-	for i in range(n):
-		var pa: Dictionary = arena.particles[i]
-		var a: float = clampf(pa["life"] / pa["max"], 0.0, 1.0)
-		var s: float = pa["r"] * K * 9.0 * (0.4 + a)
-		var h := 0.35 + (1.0 - a) * 0.5
-		mm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3(s, s, s)), p3(pa["pos"], h)))
-		var c: Color = pa["col"]
-		mm.set_instance_color(i, Color(c.r, c.g, c.b, a))
-	mm.visible_instance_count = n
+	part_mm.multimesh.visible_instance_count = 0
 
 func _sync_pickups(dt: float) -> void:
 	var seen := {}
@@ -622,18 +645,30 @@ func _sync_pickups(dt: float) -> void:
 			k = randi() + 1
 			pk["vid"] = k
 		seen[k] = true
+		var np := p3(pk["pos"], 0.0)
 		var n: Node3D = pickup_nodes.get(k)
 		if n == null:
 			n = _make_pickup(pk)
+			n.position = np
 			pickup_nodes[k] = n
-		n.position = p3(pk["pos"], 0.0)
 		var spin: Node3D = n.get_child(0)
 		spin.rotation.y += dt * 3.0
-		spin.position.y = 0.35 + sin(t * 4.0 + float(k % 100)) * 0.06
+		# petit bond en sortant de l'ennemi, puis flottement
+		var pt: float = pk["t"]
+		var hop := sin(pt / 0.45 * PI) * 0.8 if pt < 0.45 else 0.0
+		spin.position.y = 0.35 + hop + sin(t * 4.0 + float(k % 100)) * 0.06
+		# traînée quand il file vers Jo
+		if dt > 0.0:
+			var vel := (np - n.position) / dt
+			if vel.length() > 3.5 and pt > 0.1:
+				fxs.trail_add(np + Vector3(0, spin.position.y, 0), vel, n.get_meta("col"), 0.2, 0.07)
+		n.position = np
 	for k in pickup_nodes.keys():
 		if not seen.has(k):
 			var gone: Node3D = pickup_nodes[k]
-			_spawn_flash(gone.position + Vector3(0, 0.4, 0), GOLD, 0.6, 0.12)
+			# ramassé par Jo (et non effacé par un changement de salle) : « pop » sur elle
+			if gone.position.distance_to(p3(hero2d.position)) < 1.5:
+				fxs.pickup_pop(p3(hero2d.position, 0.75), gone.get_meta("col"), gone.get_meta("kind") != "ticket")
 			gone.queue_free()
 			pickup_nodes.erase(k)
 
@@ -642,6 +677,8 @@ func _make_pickup(pk: Dictionary) -> Node3D:
 	add_child(root)
 	var spin := Node3D.new()
 	root.add_child(spin)
+	root.set_meta("kind", String(pk["kind"]))
+	root.set_meta("col", GOLD)
 	match String(pk["kind"]):
 		"ticket":
 			var coin := Models.cyl(0.13, 0.13, 0.04, Models.glow_mat(GOLD, 1.6), 16)
@@ -652,6 +689,7 @@ func _make_pickup(pk: Dictionary) -> Node3D:
 			spin.add_child(hole)
 			root.add_child(Models.shadow_blob(0.35))
 		"hp":
+			root.set_meta("col", RED)
 			var box := Models.box(Vector3(0.32, 0.24, 0.32), Models.toon(Color("#F4F1EA"), 0.5))
 			spin.add_child(box)
 			var c1 := Models.box(Vector3(0.22, 0.26, 0.07), Models.glow_mat(RED, 2.0))
@@ -661,6 +699,7 @@ func _make_pickup(pk: Dictionary) -> Node3D:
 			root.add_child(Models.shadow_blob(0.5))
 		"item":
 			var col: Color = Data.RARITY_COLORS[int(pk["item"]["rarity"])]
+			root.set_meta("col", col)
 			var gem := MeshInstance3D.new()
 			var sm := SphereMesh.new()
 			sm.radius = 0.2
@@ -812,138 +851,147 @@ func _tick_pads(dt: float) -> void:
 		(pd["ring"] as Node3D).rotation.y += dt * (3.0 if spawning else 0.6)
 
 # ---------------------------------------------------------------- effets
+## Éclair de lumière : prend la lumière la plus éteinte des trois (une plus forte en cours est gardée).
 func _flash_light(pos: Vector3, col: Color, energy: float, rng: float) -> void:
-	var l: OmniLight3D = _flash_lights[_flash_i]
-	_flash_i = (_flash_i + 1) % _flash_lights.size()
+	var l: OmniLight3D = _flash_lights[0]
+	for o in _flash_lights:
+		if (o as OmniLight3D).light_energy < l.light_energy:
+			l = o
+	if l.light_energy > energy:
+		return
 	l.position = pos
 	l.light_color = col
 	l.light_energy = energy
 	l.omni_range = rng
 
 func _add_fx(node: Node3D, life: float, kind: String, extra: Dictionary = {}) -> void:
-	add_child(node)
+	if node.get_parent() == null:
+		add_child(node)
 	var d := {"node": node, "t": 0.0, "life": life, "kind": kind}
 	d.merge(extra)
 	fx.append(d)
 
+## Nœud recyclé libre dans `arr` (ou neuf, fait par `maker`) ; les nœuds libérés par _clear_dynamic sont oubliés.
+func _take(arr: Array, maker: Callable) -> Node3D:
+	var i := 0
+	while i < arr.size():
+		if not is_instance_valid(arr[i]) or (arr[i] as Node).is_queued_for_deletion():
+			arr.remove_at(i)
+			continue
+		if not (arr[i] as Node3D).visible:
+			(arr[i] as Node3D).visible = true
+			return arr[i]
+		i += 1
+	var n: Node3D = maker.call()
+	add_child(n)
+	arr.append(n)
+	return n
+
+## Onde au sol, éclair, débris, colonne : passent par les réserves MultiMesh de fxs (aucun nœud créé).
 func _spawn_ring(pos: Vector3, col: Color, size: float, life: float, width: float = 0.1) -> void:
-	var mi := MeshInstance3D.new()
-	var pm := PlaneMesh.new()
-	pm.size = Vector2(1, 1)
-	mi.mesh = pm
-	var m := ShaderMaterial.new()
-	m.shader = _ring_shader
-	m.set_shader_parameter("color", col)
-	m.set_shader_parameter("width", width)
-	m.set_shader_parameter("fill", 0.0)
-	mi.material_override = m
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.position = pos
-	_add_fx(mi, life, "ring", {"size": size})
+	fxs.wave(pos, Vector3.UP, col, size * 0.2, size, life, width)
 
 func _spawn_flash(pos: Vector3, col: Color, size: float, life: float) -> void:
-	var mi := MeshInstance3D.new()
-	var q := QuadMesh.new()
-	q.size = Vector2(1, 1)
-	mi.mesh = q
-	var m := ShaderMaterial.new()
-	m.shader = _glow_shader
-	m.set_shader_parameter("tex", Models.radial())
-	m.set_shader_parameter("energy", 2.2)
-	mi.material_override = m
-	m.set_shader_parameter("tint", col)
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.position = pos
-	mi.set_meta("col", col)
-	_add_fx(mi, life, "flash", {"size": size, "col": col})
+	fxs.flash(pos, col, size, life)
 
 func _spawn_debris(pos: Vector3, col: Color, n: int, spd: float) -> void:
-	for i in range(n):
-		var s := randf_range(0.06, 0.14)
-		var b := Models.box(Vector3(s, s, s), Models.toon(col, 0.3))
-		b.position = pos + Vector3(0, 0.4, 0)
-		var v := Vector3(randf_range(-1, 1), randf_range(0.8, 1.6), randf_range(-1, 1)).normalized() * spd * randf_range(0.6, 1.2)
-		_add_fx(b, randf_range(0.6, 0.9), "debris", {"vel": v, "spin": Vector3(randf(), randf(), randf()) * 12.0})
+	fxs.chunks(pos + Vector3(0, 0.4, 0), [col], n, spd)
 
 func _spawn_column(pos: Vector3, col: Color, h: float, life: float) -> void:
-	var b := _beam(col, h, 0.55)
-	var root := Node3D.new()
-	root.position = pos
-	root.add_child(b)
-	_add_fx(root, life, "column")
+	fxs.column(pos, col, h, life)
 
 func _tick_fx(dt: float) -> void:
+	# changement de salle, ou nouvelle partie (le chrono de l'arène repart de zéro) : les effets en cours
+	# disparaissent ; une pause (écran de choix) ne touche à rien
+	if arena.room != _fx_room or arena.elapsed < _fx_el:
+		fxs.clear()
+		_shells.clear()
+		_last_hit.clear()
+	_fx_room = arena.room
+	_fx_el = arena.elapsed
+	fxs.tick(dt)
+	fxs.tick_dying(dying)
+	fxs.trail_end()
 	var i := 0
 	while i < fx.size():
 		var f: Dictionary = fx[i]
 		f["t"] += dt
 		var p: float = f["t"] / f["life"]
 		var node: Node3D = f["node"]
+		if not is_instance_valid(node):
+			fx.remove_at(i)
+			continue
 		if p >= 1.0:
-			node.queue_free()
+			if f.get("pooled", false):
+				node.visible = false
+			else:
+				node.queue_free()
 			fx.remove_at(i)
 			continue
 		match String(f["kind"]):
-			"ring":
-				var s: float = f["size"] * (0.2 + 0.8 * sqrt(p))
-				node.scale = Vector3(s, 1, s)
-				var mat: ShaderMaterial = (node as MeshInstance3D).material_override
-				var c: Color = mat.get_shader_parameter("color")
-				mat.set_shader_parameter("color", Color(c.r, c.g, c.b, 1.0 - p))
-			"flash":
-				var s: float = f["size"] * (0.6 + 0.6 * p)
-				node.scale = Vector3(s, s, s)
-				var mat: ShaderMaterial = (node as MeshInstance3D).material_override
-				mat.set_shader_parameter("energy", 2.6 * (1.0 - p))
-			"debris":
-				var v: Vector3 = f["vel"]
-				v.y -= 9.0 * dt
-				node.position += v * dt
-				if node.position.y < 0.05:
-					node.position.y = 0.05
-					v *= Vector3(0.6, -0.3, 0.6)
-				f["vel"] = v
-				node.rotation += (f["spin"] as Vector3) * dt
-				node.scale = Vector3.ONE * (1.0 - p * p)
-			"column":
-				node.scale = Vector3(1.0 - p, 1.0 + p * 0.4, 1.0 - p)
 			"marker":
 				var mat: ShaderMaterial = (node as MeshInstance3D).material_override
 				mat.set_shader_parameter("progress", p)
-				mat.set_shader_parameter("energy", 1.4 + 1.4 * p * absf(sin(f["t"] * (8.0 + 18.0 * p))))
+				mat.set_shader_parameter("energy", 1.4 + 1.6 * p * absf(sin(f["t"] * (8.0 + 22.0 * p))))
 			"lob":
 				var a: Vector3 = f["from"]
 				var b: Vector3 = f["to"]
 				node.position = a.lerp(b, p) + Vector3(0, f["h"] * 4.0 * p * (1.0 - p), 0)
 				node.rotation.x += dt * 9.0
-			"shell":
-				var s: float = f["size"] * (0.3 + 0.7 * sqrt(p))
-				node.scale = Vector3(s, s, s)
-				var mat: StandardMaterial3D = (node as MeshInstance3D).material_override
-				var c: Color = f["col"]
-				mat.albedo_color = Color(c.r * 2.0, c.g * 2.0, c.b * 2.0, (1.0 - p) * 0.8)
+				# traînée de l'obus : lueur verte et fumée claire
+				fxs.flash(node.position, Color("#9BE15D"), 0.45, 0.22)
+				if int(f["t"] * 60.0) % 3 == 0:
+					fxs.smoke_puffs(node.position, 0.25, 1, 0.5, 0.0, Color(0.6, 0.7, 0.55), Color(0.4, 0.42, 0.5), 0.5, 0.2)
 		i += 1
 	for l in _flash_lights:
 		var ol: OmniLight3D = l
-		ol.light_energy = maxf(0.0, ol.light_energy - dt * 18.0)
+		ol.light_energy = maxf(0.0, ol.light_energy - dt * 16.0)
 
-func _damage_number(pos: Vector3, dmg: float, crit: bool) -> void:
-	var best: Dictionary = _dmg_labels[0]
-	for d in _dmg_labels:
-		if not (d["node"] as Label3D).visible:
-			best = d
-			break
-		if float(d["t"]) > float(best["t"]):
-			best = d
-	var l: Label3D = best["node"]
-	l.text = str(int(round(dmg)))
-	l.modulate = Color("#FFF2A8") if crit else Color.WHITE
-	l.font_size = 84 if crit else 60
-	l.position = pos + Vector3(randf_range(-0.5, 0.5), randf_range(0.9, 1.4), randf_range(-0.2, 0.2))
-	l.visible = true
+## Chiffre de dégâts : jaillit en rebondissant ; les coups rapprochés sur un même ennemi s'additionnent
+## dans le même chiffre (moins de fouillis) ; un critique sort en gros, doré, avec « ! ».
+func _damage_number(pos: Vector3, dmg: float, crit: bool, id: int = 0) -> void:
+	var best: Dictionary = {}
+	if id != 0:
+		for d in _dmg_labels:
+			if int(d["id"]) == id and (d["node"] as Label3D).visible and bool(d["crit"]) == crit and float(d["t"]) < 0.35:
+				best = d
+				break
+	var l: Label3D
+	if best.is_empty():
+		best = _dmg_labels[0]
+		for d in _dmg_labels:
+			if not (d["node"] as Label3D).visible:
+				best = d
+				break
+			if float(d["t"]) / float(d["life"]) > float(best["t"]) / float(best["life"]):
+				best = d
+		l = best["node"]
+		best["sum"] = 0.0
+		best["id"] = id
+		best["crit"] = crit
+		l.position = pos + Vector3(randf_range(-0.4, 0.4), 1.2 + (0.25 if crit else 0.0), randf_range(-0.15, 0.15))
+		best["vel"] = Vector3(randf_range(-0.7, 0.7), 2.8 if not crit else 3.2, 0)
+		l.visible = true
+	else:
+		l = best["node"]
+		best["vel"] = Vector3((best["vel"] as Vector3).x * 0.5, 1.4, 0)
+	best["sum"] = float(best["sum"]) + dmg
+	var v := int(round(float(best["sum"])))
 	best["t"] = 0.0
-	best["life"] = 0.6
-	best["vel"] = Vector3(randf_range(-0.4, 0.4), 2.4, 0)
+	if crit:
+		l.text = "%d!" % v
+		l.modulate = Color("#FFD24A")
+		l.outline_modulate = Color(0.42, 0.1, 0.0, 1.0)
+		l.font_size = 108
+		best["life"] = 0.95
+		best["pop"] = 1.9
+	else:
+		l.text = str(v)
+		l.modulate = Color.WHITE if v < 40 else Color("#FFF2C8")
+		l.outline_modulate = Color(0.05, 0.05, 0.14, 0.95)
+		l.font_size = 58 + mini(v / 10, 4) * 6
+		best["life"] = 0.72
+		best["pop"] = 1.55
 
 func _tick_labels(dt: float) -> void:
 	for d in _dmg_labels:
@@ -951,42 +999,77 @@ func _tick_labels(dt: float) -> void:
 		if not l.visible:
 			continue
 		d["t"] += dt
-		var p: float = d["t"] / d["life"]
+		var tt: float = d["t"]
+		var p: float = tt / d["life"]
 		if p >= 1.0:
 			l.visible = false
+			d["id"] = 0
 			continue
 		var v: Vector3 = d["vel"]
-		v.y -= 6.0 * dt
+		v.y -= 7.5 * dt
+		v.x *= 1.0 - dt * 3.0
 		d["vel"] = v
 		l.position += v * dt
-		l.modulate.a = 1.0 - p * p
-		l.scale = Vector3.ONE * (1.0 + (0.5 * (1.0 - p * 6.0) if p < 0.16 else 0.0))
+		# rebond d'échelle : jaillit au-delà de sa taille, ressort amorti, puis rétrécit en s'effaçant
+		var pop: float = d["pop"]
+		var s := 1.0
+		if tt < 0.05:
+			s = lerpf(0.35, pop, tt / 0.05)
+		else:
+			var u := tt - 0.05
+			s = 1.0 + (pop - 1.0) * exp(-u * 16.0) * cos(u * 34.0)
+		var a := 1.0
+		if p > 0.7:
+			var q := (p - 0.7) / 0.3
+			a = 1.0 - q * q
+			s *= 1.0 - q * 0.35
+		l.scale = Vector3.ONE * s
+		l.modulate.a = a
+		l.outline_modulate.a = 0.95 * a
 
 # ---------------------------------------------------------------- événements de la simulation
 func _on_fired(pos: Vector2, vel: Vector2, hero_shot: bool, color: Color, radius: float) -> void:
 	if not active:
 		return
-	var p := p3(pos, 0.55)
+	var d := Vector3(vel.x, 0.0, vel.y).normalized()
 	if hero_shot and (pos - hero2d.position).length() < 60.0:
-		p = hero.muzzle_position()
-		hero_light.light_energy = 2.2
-		_spawn_flash(p, Color(1.0, 0.75, 0.4), 0.7, 0.06)
-	elif not hero_shot:
-		_spawn_flash(p, color, 0.6, 0.08)
+		hero_light.light_energy = 2.4
+		fxs.muzzle(hero.muzzle_position(), d, color, radius > 6.0)
+	else:
+		fxs.enemy_muzzle(p3(pos, 0.55 if hero_shot else 0.6), d, color)
 
 func _on_enemy_hit(e: Node2D, pos: Vector2, dmg: float, crit: bool) -> void:
 	if not active:
 		return
-	var m: Mob3D = mobs.get(e.get_instance_id())
+	var id: int = e.get_instance_id()
+	var m: Mob3D = mobs.get(id)
 	if m != null:
 		m.flash()
-	var p := p3(pos, 0.6)
-	_spawn_flash(p, Color(1.0, 0.95, 0.8), 0.55 if not crit else 0.9, 0.08)
-	_damage_number(p3(e.position), dmg, crit)
+		if m.rig != null:
+			m.rig.flash(0.05)  # éclat blanc bref : le modèle reste lisible sous un feu nourri
+	var n := Vector3(pos.x - e.position.x, 0.0, pos.y - e.position.y).normalized()
+	_last_hit[id] = -n
+	fxs.hit(p3(pos, 0.6), n, CYAN, crit)
+	_damage_number(p3(e.position), dmg, crit, id)
+	if crit:
+		add_shake(0.06)
+
+var _shield_pos := Vector2(-1, -1)
 
 func _on_blocked(pos: Vector2, color: Color) -> void:
-	if active:
-		_spawn_flash(p3(pos, 0.55), color, 0.45, 0.07)
+	if not active or pos == _shield_pos:
+		return
+	fxs.wall_hit(p3(pos, 0.55), color)
+
+## Tir de Jo arrêté par le bouclier d'un Rempart : onde hexagonale et ricochet (pas de chiffre de dégâts).
+func _on_shield_blocked(e: Node2D, pos: Vector2, vel: Vector2) -> void:
+	if not active:
+		return
+	_shield_pos = pos
+	var f: Vector2 = e.facing
+	var nrm := Vector3(f.x, 0.0, f.y).normalized()
+	fxs.shield_block(p3(pos, 0.62), nrm, Vector3(vel.x, 0.0, vel.y) * K)
+	_flash_light(p3(pos, 0.9), Color(1.0, 0.7, 0.3), 0.8, 2.5)
 
 func _on_enemy_killed(e: Node2D) -> void:
 	if not active:
@@ -995,71 +1078,87 @@ func _on_enemy_killed(e: Node2D) -> void:
 	var m: Mob3D = mobs.get(id)
 	var pos := p3(e.position)
 	var big: bool = e.kind == "brute" or e.kind == "boss" or e.elite
-	var col := MAGENTA if e.kind == "boss" else (GOLD if e.elite else RED)
+	var dir: Vector3 = _last_hit.get(id, Vector3.ZERO)
+	_last_hit.erase(id)
 	if m != null:
 		mobs.erase(id)
+		m.death_dir = dir
 		m.start_death()
 		dying.append(m)
-	_spawn_flash(pos + Vector3(0, 0.6, 0), Color(1.0, 0.8, 0.5), 1.8 if big else 1.1, 0.18)
-	_spawn_ring(pos + Vector3(0, 0.05, 0), col, 3.5 if big else 2.0, 0.35)
-	_flash_light(pos + Vector3(0, 1.0, 0), Color(1.0, 0.6, 0.35), 3.0 if big else 1.6, 5.0 if big else 3.5)
-	_spawn_debris(pos, Color("#8A939E") if e.kind != "trooper" else Color("#5A6170"), 10 if big else 5, 4.0)
-	if e.kind != "trooper":
-		var shell := Models.sphere(0.5, Models.add_mat(Color(1, 0.6, 0.3, 0.8), 1.0))
-		shell.position = pos + Vector3(0, 0.5, 0)
-		shell.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		shell.material_override = (shell.material_override as StandardMaterial3D).duplicate()
-		_add_fx(shell, 0.3 if not big else 0.45, "shell", {"size": 1.6 if not big else 3.2, "col": Color(1.0, 0.55, 0.25)})
-	add_shake(0.25 if not big else 0.6)
-	if e.elite or e.kind == "brute":
-		hit_stop(0.07, 0.25)
-	if e.kind == "boss":
-		add_shake(1.0)
-		hit_stop(0.7, 0.2)
-		for k in range(6):
-			_spawn_ring(pos + Vector3(randf_range(-1, 1), 0.05, randf_range(-1, 1)), MAGENTA, 6.0, 0.6 + k * 0.1)
-		_spawn_debris(pos, Color("#C8D0DA"), 18, 6.0)
+	fxs.death(e.kind, pos, dir, e.elite)
+	var acc: Color = Fx3D.ACCENT.get(e.kind, RED)
+	if e.kind != "boss":
+		_flash_light(pos + Vector3(0, 1.0, 0), acc.lerp(Color(1.0, 0.7, 0.4), 0.5), 4.0 if big else 2.0, 6.0 if big else 4.0)
+	match e.kind:
+		"brute":
+			add_shake(0.7)
+			hit_stop(0.09, 0.2)
+		"boss":
+			add_shake(0.6)
+			hit_stop(0.12, 0.3)
+		"bomber":
+			pass  # secousse donnée par l'explosion
+		_:
+			add_shake(0.5 if e.elite else 0.2)
+			if e.elite:
+				hit_stop(0.07, 0.25)
+	# pouvoir « Détonation » : les ennemis tués explosent
+	if hero2d.boom > 0 and e.kind != "boss" and e.kind != "bomber":
+		fxs.explosion(pos, 0.85, ORANGE, false, 0.04, false)
 
-## Explosion (pétard, obus du mortier) : éclair, onde au sol de la taille du rayon de dégâts, débris.
+## Explosion (pétard, obus du mortier) : boule de feu dodue, onde au sol de la taille du rayon de dégâts,
+## fumée, brûlure ; l'obus du mortier laisse un cratère qui fume.
 func _on_exploded(pos: Vector2, radius: float, col: Color) -> void:
 	if not active:
 		return
 	var p := p3(pos)
 	var rr := radius * K
-	_spawn_flash(p + Vector3(0, 0.5, 0), Color(1.0, 0.85, 0.55), rr * 1.6, 0.2)
-	_spawn_ring(p + Vector3(0, 0.05, 0), col, rr * 2.3, 0.4, 0.14)
-	_flash_light(p + Vector3(0, 1.0, 0), col, 4.0, rr * 3.5)
-	_spawn_debris(p, Color("#3A3F52"), 7, 5.0)
-	var shell := Models.sphere(0.5, Models.add_mat(Color(1, 0.6, 0.3, 0.8), 1.0))
-	shell.position = p + Vector3(0, 0.4, 0)
-	shell.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	shell.material_override = (shell.material_override as StandardMaterial3D).duplicate()
-	_add_fx(shell, 0.35, "shell", {"size": rr * 2.0, "col": col})
-	add_shake(0.45)
+	var shell := false
+	for i in range(_shells.size()):
+		if (_shells[i][0] as Vector2).distance_to(pos) < 3.0:
+			_shells.remove_at(i)
+			shell = true
+			break
+	if shell:
+		fxs.crater(p, rr)
+		_flash_light(p + Vector3(0, 1.0, 0), Color("#C8F07A"), 3.5, rr * 4.0)
+		add_shake(0.3)
+	else:
+		fxs.explosion(p, rr * 0.95, col, rr > 1.2)
+		_flash_light(p + Vector3(0, 1.0, 0), Color(1.0, 0.65, 0.3), 5.0, rr * 5.0)
+		add_shake(0.55)
+		hit_stop(0.05, 0.3)
 
 ## Obus du mortier : zone d'impact annoncée au sol (se remplit jusqu'à l'impact) et obus en cloche.
 func _on_shell(from: Vector2, to: Vector2, flight: float, radius: float) -> void:
 	if not active:
 		return
-	var mi := MeshInstance3D.new()
-	var pm := PlaneMesh.new()
-	pm.size = Vector2(radius * 2.0 * K, radius * 2.0 * K)
-	mi.mesh = pm
-	var m := ShaderMaterial.new()
-	m.shader = _ring_shader
-	m.set_shader_parameter("color", RED)
-	m.set_shader_parameter("width", 0.1)
-	m.set_shader_parameter("fill", 0.3)
-	m.set_shader_parameter("progress", 0.0)
-	mi.material_override = m
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_shells.append([to, fxs.now + flight])
+	var mi := _take(_markers, func() -> Node3D:
+		var n := MeshInstance3D.new()
+		var pm := PlaneMesh.new()
+		pm.size = Vector2(1, 1)
+		n.mesh = pm
+		var m := ShaderMaterial.new()
+		m.shader = _ring_shader
+		m.set_shader_parameter("color", RED)
+		m.set_shader_parameter("width", 0.1)
+		m.set_shader_parameter("fill", 0.3)
+		n.material_override = m
+		n.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		return n) as MeshInstance3D
+	(mi.material_override as ShaderMaterial).set_shader_parameter("progress", 0.0)
+	mi.scale = Vector3.ONE * radius * 2.0 * K
 	mi.position = p3(to, 0.04)
-	_add_fx(mi, flight, "marker")
-	var ball := Models.sphere(0.16, Models.glow_mat(Color("#9BE15D"), 2.2))
-	ball.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_add_fx(mi, flight, "marker", {"pooled": true})
+	var ball: Node3D = _take(_lobs, func() -> Node3D:
+		var b := Models.sphere(0.16, Models.glow_mat(Color("#9BE15D"), 2.2))
+		b.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		return b)
 	var a := p3(from, 1.1)
 	ball.position = a
-	_add_fx(ball, flight, "lob", {"from": a, "to": p3(to, 0.1), "h": 2.6 + (to - from).length() * K * 0.25})
+	_add_fx(ball, flight, "lob", {"from": a, "to": p3(to, 0.1), "h": 2.6 + (to - from).length() * K * 0.25, "pooled": true})
+	fxs.enemy_muzzle(a, Vector3.UP, Color("#9BE15D"))
 
 ## Portails de fin de salle : plantés dans l'arène là où la simulation les a placés.
 func _on_doors_opened() -> void:
@@ -1105,11 +1204,39 @@ func _on_enemy_spawned(e: Node2D) -> void:
 	if not active:
 		return
 	var pos := p3(e.position)
-	_spawn_column(pos, CYAN if e.kind != "boss" else MAGENTA, 3.5 if e.kind != "boss" else 7.0, 0.45)
-	_spawn_ring(pos + Vector3(0, 0.05, 0), CYAN if e.kind != "boss" else MAGENTA, 2.2 if e.kind != "boss" else 6.0, 0.4)
-	if e.kind == "boss":
+	var boss: bool = e.kind == "boss"
+	fxs.spawn_in(pos, MAGENTA if boss else CYAN, boss)
+	if boss:
 		add_shake(0.8)
 		boss_cam = 2.0
+		_flash_light(pos + Vector3(0, 2.0, 0), MAGENTA, 5.0, 10.0)
+
+## Début de vague : tous les sas s'allument en cascade, une lumière sur le plus proche de Jo.
+func _on_wave() -> void:
+	if not active:
+		return
+	var pts: Array = []
+	var near := Vector3.ZERO
+	var best := INF
+	var hp := p3(hero2d.position)
+	for pd in arena.pads:
+		var q := p3(pd)
+		pts.append(q)
+		if q.distance_to(hp) < best:
+			best = q.distance_to(hp)
+			near = q
+	var col := MAGENTA if arena.room >= Data.ROOMS else CYAN
+	fxs.wave_start(pts, col)
+	if not pts.is_empty():
+		_flash_light(near + Vector3(0, 1.5, 0), col, 3.0, 7.0)
+
+## Énergie pleine : l'écran de choix fige le jeu dans la même image ; l'éclat est déjà « en cours » (vieilli).
+func _on_energy_full() -> void:
+	if not active:
+		return
+	var p := p3(hero2d.position)
+	fxs.power_burst(p, CYAN, Color(0.75, 1.0, 1.0), 0.12)
+	_flash_light(p + Vector3(0, 1.2, 0), CYAN, 3.5, 6.0)
 
 func _on_chest_opened(pos: Vector2) -> void:
 	if not active:
@@ -1118,21 +1245,26 @@ func _on_chest_opened(pos: Vector2) -> void:
 	_spawn_column(p, GOLD, 6.0, 0.7)
 	_spawn_ring(p + Vector3(0, 0.05, 0), GOLD, 4.0, 0.5)
 	_spawn_flash(p + Vector3(0, 0.7, 0), GOLD, 2.0, 0.25)
+	fxs.chest_burst(p)
 	_flash_light(p + Vector3(0, 1.2, 0), GOLD, 3.0, 6.0)
+	add_shake(0.25)
 
-## Pouvoir choisi : colonne et onde orange autour de Jo.
+## Pouvoir choisi : colonne, anneaux, gerbe autour de Jo, bref ralenti.
 func power_fx() -> void:
 	var p := p3(hero2d.position)
-	_spawn_column(p, ORANGE, 4.5, 0.6)
-	_spawn_ring(p + Vector3(0, 0.05, 0), ORANGE, 3.5, 0.5)
-	_spawn_ring(p + Vector3(0, 0.05, 0), GOLD, 2.0, 0.35)
-	_flash_light(p + Vector3(0, 1.2, 0), ORANGE, 3.0, 5.0)
+	fxs.power_burst(p, ORANGE, GOLD)
+	_flash_light(p + Vector3(0, 1.2, 0), ORANGE, 3.5, 6.0)
+	add_shake(0.3)
+	hit_stop(0.3, 0.35)
 
 func _on_hero_damaged() -> void:
 	if not active:
 		return
 	hero.flash(0.12)
-	add_shake(0.35)
+	add_shake(0.4)
+	fxs.hero_hit(p3(hero2d.position))
+	_flash_light(p3(hero2d.position, 1.0), RED, 2.5, 4.0)
+	hit_stop(0.06, 0.3)
 
 # ---------------------------------------------------------------- Relais (base)
 func show_relais(items: Array) -> void:

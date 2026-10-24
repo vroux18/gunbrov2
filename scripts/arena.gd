@@ -24,6 +24,7 @@ signal exploded(pos: Vector2, radius: float, color: Color)
 signal shell_launched(from: Vector2, to: Vector2, flight: float, radius: float)
 signal doors_opened
 signal door_taken(door: Dictionary)
+signal shield_blocked(e: Node2D, pos: Vector2, vel: Vector2)  # tir de Jo arrêté par le bouclier d'un rempart
 
 const W := 2400.0
 const H := 1400.0
@@ -268,6 +269,7 @@ func _process(dt: float) -> void:
 					continue
 				if (e.position - b.position).length() < e.radius + b.radius + (10.0 if e.kind == "shield" else 0.0):
 					if e.blocks(b.position - b.vel.normalized() * 30.0):
+						shield_blocked.emit(e, b.position, b.vel)
 						bullet_blocked.emit(b.position, b.color)
 						sfx.play("hit", randf_range(1.4, 1.7), -8.0)
 						_burst(b.position, ORANGE, 5, 200.0, 2.0)

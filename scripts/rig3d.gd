@@ -290,10 +290,8 @@ func make_hero(outline: Color, width: float, hurt: Color) -> void:
 		ol.albedo_color = outline
 		ol.disable_receive_shadows = true
 		_hero_mat.next_pass = ol
-		xray_mat = _hero_mat.duplicate()
-		xray_mat.next_pass = ol
-		xray_mat.stencil_mode = BaseMaterial3D.STENCIL_MODE_XRAY
-		xray_mat.stencil_color = Color(outline.r, outline.g, outline.b, 0.42)
+		# silhouette « rayons X » (STENCIL_MODE_XRAY) retirée : sur le sol du hangar elle teintait Jo en
+		# permanence, même à découvert, et lui ôtait ses couleurs
 	for mi in Models.meshes(model):
 		var m: MeshInstance3D = mi
 		if not ("_glow" in String(m.name) + String(m.get_parent().name)):
