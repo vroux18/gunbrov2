@@ -115,10 +115,10 @@ func start(m: Node, boxes: Array, serial: bool) -> void:
 	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(flash)
 	var ins := UI.safe_insets(get_viewport())
-	skip_b = UI.button("PASSER", 22, UI.MUTED, 150)
-	skip_b.custom_minimum_size = Vector2(150, 64)
-	skip_b.position = Vector2(vs.x - 150 - 20 - float(ins["right"]), 18)
-	skip_b.size = Vector2(150, 64)
+	skip_b = UI.button("PASSER", 26, UI.MUTED, 180)
+	skip_b.custom_minimum_size = Vector2(180, 74)
+	skip_b.position = Vector2(vs.x - 180 - 20 - float(ins["right"]), 18)
+	skip_b.size = Vector2(180, 74)
 	skip_b.pressed.connect(_skip_all)
 	add_child(skip_b)
 	gui_input.connect(_on_input)
@@ -171,7 +171,7 @@ func _next_box() -> void:
 	rays_k = 0.0
 	beam_k = 0.0
 	bg_halo.modulate = Color(_col(), 0.32)
-	title.text = "BOX " + String(Loot.BOX_NAMES[rarity]).to_upper()
+	title.text = "COFFRE " + String(Loot.BOX_NAMES[rarity]).to_upper()
 	title.add_theme_color_override("font_shadow_color", _col().darkened(0.4))
 	title.add_theme_color_override("font_color", _col().lightened(0.35))
 	Fx.slam(title, 0.05, 1.8)
@@ -405,19 +405,29 @@ func _show_recap() -> void:
 		cards.push_front({"kind": "tickets", "tier": 0, "n": tk})
 	var n := cards.size()
 	var top := ttl.position.y + 74.0
-	var avail := Vector2(vs.x - 80.0, vs.y - top - 120.0)
-	var cs := Vector2(214, 282)
+	var avail := Vector2(vs.x - 80.0, vs.y - top - 116.0)
 	var gap := 16.0
-	var cols := n
-	for _k in range(8):
+	# cartes lisibles (200 px de large au moins) ; s'il y en a trop, la grille défile au doigt
+	var cs := Vector2(214, 282)
+	var cols := mini(n, maxi(1, int((avail.x + gap) / (cs.x + gap))))
+	if int(ceil(float(n) / cols)) * (cs.y + gap) - gap > avail.y:
+		cs = Vector2(200, 264)
 		cols = mini(n, maxi(1, int((avail.x + gap) / (cs.x + gap))))
-		var rows := int(ceil(float(n) / cols))
-		if rows * (cs.y + gap) - gap <= avail.y:
-			break
-		cs *= 0.86
 	var rows2 := int(ceil(float(n) / maxi(cols, 1)))
 	var gh := rows2 * (cs.y + gap) - gap
+	var holder: Control = recap
 	var y0 := top + maxf(0.0, (avail.y - gh) * 0.5)
+	if gh > avail.y:
+		var sc := UI.scroll()
+		sc.position = Vector2(0, top - 6.0)
+		sc.size = Vector2(vs.x, avail.y + 12.0)
+		recap.add_child(sc)
+		var inner := Control.new()
+		inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		inner.custom_minimum_size = Vector2(vs.x - 16.0, gh + 24.0)
+		sc.add_child(inner)
+		holder = inner
+		y0 = 12.0
 	for i in range(n):
 		var row := i / cols
 		var in_row := mini(cols, n - row * cols)
@@ -425,8 +435,9 @@ func _show_recap() -> void:
 		var c: Card = Card.new()
 		c.setup(cards[i], cs, true)
 		c.position = Vector2(x0 + (i % cols) * (cs.x + gap), y0 + row * (cs.y + gap))
-		recap.add_child(c)
-		Fx.rise_in(c, 0.05 + 0.04 * i, 0.3, 0.6)
+		holder.add_child(c)
+		if i < 16:
+			Fx.rise_in(c, 0.05 + 0.04 * i, 0.3, 0.6)
 	# boutons : suivante, tout ouvrir, OK
 	var bar := UI.hbox(18)
 	bar.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -435,7 +446,7 @@ func _show_recap() -> void:
 	recap.add_child(bar)
 	var left := (main.profile["boxes"] as Array).size()
 	if left > 0:
-		var nb := UI.button("SUIVANTE", 26, UI.GOLD, 230)
+		var nb := UI.button("SUIVANT", 26, UI.GOLD, 230)
 		nb.custom_minimum_size = Vector2(230, 80)
 		nb.pressed.connect(func(): _restart([String(main.profile["boxes"][0])], false))
 		bar.add_child(nb)

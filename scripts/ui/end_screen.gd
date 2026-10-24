@@ -86,7 +86,7 @@ func build(info: Dictionary) -> void:
 		["skull", "Ennemis abattus", int(info.get("kills", 0)), "%d", Color("#FF4D6D")],
 		["coin", "Tickets", int(info.get("tickets", 0)), "+%d", UI.GOLD],
 		["chest", "Objets trouvés", (info.get("items", []) as Array).size(), "%d", Color("#C77DFF")],
-		["box", "Box gagnées", (info.get("boxes", []) as Array).size(), "+%d", UI.GOLD],
+		["box", "Coffres gagnés", (info.get("boxes", []) as Array).size(), "+%d", UI.GOLD],
 		["shard", "Éclat du Cœur", 1 if won else 0, "+%d" if won else "%d", UI.ACCENT if won else UI.MUTED],
 	]
 	var row_h := 58.0

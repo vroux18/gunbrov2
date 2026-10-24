@@ -49,7 +49,7 @@ func setup(r: Dictionary, sz: Vector2, small: bool = false) -> void:
 		add_child(_halo)
 		Fx.pulse(_halo, 0.65, 1.0, 1.1)
 	# pictogramme
-	var art_r := Rect2(sz.x * 0.16, sz.y * 0.13, sz.x * 0.68, sz.y * 0.46)
+	var art_r := Rect2(sz.x * 0.2, sz.y * 0.1, sz.x * 0.6, sz.y * 0.4)
 	match String(r["kind"]):
 		"tickets":
 			var ic := Icon.new("coin", UI.GOLD, art_r.size.y * 0.8)
@@ -75,29 +75,30 @@ func setup(r: Dictionary, sz: Vector2, small: bool = false) -> void:
 				else:
 					Art.draw_trail(_art, Rect2(Vector2(0, _art.size.y * 0.1), _art.size * Vector2(1, 0.8)), c, false, t))
 			add_child(_art)
-	# textes
-	var fs := 1.0 if not mini else 0.7
-	var title := UI.title(String(d[0]), int(30 * fs) if String(r["kind"]) == "tickets" else int(24 * fs), UI.TEXT, col.darkened(0.5), HORIZONTAL_ALIGNMENT_CENTER)
-	title.position = Vector2(6, sz.y * 0.6)
-	title.size = Vector2(sz.x - 12, sz.y * 0.14)
+	# textes : lisibles sur téléphone (20 px au moins), même sur les cartes du récapitulatif (200 px de large)
+	var fs := clampf(sz.x / 250.0, 0.8, 1.0)
+	var title := UI.title(String(d[0]), int(32 * fs) if String(r["kind"]) == "tickets" else maxi(22, int(26 * fs)), UI.TEXT, col.darkened(0.5), HORIZONTAL_ALIGNMENT_CENTER)
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # avant la taille : sinon la ligne entière l'élargit
+	title.position = Vector2(6, sz.y * 0.52)
+	title.size = Vector2(sz.x - 12, sz.y * 0.17)
 	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	title.add_theme_constant_override("line_spacing", -6)
 	add_child(title)
-	var sub := UI.label(String(d[1]), int(17 * fs), Color("#C9D6E8"), HORIZONTAL_ALIGNMENT_CENTER)
-	sub.position = Vector2(8, sz.y * 0.75)
-	sub.size = Vector2(sz.x - 16, sz.y * 0.1)
+	var sub := UI.label(String(d[1]), UI.FS_SMALL, Color("#DCE5F0"), HORIZONTAL_ALIGNMENT_CENTER)
 	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sub.position = Vector2(8, sz.y * 0.69)
+	sub.size = Vector2(sz.x - 16, sz.y * 0.17)
+	sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	sub.add_theme_constant_override("line_spacing", -4)
 	add_child(sub)
 	if not mini or sz.y > 150:
-		var tg := UI.tag(String(d[2]), col, UI.INK, int(15 * fs))
+		var tg := UI.tag(String(d[2]), col, UI.INK, 18)
 		tg.position = Vector2(sz.x * 0.5, sz.y * 0.88)
 		add_child(tg)
 		tg.resized.connect(func(): tg.position = Vector2((sz.x - tg.size.x) * 0.5, sz.y - tg.size.y - 10.0 * fs))
 	if String(r["kind"]) in ["skin", "trail"]:
 		var dup := bool(r.get("dup", false))
-		var nt := UI.tag("DOUBLON" if dup else "NOUVEAU", UI.MUTED if dup else UI.ORANGE, UI.INK, int(15 * fs))
+		var nt := UI.tag("DOUBLON" if dup else "NOUVEAU", UI.MUTED if dup else UI.ORANGE, UI.INK, 18)
 		nt.position = Vector2(8, 8)
 		nt.rotation = -0.08
 		add_child(nt)
@@ -161,7 +162,7 @@ func _draw() -> void:
 	face.anti_aliasing = true
 	draw_style_box(face, r)
 	# fond du pictogramme : disque rayonnant à la couleur de la rareté
-	var c := Vector2(sz.x * 0.5, sz.y * 0.36)
+	var c := Vector2(sz.x * 0.5, sz.y * 0.3)
 	for k in range(5):
 		draw_circle(c, sz.x * (0.36 - k * 0.05), Color(col, 0.07 + 0.03 * k))
 	# reflet en haut
