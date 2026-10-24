@@ -57,14 +57,17 @@ var dying: Array = []  # Mob3D en train de mourir
 var fx: Array = []  # effets temporaires {node, t, life, kind, ...}
 var turret_nodes: Array = []
 var ally_nodes: Array = []
-var pickup_nodes := {}  # id du dictionnaire de ramassage -> Node3D
+var pickup_nodes := {}  # id du dictionnaire de ramassage -> Node3D (soins, objets)
+## Tickets (la grande majorité du butin au sol) : pièce, trou et ombre dessinés par trois MultiMesh,
+## trois appels de dessin quel que soit leur nombre ; id -> [position (Vector3), rotation (float)].
+var tickets := {}
+var _tk_mm: Array = []  # MultiMesh : pièce, trou, ombre
 var chest_node: Node3D = null
 var door_nodes: Array = []  # portails de fin de salle (scripts/fx/door3d.gd)
 var chest_beam: MeshInstance3D = null
 
 var bolt_mm: MultiMeshInstance3D
 var halo_mm: MultiMeshInstance3D
-var part_mm: MultiMeshInstance3D
 var _glow_shader: Shader
 var _ring_shader: Shader
 var _dmg_labels: Array = []
@@ -394,6 +397,7 @@ var _fx_room := -1
 var _fx_el := 0.0
 var _markers: Array = []  # nœuds recyclés : zones d'impact du mortier
 var _lobs: Array = []  # nœuds recyclés : obus en vol
+var _shocks: Array = []  # nœuds recyclés : ondes de choc
 
 func _build_pools() -> void:
 	fxs = Fx3D.new()
@@ -425,7 +429,23 @@ func _build_pools() -> void:
 	bolt_mm.extra_cull_margin = 200.0
 	add_child(bolt_mm)
 	halo_mm = _billboard_mm(400, 1.3)
-	part_mm = _billboard_mm(16, 1.8)  # étincelles 2D de l'arène : remplacées par fxs, gardé vide
+	# tickets : mêmes maillages et matériaux que les anciens nœuds (pièce et trou projettent leur ombre)
+	var coin := Models.cyl(0.13, 0.13, 0.04, Models.glow_mat(GOLD, 1.6), 16)
+	var hole := Models.cyl(0.06, 0.06, 0.05, Models.toon(Color("#B07A20"), 0.0), 12)
+	var blob := Models.shadow_blob(0.35)
+	for mi in [coin, hole, blob]:
+		var tm := MultiMesh.new()
+		tm.transform_format = MultiMesh.TRANSFORM_3D
+		tm.mesh = (mi as MeshInstance3D).mesh
+		tm.instance_count = 128
+		tm.visible_instance_count = 0
+		var tmi := MultiMeshInstance3D.new()
+		tmi.multimesh = tm
+		tmi.material_override = (mi as MeshInstance3D).material_override
+		tmi.cast_shadow = (mi as MeshInstance3D).cast_shadow
+		add_child(tmi)
+		_tk_mm.append(tm)
+		(mi as Node).free()
 	for i in range(32):
 		var l := Label3D.new()
 		l.font = _font
@@ -471,6 +491,9 @@ func _clear_dynamic() -> void:
 	for k in pickup_nodes.keys():
 		(pickup_nodes[k] as Node).queue_free()
 	pickup_nodes.clear()
+	tickets.clear()
+	for tm in _tk_mm:
+		(tm as MultiMesh).visible_instance_count = 0
 	for n in turret_nodes:
 		(n as Node).queue_free()
 	turret_nodes.clear()
@@ -485,7 +508,6 @@ func _clear_dynamic() -> void:
 	door_nodes.clear()
 	bolt_mm.multimesh.visible_instance_count = 0
 	halo_mm.multimesh.visible_instance_count = 0
-	part_mm.multimesh.visible_instance_count = 0
 	for d in _dmg_labels:
 		(d["node"] as Label3D).visible = false
 
@@ -500,7 +522,6 @@ func _process(dt: float) -> void:
 	_sync_hero(dt)
 	_sync_mobs(dt)
 	_sync_bullets()
-	_sync_particles()
 	_sync_pickups(dt)
 	_sync_chest(dt)
 	_sync_turrets(dt)
@@ -538,7 +559,9 @@ func _place_camera(dt: float) -> void:
 	var pitch := deg_to_rad(Dev.get_f("cam_pitch"))
 	var off := Vector3(0, sin(pitch), cos(pitch)) * Dev.get_f("cam_dist")
 	cam.fov = Dev.get_f("cam_fov")
-	hero.scale = Vector3.ONE * Dev.get_f("hero_scale")
+	var hs := Vector3.ONE * Dev.get_f("hero_scale")
+	if hero.scale != hs:  # réglage du mode développeur : ne pas invalider tout le modèle à chaque image
+		hero.scale = hs
 	var sh := Vector3.ZERO
 	if shake > 0.0:
 		shake = maxf(0.0, shake - dt * 2.5)
@@ -556,7 +579,9 @@ func refresh_cam() -> void:
 ## Arrêt sur image : le temps ralentit un instant (durée en secondes réelles).
 var _stop_until := 0
 func hit_stop(real_s: float, scale: float) -> void:
-	if "--fixed-fps" in OS.get_cmdline_args():
+	# captures (--write-movie) : pas de ralenti à l'horloge réelle, les images restent reproductibles
+	# (les options du moteur comme --fixed-fps ne figurent pas dans get_cmdline_args)
+	if Engine.get_write_movie_path() != "" or "--fixed-fps" in OS.get_cmdline_user_args():
 		return
 	Engine.time_scale = scale
 	_stop_until = Time.get_ticks_msec() + int(real_s * 1000.0)
@@ -596,6 +621,7 @@ func _sync_hero(dt: float) -> void:
 	if hero_shield.visible:
 		hero_shield.scale = Vector3.ONE * (1.0 + sin(t * 4.0) * 0.03)
 	hero_light.light_energy = maxf(0.0, hero_light.light_energy - dt * 30.0)
+	hero_light.visible = hero_light.light_energy > 0.0
 	# anneau : doré et pulsé quand l'énergie est pleine
 	var full: bool = arena.energy >= arena.energy_need
 	var rmat: ShaderMaterial = hero_ring.material_override
@@ -651,42 +677,50 @@ func _sync_bullets() -> void:
 	for i in range(n):
 		var b = arena.bullets[i]  # objet léger (scripts/bullet.gd), pas un nœud
 		var v: Vector2 = b.vel
-		var yaw := atan2(v.x, v.y)
 		var r: float = b.radius * K
 		var c: Color = b.color
 		var v3 := Vector3(v.x, 0.0, v.y) * K
-		var basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, PI * 0.5)
+		# capsule couchée dans l'axe du tir : rotation (cap) × bascule de 90° × échelle, écrite directement
+		# (sans atan2 ni produits de bases : trois fois moins de calcul par tir, même transformation)
+		var l := v.length()
+		var dx := v.x / l if l > 0.0 else 0.0
+		var dz := v.y / l if l > 0.0 else 1.0
 		if b.hero_shot:
 			# trait de Jo : capsule fine, halo discret, longue traînée (plus longue si le tir transperce)
-			var pos := p3(b.position, 0.55)
-			basis = basis * Basis.from_scale(Vector3(r * 1.7, r * 2.3, r * 1.7))
-			mm.set_instance_transform(i, Transform3D(basis, pos))
+			var pos := Vector3(b.position.x * K, 0.55, b.position.y * K)
+			var sx := r * 1.7
+			var sy := r * 2.3
+			mm.set_instance_transform(i, Transform3D(Vector3(dz * sx, 0.0, -dx * sx), Vector3(dx * sy, 0.0, dz * sy), Vector3(0.0, -sx, 0.0), pos))
 			mm.set_instance_color(i, c)
 			var hs := r * 6.5
-			hm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3(hs, hs, hs)), pos))
+			hm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3(hs, hs, hs)), pos))
 			hm.set_instance_color(i, Color(c, 0.4))
 			fxs.trail_add(pos, v3, c, r * 2.4, 0.075 if b.pierce == 0 else 0.12, Color(c.r * 0.5, c.g * 0.6, c.b, 1.0))
 		else:
 			# tir ennemi : orbe plus rond et plus gros, halo large qui palpite, traînée courte,
 			# pour rester lisible au milieu des effets
-			var pos := p3(b.position, 0.6)
+			var pos := Vector3(b.position.x * K, 0.6, b.position.y * K)
 			var pulse := 1.0 + 0.18 * sin(t * 28.0 + float(i))
-			basis = basis * Basis.from_scale(Vector3(r * 2.5, r * 1.15, r * 2.5))
-			mm.set_instance_transform(i, Transform3D(basis, pos))
+			var sx := r * 2.5
+			var sy := r * 1.15
+			mm.set_instance_transform(i, Transform3D(Vector3(dz * sx, 0.0, -dx * sx), Vector3(dx * sy, 0.0, dz * sy), Vector3(0.0, -sx, 0.0), pos))
 			mm.set_instance_color(i, c)
 			var hs := r * 11.0 * pulse
-			hm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3(hs, hs, hs)), pos))
+			hm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3(hs, hs, hs)), pos))
 			hm.set_instance_color(i, Color(c, 0.8))
 			fxs.trail_add(pos, v3, c, r * 2.6, 0.05)
 	mm.visible_instance_count = n
 	hm.visible_instance_count = n
 
-## Les étincelles 2D de l'arène (arena.particles) doublaient les effets 3D de fxs : on ne les dessine plus.
-func _sync_particles() -> void:
-	part_mm.multimesh.visible_instance_count = 0
-
 func _sync_pickups(dt: float) -> void:
 	var seen := {}
+	_tk_n = 0
+	var cap: int = (_tk_mm[0] as MultiMesh).instance_count
+	if arena.pickups.size() > cap:
+		while cap < arena.pickups.size():
+			cap *= 2
+		for tm in _tk_mm:
+			(tm as MultiMesh).instance_count = cap
 	for pk in arena.pickups:
 		var k: int = int(pk.get("vid", 0))
 		if k == 0:
@@ -694,6 +728,9 @@ func _sync_pickups(dt: float) -> void:
 			pk["vid"] = k
 		seen[k] = true
 		var np := p3(pk["pos"], 0.0)
+		if String(pk["kind"]) == "ticket":
+			_sync_ticket(pk, k, np, dt)
+			continue
 		var n: Node3D = pickup_nodes.get(k)
 		if n == null:
 			n = _make_pickup(pk)
@@ -719,6 +756,40 @@ func _sync_pickups(dt: float) -> void:
 				fxs.pickup_pop(p3(hero2d.position, 0.75), gone.get_meta("col"), gone.get_meta("kind") != "ticket")
 			gone.queue_free()
 			pickup_nodes.erase(k)
+	for k in tickets.keys():
+		if not seen.has(k):
+			var gp: Vector3 = tickets[k][0]
+			if gp.distance_to(p3(hero2d.position)) < 1.5:
+				fxs.pickup_pop(p3(hero2d.position, 0.75), GOLD, false)
+			tickets.erase(k)
+	for tm in _tk_mm:
+		(tm as MultiMesh).visible_instance_count = _tk_n
+
+var _tk_n := 0  # tickets écrits dans les MultiMesh à cette image
+const TK_TILT := Basis(Vector3.RIGHT, PI * 0.5)  # pièce posée sur la tranche
+
+## Ticket : même mouvement que les autres ramassages (rotation, bond, flottement, traînée vers Jo).
+func _sync_ticket(pk: Dictionary, k: int, np: Vector3, dt: float) -> void:
+	var st: Array = tickets.get(k, [])
+	if st.is_empty():
+		st = [np, 0.0]
+		tickets[k] = st
+	var rot: float = st[1] + dt * 3.0
+	st[1] = rot
+	var pt: float = pk["t"]
+	var hop := sin(pt / 0.45 * PI) * 0.8 if pt < 0.45 else 0.0
+	var sy := 0.35 + hop + sin(t * 4.0 + float(k % 100)) * 0.06
+	if dt > 0.0:
+		var vel := (np - (st[0] as Vector3)) / dt
+		if vel.length() > 3.5 and pt > 0.1:
+			fxs.trail_add(np + Vector3(0, sy, 0), vel, GOLD, 0.2, 0.07)
+	st[0] = np
+	var coin: MultiMesh = _tk_mm[0]
+	var xf := Transform3D(Basis(Vector3.UP, rot) * TK_TILT, np + Vector3(0, sy, 0))
+	coin.set_instance_transform(_tk_n, xf)
+	(_tk_mm[1] as MultiMesh).set_instance_transform(_tk_n, xf)
+	(_tk_mm[2] as MultiMesh).set_instance_transform(_tk_n, Transform3D(Basis(), np + Vector3(0, 0.02, 0)))
+	_tk_n += 1
 
 func _make_pickup(pk: Dictionary) -> Node3D:
 	var root := Node3D.new()
@@ -727,15 +798,7 @@ func _make_pickup(pk: Dictionary) -> Node3D:
 	root.add_child(spin)
 	root.set_meta("kind", String(pk["kind"]))
 	root.set_meta("col", GOLD)
-	match String(pk["kind"]):
-		"ticket":
-			var coin := Models.cyl(0.13, 0.13, 0.04, Models.glow_mat(GOLD, 1.6), 16)
-			coin.rotation.x = PI * 0.5
-			spin.add_child(coin)
-			var hole := Models.cyl(0.06, 0.06, 0.05, Models.toon(Color("#B07A20"), 0.0), 12)
-			hole.rotation.x = PI * 0.5
-			spin.add_child(hole)
-			root.add_child(Models.shadow_blob(0.35))
+	match String(pk["kind"]):  # les tickets passent par _sync_ticket
 		"hp":
 			root.set_meta("col", RED)
 			var box := Models.box(Vector3(0.32, 0.24, 0.32), Models.toon(Color("#F4F1EA"), 0.5))
@@ -911,6 +974,7 @@ func _flash_light(pos: Vector3, col: Color, energy: float, rng: float) -> void:
 	l.light_color = col
 	l.light_energy = energy
 	l.omni_range = rng
+	l.visible = true
 
 func _add_fx(node: Node3D, life: float, kind: String, extra: Dictionary = {}) -> void:
 	if node.get_parent() == null:
@@ -997,9 +1061,11 @@ func _tick_fx(dt: float) -> void:
 				if int(f["t"] * 60.0) % 3 == 0:
 					fxs.smoke_puffs(node.position, 0.25, 1, 0.5, 0.0, Color(0.6, 0.7, 0.55), Color(0.4, 0.42, 0.5), 0.5, 0.2)
 		i += 1
+	# éteinte (énergie nulle) : masquée, elle sort des listes de lumières des objets (moins de calcul par pixel)
 	for l in _flash_lights:
 		var ol: OmniLight3D = l
 		ol.light_energy = maxf(0.0, ol.light_energy - dt * 16.0)
+		ol.visible = ol.light_energy > 0.0
 
 ## Chiffre de dégâts : jaillit en rebondissant ; les coups rapprochés sur un même ennemi s'additionnent
 ## dans le même chiffre (moins de fouillis) ; un critique sort en gros, doré, avec « ! ».
@@ -1088,6 +1154,7 @@ func _on_fired(pos: Vector2, vel: Vector2, hero_shot: bool, color: Color, radius
 	var d := Vector3(vel.x, 0.0, vel.y).normalized()
 	if hero_shot and (pos - hero2d.position).length() < 60.0:
 		hero_light.light_energy = 2.4
+		hero_light.visible = true
 		fxs.muzzle(hero.muzzle_position(), d, color, radius > 6.0)
 	else:
 		fxs.enemy_muzzle(p3(pos, 0.55 if hero_shot else 0.6), d, color)
@@ -1185,21 +1252,23 @@ func _on_exploded(pos: Vector2, radius: float, col: Color) -> void:
 func _on_shockwave(pos: Vector2, max_r: float, spd: float, col: Color) -> void:
 	if not active:
 		return
-	var mi := MeshInstance3D.new()
-	var pm := PlaneMesh.new()
-	pm.size = Vector2(1.0, 1.0)
-	mi.mesh = pm
-	var m := ShaderMaterial.new()
-	m.shader = _ring_shader
-	m.set_shader_parameter("color", col)
-	m.set_shader_parameter("width", 0.07)
-	m.set_shader_parameter("fill", 0.06)
-	m.set_shader_parameter("progress", 1.0)
-	mi.material_override = m
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var mi := _take(_shocks, func() -> Node3D:
+		var n := MeshInstance3D.new()
+		var pm := PlaneMesh.new()
+		pm.size = Vector2(1.0, 1.0)
+		n.mesh = pm
+		var m := ShaderMaterial.new()
+		m.shader = _ring_shader
+		m.set_shader_parameter("width", 0.07)
+		m.set_shader_parameter("fill", 0.06)
+		m.set_shader_parameter("progress", 1.0)
+		n.material_override = m
+		n.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		return n) as MeshInstance3D
+	(mi.material_override as ShaderMaterial).set_shader_parameter("color", col)
 	mi.position = p3(pos, 0.05)
 	mi.scale = Vector3(0.01, 1, 0.01)
-	_add_fx(mi, max_r / spd, "shock", {"max": max_r * 2.0 * K})
+	_add_fx(mi, max_r / spd, "shock", {"max": max_r * 2.0 * K, "pooled": true})
 	fxs.flash(p3(pos, 0.3), col, 2.2, 0.2)
 	_flash_light(p3(pos, 1.0), col, 3.0, 6.0)
 	add_shake(0.5)

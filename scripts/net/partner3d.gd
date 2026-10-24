@@ -130,7 +130,7 @@ func _process(dt: float) -> void:
 		rig.revive()
 	# équipement changé : la palette suit
 	if _jo2:
-		var n := Models.meshes(rig.model).size()
+		var n: int = rig.meshes.size()  # tenu à jour par apply_items (pas de parcours de l'arbre à chaque image)
 		if n != _mesh_n:
 			_mesh_n = n
 			recolor(rig)

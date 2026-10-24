@@ -199,6 +199,9 @@ func _pose(name: String, rot: Vector3, off: Vector3 = Vector3.ZERO) -> void:
 	n.transform = Transform3D(r.basis * Basis.from_euler(rot), r.origin + off)
 
 func _process(dt: float) -> void:
+	# masqué (Jo du Relais pendant la partie, Jo de la partie au Relais) : rien à animer
+	if not is_visible_in_tree():
+		return
 	t += dt
 	if _flash_t > 0.0:
 		_flash_t -= dt
