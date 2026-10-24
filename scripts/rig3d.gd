@@ -102,12 +102,13 @@ static func tint_glow_mat(col: Color, energy: float) -> StandardMaterial3D:
 # ---------------------------------------------------------------- équipement (Jo)
 const RARITY_GLOW := [Color("#9FB3C8"), Color("#3CF2D8"), Color("#C77DFF"), Color("#FFB347")]
 ## Bout du canon dans le repère de la part « gun », selon l'arme portée.
-const MUZZLE := {"": Vector3(0, -0.225, 0.058), "blaster_garde": Vector3(0, -0.26, 0.06), "fusil_impulsion": Vector3(0, -0.3, 0.056)}
+const MUZZLE := {"": Vector3(0, -0.225, 0.058), "blaster_garde": Vector3(0, -0.26, 0.06), "fusil_impulsion": Vector3(0, -0.3, 0.056),
+	"riveteuse": Vector3(0, -0.265, 0.061), "pistolet_neon": Vector3(0, -0.268, 0.058)}
 var _gear: Array = []
 var _gun_id := ""
 var _gun_meshes := {}  # MeshInstance3D -> Mesh d'origine (blaster de base)
 ## Parts de Jo masquées par un objet (le casque remplace les lunettes relevées sur le crâne).
-const HIDES := {"casque_garde": ["goggles"]}
+const HIDES := {"casque_garde": ["goggles"], "casque_docker": ["goggles"]}
 
 ## Équipe les objets {id, rarity} : chaque objet est un GLB sculpté (tools/chars/gear.py) dont les parts
 ## « cible__id » se rangent dans la part cible de Jo. Une arme remplace le blaster de base.
