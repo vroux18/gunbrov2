@@ -68,8 +68,10 @@ def build():
     skin.add(sphere((0, 0.85, 0.0), 0.212))
     skin.add(ellipsoid((0, 0.785, 0.045), (0.165, 0.125, 0.15)), k=0.06)
     skin.add(ellipsoid((0, 0.66, 0.0), (0.06, 0.05, 0.06)), k=0.04)  # cou
-    # cheveux : calotte qui dégage le visage, frange en vague, mèches sur les côtés
-    hair = head.piece(HAIR, tris=2000)
+    # cheveux : calotte qui dégage le visage, frange en vague, mèches sur les côtés. Part à part (« hair »,
+    # enfant de la tête) : une tenue peut la masquer (casque, capuche) ou la teindre (scripts/loot.gd).
+    hairp = Part("hair", pivot=(0, 0.62, 0), parent="head", res=0.005)
+    hair = hairp.piece(HAIR, tris=2000)
     hair.add(ellipsoid((0, 0.895, -0.03), (0.236, 0.205, 0.228)))
     hair.add(ellipsoid((0.2, 0.79, -0.035), (0.062, 0.13, 0.12), rot=(0, 0, 8)), k=0.03)
     hair.add(ellipsoid((-0.2, 0.79, -0.035), (0.062, 0.13, 0.12), rot=(0, 0, -8)), k=0.03)
@@ -99,7 +101,11 @@ def build():
         blush.add(ellipsoid((x, 0.782, 0.168), (0.03, 0.016, 0.02)))
     head.piece(MOUTH, tris=120, res=0.003).add(capsule((-0.02, 0.765, 0.198), (0.02, 0.765, 0.198), 0.008))
     head.piece(ORANGE, tris=200).add(rbox((-0.262, 0.83, 0.02), (0.026, 0.05, 0.045), 0.02))  # oreillette
+    # occlusion cuite comme si cheveux et visage n'étaient qu'une pièce (contact frange / front)
+    head_sdf, hair_sdf = head.sdf, hairp.sdf
+    head.sdf = hairp.sdf = lambda P: np.minimum(head_sdf(P), hair_sdf(P))
     parts.append(head)
+    parts.append(hairp)
     hglow = Part("head_glow", pivot=(0, 0.62, 0), parent="head", res=0.004)
     hglow.piece(TEAL, tris=120).add(capsule((-0.275, 0.8, 0.04), (-0.17, 0.765, 0.15), 0.008))  # micro
     parts.append(hglow)

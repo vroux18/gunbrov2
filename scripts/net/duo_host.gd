@@ -72,6 +72,7 @@ func begin() -> void:
 	p3d = Partner3D.new()
 	main.view.add_child(p3d)
 	p3d.setup(main.view, partner, true, "J2")
+	p3d.set_skin(duo.partner_skin)
 	partner.damaged.connect(func(): p3d.rig.flash(0.18))
 	marker = Partner3D.new()
 	main.view.add_child(marker)

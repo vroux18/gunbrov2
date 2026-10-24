@@ -2,7 +2,8 @@
 // Les couleurs du GLB (sRGB) sont la teinte de base multipliée par l'occlusion et le dégradé vertical de
 // sculpt.py : on reconnaît chaque famille à sa teinte et sa saturation (qui ne bougent pas), et on garde le
 // rapport de luminosité. Trois familles : combinaison blanche (#F4F1EA, #D6D1C6), orange (#FF7A2F,
-// #E0601E), turquoise (#3CF2D8). Peau, cheveux, bleu nuit et métal ne sont pas touchés.
+// #E0601E), turquoise (#3CF2D8), plus les cheveux sur leurs seuls maillages (hair_on). Peau, bleu nuit et
+// métal ne sont pas touchés.
 // Fait dans vertex() : les poids s'interpolent proprement aux limites de couleur, rien au pixel.
 
 uniform vec3 suit = vec3(0.957, 0.945, 0.918);   // sRGB
@@ -10,6 +11,11 @@ uniform vec3 accent = vec3(1.0, 0.478, 0.184);
 uniform vec3 lit_col = vec3(0.235, 0.949, 0.847);
 uniform float suit_on = 1.0;  // 0 sur la tête : les reflets blancs des yeux restent blancs
 uniform float rainbow = 0.0;  // 1 : la lumière fait le tour des teintes
+// cheveux (part « hair » de Jo et mèches des tenues, tools/chars/tenues.py) : le bleu nuit (#1C2456) et son
+// reflet (#4C63C8) prennent la couleur de l'apparence. Seulement sur ces maillages (hair_on = 1) : le bleu nuit
+// des ceintures et des bottes ne bouge pas.
+uniform vec3 hair_col = vec3(0.11, 0.141, 0.337);
+uniform float hair_on = 0.0;
 
 vec3 skin_hsv2rgb(float h, float s, float v) {
 	vec3 k = clamp(abs(fract(vec3(h) + vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
@@ -43,6 +49,14 @@ vec3 skin_remap(vec3 c, vec3 pos, float t) {
 		lit = skin_hsv2rgb(fract(t * 0.18 + pos.y * 0.9 + pos.x * 0.6), 0.75, 1.0);
 	}
 	vec3 o = c;
+	if (hair_on > 0.5) {
+		// rapport de luminosité au bleu nuit des cheveux : < 1 dans l'ombre, ~2,3 sur le reflet en anneau
+		float r = mx / 0.337;
+		vec3 hi = min(hair_col * 1.7 + vec3(0.16), vec3(1.0));
+		vec3 hc = mix(hair_col * min(r, 1.0), hi, clamp((r - 1.0) / 1.33, 0.0, 1.0));
+		float w_hair = smoothstep(0.3, 0.4, sat) * skin_band(hue, 205.0, 255.0, 6.0);
+		o = mix(o, hc, w_hair);
+	}
 	o = mix(o, suit * (mx / 0.957), w_suit);
 	o = mix(o, accent * mx, w_acc);
 	o = mix(o, lit * (mx / 0.949), w_lit);

@@ -42,6 +42,7 @@ var my_name := ""
 var partner_name := ""
 var partner_items: Array = []
 var partner_talents := {}  # talents permanents de l'invité (talents.gd), appliqués à sa Jo chez l'hôte
+var partner_skin := ""  # apparence portée par le partenaire (scripts/loot.gd) : sa Jo porte sa tenue
 var world_override := -1
 var run_id := 0
 var relay_url := ""  # ws(s)://… ; vide : inconnu ; "-" : serveur non déployé
@@ -313,7 +314,7 @@ func intercept_depart() -> bool:
 		run_id = (run_id + 1) % 256
 		world_override = -1
 		world_override = main._chosen_world()  # le monde choisi au Relais de l'hôte
-		link.send(Proto.dict_msg(Proto.EV, {"t": "start", "world": world_override, "run": run_id, "items": main.hero.items, "name": my_name}), true)
+		link.send(Proto.dict_msg(Proto.EV, {"t": "start", "world": world_override, "run": run_id, "items": main.hero.items, "name": my_name, "skin": String(main.profile.get("skin", ""))}), true)
 		phase = "run"
 		return false
 	return true
@@ -452,7 +453,7 @@ func _process(dt: float) -> void:
 	if link.state == "open" and link.peer_on and not was_on:
 		_last_rx = now
 		if is_guest():
-			send_raw(Proto.dict_msg(Proto.HELLO, {"v": Proto.VERSION, "game": main.version, "name": my_name, "items": main.hero.items, "talents": main.profile.get("talents", {})}), true)
+			send_raw(Proto.dict_msg(Proto.HELLO, {"v": Proto.VERSION, "game": main.version, "name": my_name, "items": main.hero.items, "talents": main.profile.get("talents", {}), "skin": String(main.profile.get("skin", ""))}), true)
 			status = "Connecté, poignée de main…"
 		else:
 			status = "Partenaire en approche…"
@@ -505,8 +506,9 @@ func _receive(pk: PackedByteArray) -> void:
 				partner_name = String(d.get("name", "J2"))
 				partner_items = d.get("items", [])
 				partner_talents = d.get("talents", {})
+				partner_skin = String(d.get("skin", ""))
 				handshake = true
-				send_raw(Proto.dict_msg(Proto.WELCOME, {"ok": true, "name": my_name, "items": main.hero.items}), true)
+				send_raw(Proto.dict_msg(Proto.WELCOME, {"ok": true, "name": my_name, "items": main.hero.items, "skin": String(main.profile.get("skin", ""))}), true)
 				status = "%s est connecté" % partner_name
 				print("DUO : partenaire connecté (%s) via %s" % [partner_name, link.kind])
 				if disc != null:
@@ -520,6 +522,7 @@ func _receive(pk: PackedByteArray) -> void:
 				return
 			partner_name = String(d.get("name", "J1"))
 			partner_items = d.get("items", [])
+			partner_skin = String(d.get("skin", ""))
 			handshake = true
 			status = "Connecté à %s. L'hôte lance la partie." % partner_name
 			print("DUO : connecté à l'hôte (%s) via %s" % [partner_name, link.kind])
@@ -542,6 +545,7 @@ func _on_ev(d: Dictionary) -> void:
 			world_override = int(d.get("world", 0))
 			run_id = int(d.get("run", 0))
 			partner_items = d.get("items", partner_items)
+			partner_skin = String(d.get("skin", partner_skin))
 			_starting = true
 			main.state = "base"
 			phase = "run"

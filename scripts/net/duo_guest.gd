@@ -64,6 +64,7 @@ func begin() -> void:
 	p3d = Partner3D.new()
 	main.view.add_child(p3d)
 	p3d.setup(main.view, partner, false, "J1")
+	p3d.set_skin(duo.partner_skin)
 	p3d.rig.apply_items(partner.items)
 	marker = Partner3D.new()
 	main.view.add_child(marker)

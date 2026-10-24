@@ -6,6 +6,7 @@ extends Node3D
 
 const Rig3D = preload("res://scripts/rig3d.gd")
 const Models = preload("res://scripts/models.gd")
+const Loot = preload("res://scripts/loot.gd")
 const JO_MODEL := "res://assets/chars3d/jo.glb"
 const K := 1.0 / 64.0
 const JO2_COL := Color("#B36BFF")  # violet de la Jo de l'invité
@@ -62,6 +63,15 @@ func setup(view_node: Node3D, h: Node2D, jo2: bool, name_text: String, only_mark
 	label.render_priority = 10
 	add_child(label)
 	visible = false
+
+## Apparence du partenaire (envoyée à la connexion) : sa Jo porte sa tenue (silhouette, lumières) ; la Jo de
+## l'invité garde la palette violette sur les masses pour qu'on se reconnaisse.
+func set_skin(id: String) -> void:
+	if rig != null and id != "":
+		rig.set_own_skin(Loot.skin_palette(id))
+		if _jo2:
+			recolor(rig)
+		_mesh_n = rig.meshes.size()
 
 func _ring(shader: Shader, size: float, c: Color, width: float, fill: float) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
