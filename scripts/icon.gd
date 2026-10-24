@@ -181,5 +181,150 @@ func _draw() -> void:
 			for k in range(8):
 				var a := TAU * k / 8.0
 				_l(V.call(0.5, 0.5) + Vector2(cos(a), sin(a)) * 0.28, V.call(0.5, 0.5) + Vector2(cos(a), sin(a)) * 0.4, 0.12)
+		# talents du Relais
+		"tree":
+			# arbre de talents : un nœud racine, trois branches
+			_c(V.call(0.5, 0.82), 0.1, true)
+			_l(V.call(0.5, 0.72), V.call(0.5, 0.34))
+			_l(V.call(0.5, 0.56), V.call(0.22, 0.34))
+			_l(V.call(0.5, 0.56), V.call(0.78, 0.34))
+			_c(V.call(0.5, 0.22), 0.11, true)
+			_c(V.call(0.2, 0.26), 0.09, true)
+			_c(V.call(0.8, 0.26), 0.09, true)
+		"lock":
+			_arc(V.call(0.5, 0.42), 0.18, PI, TAU)
+			_l(V.call(0.32, 0.42), V.call(0.32, 0.5))
+			_l(V.call(0.68, 0.42), V.call(0.68, 0.5))
+			_poly([V.call(0.24, 0.48), V.call(0.76, 0.48), V.call(0.76, 0.86), V.call(0.24, 0.86)])
+		"regen":
+			# cœur et flèche qui remonte
+			_c(V.call(0.33, 0.48), 0.15, true)
+			_c(V.call(0.59, 0.48), 0.15, true)
+			_poly([V.call(0.19, 0.53), V.call(0.73, 0.53), V.call(0.46, 0.88)])
+			_l(V.call(0.8, 0.62), V.call(0.8, 0.14), 0.08)
+			_l(V.call(0.8, 0.12), V.call(0.68, 0.26), 0.08)
+			_l(V.call(0.8, 0.12), V.call(0.92, 0.26), 0.08)
+		"plate":
+			# blindage : écu à bande
+			_poly([V.call(0.5, 0.1), V.call(0.84, 0.22), V.call(0.8, 0.58), V.call(0.5, 0.9), V.call(0.2, 0.58), V.call(0.16, 0.22)])
+			var keep3 := color
+			color = Color(0.03, 0.05, 0.1, 0.75)
+			_l(V.call(0.24, 0.42), V.call(0.76, 0.42), 0.1)
+			_l(V.call(0.5, 0.2), V.call(0.5, 0.8), 0.06)
+			color = keep3
+		"kit":
+			# trousse de soins
+			_poly([V.call(0.14, 0.28), V.call(0.86, 0.28), V.call(0.86, 0.84), V.call(0.14, 0.84)])
+			_arc(V.call(0.5, 0.28), 0.14, PI, TAU)
+			var keep4 := color
+			color = Color(0.03, 0.05, 0.1, 0.85)
+			_l(V.call(0.5, 0.42), V.call(0.5, 0.72), 0.1)
+			_l(V.call(0.35, 0.57), V.call(0.65, 0.57), 0.1)
+			color = keep4
+		"revive":
+			# seconde chance : cœur sous une auréole, ailes
+			_c(V.call(0.39, 0.52), 0.13, true)
+			_c(V.call(0.61, 0.52), 0.13, true)
+			_poly([V.call(0.27, 0.56), V.call(0.73, 0.56), V.call(0.5, 0.86)])
+			_arc(V.call(0.5, 0.2), 0.16, PI * 0.05, PI * 0.95)
+			_arc(V.call(0.5, 0.28), 0.22, PI * 1.12, PI * 1.88)
+			_l(V.call(0.08, 0.4), V.call(0.22, 0.52), 0.06)
+			_l(V.call(0.92, 0.4), V.call(0.78, 0.52), 0.06)
+		"crown":
+			_poly([V.call(0.14, 0.3), V.call(0.34, 0.5), V.call(0.5, 0.2), V.call(0.66, 0.5), V.call(0.86, 0.3), V.call(0.8, 0.74), V.call(0.2, 0.74)])
+			_l(V.call(0.2, 0.86), V.call(0.8, 0.86), 0.08)
+		"coins":
+			# pile de tickets
+			for k in range(3):
+				_l(V.call(0.24, 0.78 - k * 0.16), V.call(0.62, 0.78 - k * 0.16), 0.12)
+			_c(V.call(0.72, 0.36), 0.18, true)
+		"luck":
+			# étoile à quatre branches et petit éclat
+			_poly([V.call(0.42, 0.08), V.call(0.52, 0.42), V.call(0.82, 0.52), V.call(0.52, 0.62), V.call(0.42, 0.94), V.call(0.32, 0.62), V.call(0.04, 0.52), V.call(0.32, 0.42)])
+			_poly([V.call(0.8, 0.08), V.call(0.84, 0.2), V.call(0.96, 0.24), V.call(0.84, 0.28), V.call(0.8, 0.4), V.call(0.76, 0.28), V.call(0.64, 0.24), V.call(0.76, 0.2)])
+		"bounty":
+			# cible et ticket
+			_c(V.call(0.42, 0.5), 0.3)
+			_c(V.call(0.42, 0.5), 0.1, true)
+			_c(V.call(0.76, 0.26), 0.15, true)
+		"bag":
+			# sac de tickets noué
+			_c(V.call(0.5, 0.62), 0.3, true)
+			_poly([V.call(0.36, 0.34), V.call(0.64, 0.34), V.call(0.74, 0.14), V.call(0.26, 0.14)])
+			var keep5 := color
+			color = Color(0.03, 0.05, 0.1, 0.8)
+			_l(V.call(0.36, 0.36), V.call(0.64, 0.36), 0.06)
+			_c(V.call(0.5, 0.64), 0.1)
+			color = keep5
+		"reroll":
+			_arc(V.call(0.5, 0.5), 0.3, -PI * 0.9, PI * 0.1)
+			_arc(V.call(0.5, 0.5), 0.3, PI * 0.1 + 0.2, PI * 1.1 + 0.2)
+			_poly([V.call(0.84, 0.44), V.call(0.94, 0.64), V.call(0.68, 0.62)])
+			_poly([V.call(0.16, 0.56), V.call(0.06, 0.36), V.call(0.32, 0.38)])
+		"launch":
+			# fusée : pouvoir dès le départ
+			_poly([V.call(0.5, 0.06), V.call(0.68, 0.32), V.call(0.68, 0.66), V.call(0.32, 0.66), V.call(0.32, 0.32)])
+			_poly([V.call(0.32, 0.5), V.call(0.16, 0.74), V.call(0.32, 0.7)])
+			_poly([V.call(0.68, 0.5), V.call(0.84, 0.74), V.call(0.68, 0.7)])
+			_l(V.call(0.42, 0.78), V.call(0.38, 0.94), 0.07)
+			_l(V.call(0.58, 0.78), V.call(0.62, 0.94), 0.07)
+		"cards":
+			# éventail de cartes
+			for k in range(3):
+				var a := (k - 1) * 0.32
+				var c0 := Vector2(0.5, 0.62)
+				var pts := []
+				for q in [Vector2(-0.14, -0.42), Vector2(0.14, -0.42), Vector2(0.14, 0.2), Vector2(-0.14, 0.2)]:
+					pts.append(c0 + (q as Vector2).rotated(a))
+				_poly(pts)
+				var keep6 := color
+				color = Color(0.03, 0.05, 0.1, 0.55)
+				_l(c0 + Vector2(-0.14, -0.42).rotated(a), c0 + Vector2(-0.14, 0.2).rotated(a), 0.03)
+				color = keep6
+		"battery":
+			_poly([V.call(0.42, 0.08), V.call(0.58, 0.08), V.call(0.58, 0.16), V.call(0.42, 0.16)])
+			_l(V.call(0.28, 0.2), V.call(0.72, 0.2), 0.07)
+			_l(V.call(0.28, 0.2), V.call(0.28, 0.9), 0.07)
+			_l(V.call(0.72, 0.2), V.call(0.72, 0.9), 0.07)
+			_l(V.call(0.28, 0.9), V.call(0.72, 0.9), 0.07)
+			_poly([V.call(0.36, 0.56), V.call(0.64, 0.56), V.call(0.64, 0.82), V.call(0.36, 0.82)])
+		"wave":
+			# résonance : ondes autour d'un point
+			_c(V.call(0.5, 0.5), 0.1, true)
+			_arc(V.call(0.5, 0.5), 0.24, -0.9, 0.9)
+			_arc(V.call(0.5, 0.5), 0.24, PI - 0.9, PI + 0.9)
+			_arc(V.call(0.5, 0.5), 0.4, -0.7, 0.7)
+			_arc(V.call(0.5, 0.5), 0.4, PI - 0.7, PI + 0.7)
+		"dash":
+			# esquive : chevrons qui filent
+			_l(V.call(0.16, 0.24), V.call(0.4, 0.5))
+			_l(V.call(0.4, 0.5), V.call(0.16, 0.76))
+			_l(V.call(0.44, 0.24), V.call(0.68, 0.5))
+			_l(V.call(0.68, 0.5), V.call(0.44, 0.76))
+			_c(V.call(0.84, 0.5), 0.1, true)
+		"eye":
+			_arc(V.call(0.5, 0.86), 0.5, -PI * 0.78, -PI * 0.22)
+			_arc(V.call(0.5, 0.14), 0.5, PI * 0.22, PI * 0.78)
+			_c(V.call(0.5, 0.5), 0.13, true)
+		"dodge":
+			# tir qui passe à côté d'une silhouette
+			_c(V.call(0.36, 0.28), 0.12, true)
+			_poly([V.call(0.24, 0.44), V.call(0.48, 0.44), V.call(0.44, 0.86), V.call(0.28, 0.86)])
+			_l(V.call(0.62, 0.2), V.call(0.92, 0.2), 0.06)
+			_l(V.call(0.66, 0.5), V.call(0.92, 0.5), 0.06)
+			_l(V.call(0.62, 0.8), V.call(0.92, 0.8), 0.06)
+		"pulse":
+			# adrénaline : tracé cardiaque
+			_l(V.call(0.06, 0.56), V.call(0.3, 0.56))
+			_l(V.call(0.3, 0.56), V.call(0.42, 0.18))
+			_l(V.call(0.42, 0.18), V.call(0.56, 0.86))
+			_l(V.call(0.56, 0.86), V.call(0.68, 0.46))
+			_l(V.call(0.68, 0.46), V.call(0.94, 0.46))
+		"rush":
+			# flèche et traînées
+			_poly([V.call(0.52, 0.2), V.call(0.92, 0.5), V.call(0.52, 0.8)])
+			_l(V.call(0.1, 0.34), V.call(0.44, 0.34), 0.08)
+			_l(V.call(0.2, 0.5), V.call(0.5, 0.5), 0.08)
+			_l(V.call(0.1, 0.66), V.call(0.44, 0.66), 0.08)
 		_:
 			_c(V.call(0.5, 0.5), 0.3, true)

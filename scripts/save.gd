@@ -4,6 +4,7 @@ extends RefCounted
 
 const PATH := "user://passeurs.json"
 const Data = preload("res://scripts/data.gd")
+const Talents = preload("res://scripts/talents.gd")
 
 static func default_profile() -> Dictionary:
 	return {
@@ -20,6 +21,7 @@ static func default_profile() -> Dictionary:
 		"kills": 0,
 		"seen_enemies": [],  # genres déjà présentés par la carte « NOUVEL ENNEMI »
 		"tutorial_done": false,  # tutoriel des deux pouces fait
+		"talents": {},  # talents permanents du Relais : id -> niveau (talents.gd)
 	}
 
 ## `--fresh` (captures, essais) : profil neuf, écrit à part pour ne pas toucher la vraie sauvegarde.
@@ -54,6 +56,8 @@ static func load_profile() -> Dictionary:
 	if ars.is_empty():
 		ars = Data.DEFAULT_ARSENAL.duplicate()
 	p["arsenal"] = ars
+	# talents : absents des anciennes sauvegardes ; niveaux entiers, bornés, talents connus seulement
+	p["talents"] = Talents.sanitize(p["talents"])
 	return p
 
 static func save_profile(p: Dictionary) -> void:

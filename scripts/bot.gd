@@ -21,6 +21,36 @@ func _ready() -> void:
 	touch_test = "--touchtest" in OS.get_cmdline_user_args()
 	main.joy.bot = not touch_test
 	print("BOT : démarrage" + (" (test tactile)" if touch_test else ""))
+	_test_profile()
+
+## Options d'essai : --winsize=LxH (fenêtre, pour filmer en 16:9 ou 20:9), --tickets=N (tickets donnés),
+## --talents=half|full (talents déjà achetés ; full donne aussi les deux éclats).
+func _test_profile() -> void:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--winsize="):
+			var wh := a.trim_prefix("--winsize=").split("x")
+			get_window().size = Vector2i(int(wh[0]), int(wh[1]))
+		elif a.begins_with("--tickets="):
+			main.profile["tickets"] = int(a.trim_prefix("--tickets="))
+		elif a.begins_with("--talents="):
+			var Talents = load("res://scripts/talents.gd")
+			var mode := a.trim_prefix("--talents=")
+			var lv := {}
+			if mode == "full":
+				main.profile["worlds_done"] = [0, 1]
+				main.profile["shards"] = 2
+			for t in Talents.TALENTS:
+				var mx := int(t["max"])
+				if mode == "full":
+					lv[t["id"]] = mx
+				elif mode == "half" and float(t["pos"].y) <= 3.0 and String(t["branch"]) != "fortune":
+					lv[t["id"]] = mini(mx, int(ceil(mx * 0.5)) + (1 if float(t["pos"].y) <= 1.0 else 0))
+			if mode == "half":
+				lv["butin"] = 3
+				lv["aimant"] = 1
+				lv["chance"] = 1
+			main.profile["talents"] = lv
+	main._apply_profile_to_hero()
 
 ## Les événements injectés sont en coordonnées de fenêtre ; le moteur les ramène dans le viewport 1280×720.
 func _win(pos: Vector2) -> Vector2:
@@ -43,7 +73,7 @@ func _drag(index: int, pos: Vector2) -> void:
 
 var _screen_done := false
 
-## Options de capture : --screen=loge|arsenal ouvre l'écran et ne touche à rien ; --stuff équipe des objets d'essai.
+## Options de capture : --screen=loge|arsenal|talents ouvre l'écran et ne touche à rien ; --stuff équipe des objets d'essai.
 func _capture_screen() -> bool:
 	var mode := ""
 	for a in OS.get_cmdline_user_args():
@@ -60,6 +90,8 @@ func _capture_screen() -> bool:
 				main.show_loge()
 			"arsenal":
 				main.show_arsenal()
+			"talents":
+				main.show_talents()
 			"power", "item", "victory", "defeat", "enemy", "tuto", "pause", "hud", "dev":
 				# écrans de partie : on entre directement dans l'arène, Jo reste immobile
 				main.start_run()
@@ -77,7 +109,12 @@ func _capture_screen() -> bool:
 ## Écrans de partie à filmer : l'overlay s'ouvre à 1 s ; `--clickat=S` touche la première carte à S secondes.
 var _shot_done := false
 var _click_done := false
+var _buys := 0
+var _drag_step := -1
 func _capture_events(mode: String) -> void:
+	if mode == "talents":
+		_capture_talents()
+		return
 	if not _shot_done and t > 1.0:
 		_shot_done = true
 		match mode:
@@ -119,6 +156,34 @@ func _capture_events(mode: String) -> void:
 					if not b.disabled:
 						b.pressed.emit()
 						break
+
+## Écran Talents : --select=ID ouvre la fiche à 1 s, --buy=N achète N niveaux (un toutes les 0,9 s dès 1,6 s),
+## --dragtest glisse au doigt sur l'arbre (vrais événements tactiles) et affiche le déplacement.
+func _capture_talents() -> void:
+	var sc: Control = main.screen
+	if sc == null or not sc.has_method("select"):
+		return
+	var args := OS.get_cmdline_user_args()
+	for a in args:
+		if a.begins_with("--select=") and not _shot_done and t > 1.0:
+			_shot_done = true
+			sc.select(a.trim_prefix("--select="))
+		elif a.begins_with("--buy=") and _buys < int(a.trim_prefix("--buy=")) and t > 1.6 + 0.9 * _buys:
+			_buys += 1
+			sc.buy_selected()
+	if "--dragtest" in args:
+		var step := int((t - 1.0) / 0.1)
+		if t > 1.0 and step != _drag_step and step <= 8:
+			_drag_step = step
+			var p := Vector2(760, 420) + Vector2(-260, -60) * (step / 7.0)
+			if step == 0:
+				set_meta("pan0", sc.get("_pan"))
+				_touch(0, p, true)
+			elif step < 8:
+				_drag(0, p)
+			else:
+				_touch(0, p, false)
+				print("TALENTS : glisser ok=%s (défilement %s)" % [str((sc.get("_pan") - get_meta("pan0")).length() > 100.0), str(sc.get("_pan") - get_meta("pan0"))])
 
 func _give_stuff() -> void:
 	var Data = load("res://scripts/data.gd")
