@@ -4,6 +4,7 @@ extends Node3D
 ## Colosse : marcheur blindé à bras-marteaux. Le Portique : mécha quadrupède surmonté d'une tourelle double.
 
 const Models = preload("res://scripts/models.gd")
+const Data = preload("res://scripts/data.gd")
 const Actor3D = preload("res://scripts/actor3d.gd")
 const Rig3D = preload("res://scripts/rig3d.gd")
 ## Échelle des modèles sculptés (conçus à l'échelle de Jo, qui est affichée à 1,75).
@@ -66,6 +67,32 @@ func setup(k: String, is_elite: bool, radius_px: float) -> void:
 		_build_legacy(k, r)
 	add_child(Models.shadow_blob(r * 3.2))
 	_finish_setup(r)
+
+## Préchargement des modèles et scripts d'ennemis en tâche de fond dès le lancement du jeu : sans lui, la
+## première apparition de chaque genre charge son GLB en pleine partie (saccade de 16 à 27 ms sur PC, plus sur
+## téléphone). warm_poll() garde chaque ressource chargée (cache de Models, _held) pour qu'elle ne soit pas libérée.
+static var _warm: Array = []
+static var _held: Array = []
+static func warm_start() -> void:
+	for k in Data.ENEMIES.keys():
+		for path in ["res://scripts/mobs/%s.gd" % k, "res://assets/chars3d/%s.glb" % k, "res://assets/chars3d/%s_elite.glb" % k]:
+			if ResourceLoader.exists(path) and ResourceLoader.load_threaded_request(path) == OK:
+				_warm.append(path)
+
+## Appelé régulièrement tant qu'il reste des chargements ; vrai quand tout est prêt.
+static func warm_poll() -> bool:
+	for path in _warm.duplicate():
+		var st := ResourceLoader.load_threaded_get_status(path)
+		if st == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+			continue
+		_warm.erase(path)
+		if st == ResourceLoader.THREAD_LOAD_LOADED:
+			var res := ResourceLoader.load_threaded_get(path)
+			if path.ends_with(".glb"):
+				Models._scenes[path] = res
+			else:
+				_held.append(res)
+	return _warm.is_empty()
 
 ## Modèle sculpté s'il existe, sinon ancien assemblage de primitives.
 func _build_rig(k: String, is_elite: bool) -> bool:

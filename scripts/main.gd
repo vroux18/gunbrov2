@@ -12,6 +12,7 @@ const JoyScript = preload("res://scripts/joystick.gd")
 const SfxScript = preload("res://scripts/sfx.gd")
 const Art = preload("res://scripts/art.gd")
 const View3D = preload("res://scripts/view3d.gd")
+const Mob3D = preload("res://scripts/mob3d.gd")
 const Fx = preload("res://scripts/ui/fx.gd")
 const CardScript = preload("res://scripts/ui/card.gd")
 const EnemyCardScript = preload("res://scripts/ui/enemy_card.gd")
@@ -45,6 +46,7 @@ var duo: Node  # mode duo (scripts/net/duo.gd) : salon, réseau, partie à deux
 
 func _ready() -> void:
 	randomize()
+	Mob3D.warm_start()  # modèles d'ennemis chargés en tâche de fond pendant le Relais
 	UI.load_fonts()
 	version = String(ProjectSettings.get_setting("application/config/version", "dev"))
 	profile = Save.load_profile()
@@ -112,7 +114,10 @@ func _apply_profile_to_hero() -> void:
 	if view != null:
 		view.set_hero_items(hero.items)
 
+var _warm_done := false
 func _process(_dt: float) -> void:
+	if not _warm_done:
+		_warm_done = Mob3D.warm_poll()
 	if state == "arena":
 		hud.hp = hero.hp / hero.hp_max
 		hud.hp_text = "%d / %d" % [int(ceil(hero.hp)), int(hero.hp_max)]
