@@ -3,9 +3,20 @@ extends "res://scripts/rig3d.gd"
 ## propulsion qui tourne plus vite avec la vitesse, œil qui pulse, antennes et ailerons qui traînent.
 ## Mort : vrille sur elle-même et tombe au sol en ~0,25 s, l'œil s'éteint.
 
+## Énergie des lueurs : la couleur du GLB y est multipliée ; au-delà de ~1,6 le rouge vire au rose.
+const GLOW_E := 1.45
+const GLOW_E_GOLD := 1.1  # l'or de l'élite : plus haut, il jaunit
+
 var _spin := 0.0
 var _seed := -1.0
 var _bank := 0.0
+
+func setup(path: String, tint: Color = Color(1, 1, 1), glow_energy: float = 3.0) -> void:
+	super.setup(path, tint, glow_energy)
+	for mi in meshes:
+		var m: MeshInstance3D = mi
+		if "_glow" in String(m.name) + String(m.get_parent().name):
+			m.material_override = glow_mat(GLOW_E_GOLD if elite else GLOW_E)
 
 func _phase() -> float:
 	if _seed < 0.0:

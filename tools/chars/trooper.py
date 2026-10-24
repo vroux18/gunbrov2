@@ -12,21 +12,21 @@ moucheture au maillage allégé).
 """
 from sculpt import *
 
-PLATE = "#C8CEDC"   # armure claire
-PLATE_M = "#9AA4B6"  # armure moyenne
+PLATE = "#AFB9CF"   # armure claire (un cran sous #C8CEDC : vue du dessus, elle ne doit pas lire blanc)
+PLATE_M = "#8490AB"  # armure moyenne
 UNDER = "#2C3350"   # sous-couche sombre
 UNDER_D = "#1C2136"  # creux, grilles, semelles
 GLOVE = "#4A5370"
 ORANGE = "#FF7A2F"
-RED = "#FF4D6D"
-EYE = "#FFD3DC"  # yeux dans la visière (lumineux)
-GOLD = "#FFB347"
+RED = "#FF1E14"   # lueur rouge franc : sans bleu, elle ne vire pas au rose quand elle pulse
+EYE = "#FFE4DC"  # yeux dans la visière (lumineux)
+GOLD = "#FF8410"  # lueur or (énergie ~1 : rendu proche de #FFA41C)
 EYE_GOLD = "#FFF1D0"
-GOLD_P = "#E8A53A"  # or « matière » (épaulières, ornements éclairés)
-GOLD_D = "#A8661E"
+GOLD_P = "#EE8530"  # or « matière » (épaulières, ornements éclairés) : or franc, pas jaune pâle
+GOLD_D = "#B05A12"
 CAPE = "#8A2440"
 
-TRI = 0.74  # facteur global du budget de triangles (≤ 12 000)
+TRI = 0.71  # facteur global du budget de triangles (≤ 12 000)
 SCALE = 1.06  # le garde est sculpté à l'échelle de Jo puis agrandi (hauteur finale ~1,2)
 
 # repères partagés avec scripts/mobs/trooper.gd (avant SCALE)

@@ -27,20 +27,27 @@ var elite := false
 
 static var _body_mats := {}
 static var _glow_mats := {}
+static var _char_shader: Shader = null
+static var _outline_mat: ShaderMaterial = null
+## Contour des personnages (coque inversée) : une passe de plus par pièce ; « --no-outline » le coupe.
+static var outline_enabled := not ("--no-outline" in OS.get_cmdline_user_args())
 
-static func body_mat(tint: Color) -> StandardMaterial3D:
+## Matériau des pièces sculptées : shaders/character.gdshader (rampe douce, liseré, reflet net) et
+## son contour en deuxième passe. Paramètres : « tint » (couleur multipliée), « heat » (lueur ajoutée).
+static func body_mat(tint: Color) -> ShaderMaterial:
 	var key := tint.to_html()
 	if _body_mats.has(key):
 		return _body_mats[key]
-	var m := StandardMaterial3D.new()
-	m.vertex_color_use_as_albedo = true
-	m.vertex_color_is_srgb = true
-	m.albedo_color = tint
-	m.roughness = 0.62
-	m.metallic_specular = 0.35
-	m.rim_enabled = true
-	m.rim = 0.45
-	m.rim_tint = 0.35
+	if _char_shader == null:
+		_char_shader = load("res://shaders/character.gdshader")
+	var m := ShaderMaterial.new()
+	m.shader = _char_shader
+	m.set_shader_parameter("tint", tint)
+	if outline_enabled:
+		if _outline_mat == null:
+			_outline_mat = ShaderMaterial.new()
+			_outline_mat.shader = load("res://shaders/character_outline.gdshader")
+		m.next_pass = _outline_mat
 	_body_mats[key] = m
 	return m
 
