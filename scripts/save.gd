@@ -16,11 +16,17 @@ static func default_profile() -> Dictionary:
 		"best_room": 0,
 		"runs": 0,
 		"kills": 0,
+		"seen_enemies": [],  # genres déjà présentés par la carte « NOUVEL ENNEMI »
+		"tutorial_done": false,  # tutoriel des deux pouces fait
 	}
+
+## `--fresh` (captures, essais) : profil neuf, écrit à part pour ne pas toucher la vraie sauvegarde.
+static func _path() -> String:
+	return "user://passeurs_fresh.json" if "--fresh" in OS.get_cmdline_user_args() else PATH
 
 static func load_profile() -> Dictionary:
 	var p := default_profile()
-	if not FileAccess.file_exists(PATH):
+	if "--fresh" in OS.get_cmdline_user_args() or not FileAccess.file_exists(PATH):
 		return p
 	var f := FileAccess.open(PATH, FileAccess.READ)
 	if f == null:
@@ -31,6 +37,9 @@ static func load_profile() -> Dictionary:
 	for k in p.keys():
 		if parsed.has(k):
 			p[k] = parsed[k]
+	# ancienne sauvegarde : qui a déjà joué n'a pas besoin du tutoriel
+	if not parsed.has("tutorial_done") and int(p["runs"]) > 0:
+		p["tutorial_done"] = true
 	# sécurité : arsenal borné et connu
 	var ars := []
 	for id in p["arsenal"]:
@@ -42,7 +51,7 @@ static func load_profile() -> Dictionary:
 	return p
 
 static func save_profile(p: Dictionary) -> void:
-	var f := FileAccess.open(PATH, FileAccess.WRITE)
+	var f := FileAccess.open(_path(), FileAccess.WRITE)
 	if f == null:
 		push_warning("Passeurs : impossible d'écrire la sauvegarde")
 		return
