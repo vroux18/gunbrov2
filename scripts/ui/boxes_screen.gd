@@ -3,8 +3,10 @@ extends Control
 ## commun (UI.screen_header). Jo reste visible à gauche (gros plan du Relais 3D).
 ## COFFRES : le coffre choisi en 3D qui se balance, ce qu'il contient en clair, OUVRIR, TOUT ; à droite les
 ## quatre raretés avec leur nombre.
-## APPARENCES : apparences de Jo et traînées de tir, obtenues ou verrouillées (silhouette, rareté), en grandes
-## tuiles qui défilent ; toucher une apparence obtenue l'équipe (Jo change aussitôt au Relais et en jeu).
+## APPARENCES : on choisit en regardant la grande Jo 3D. Vignettes de Jo en 3D dans chaque apparence (rendues une
+## fois, scripts/ui/boxes_thumbs.gd), aussi pour celles pas encore obtenues (assombries, cadenas) ; toucher une
+## vignette l'essaie sur Jo, la fiche sous Jo dit PORTER ou dans quels coffres la gagner. Onglet des traînées de
+## tir : Jo tire, les tirs prennent la traînée touchée.
 
 const UI = preload("res://scripts/ui.gd")
 const Fx = preload("res://scripts/ui/fx.gd")
@@ -13,6 +15,8 @@ const Loot = preload("res://scripts/loot.gd")
 const Art = preload("res://scripts/ui/boxes_art.gd")
 const Stage = preload("res://scripts/ui/boxes_stage.gd")
 const Opener = preload("res://scripts/ui/boxes_open.gd")
+const Thumbs = preload("res://scripts/ui/boxes_thumbs.gd")
+const Rig3D = preload("res://scripts/rig3d.gd")
 
 var main: Node
 var tab := "coffres"
@@ -31,6 +35,7 @@ func build(m: Node, which: String, fresh: bool) -> void:
 	UI.load_fonts()
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	process_priority = 100  # après le Relais 3D : l'aperçu des tirs oriente Jo
 	vs = get_viewport().get_visible_rect().size
 	add_child(main._side_shade(0.2))
 	if fresh:
@@ -67,7 +72,9 @@ func _refresh(anim: bool = false) -> void:
 	if tab == "coffres":
 		head = UI.screen_header(get_viewport(), "COFFRES", "Ouvre tes coffres pour gagner tickets, objets et apparences.", UI.GOLD, main.show_base, m[0], m[1])
 	else:
-		head = UI.screen_header(get_viewport(), "APPARENCES", "Touche une apparence pour l'équiper. Les autres sortent des coffres.", UI.ACCENT, main.show_base, m[0], m[1])
+		head = UI.screen_header(get_viewport(), "APPARENCES", "Touche une vignette pour l'essayer sur Jo, puis PORTER pour la garder.", UI.ACCENT, func():
+			_restore_try()
+			main.show_base(), m[0], m[1])
 	body.add_child(head)
 	var top := UI.header_height(get_viewport()) + 14.0
 	var area := Rect2(x0, top, x1 - x0, vs.y - top - 10.0 - float(ins["bottom"]))
@@ -229,95 +236,336 @@ func open(boxes: Array, serial: bool) -> void:
 		main.on_boxes_changed()
 		_refresh(true))
 
-# ---------------------------------------------------------------- COLLECTION
+# ---------------------------------------------------------------- APPARENCES (identifiant interne : collection)
+## Choisir en regardant la grande Jo 3D du Relais : toucher une vignette l'essaie aussitôt sur elle (même non
+## obtenue), la fiche en bas à gauche dit son nom, sa rareté, et PORTER (obtenue) ou les coffres où la gagner.
+## En quittant l'écran, Jo reprend l'apparence portée. Onglet TRAÎNÉES : Jo vise et tire, les tirs prennent la
+## traînée essayée.
+const CARD_H := 174.0
+const AIM_YAW := 1.2  # Jo de trois quarts, tournée vers la droite : elle tire vers les vignettes
+const SHOT_EVERY := 0.16
+const SHOT_SPEED := 7.0  # m/s dans le Relais 3D
+const SHOT_LIFE := 0.6
+const SHOT_LEN := 1.2  # longueur de la traînée (m)
+const SHOT_W := 80.0  # épaisseur à l'écran, divisée par la distance à la caméra
+
+var ctab := "skin"  # onglet : skin (apparences) | trail (traînées)
+var try_id := {"skin": "", "trail": ""}  # essayé ("" : celui qui est porté)
+var _tiles := {}  # id d'apparence -> TextureRect de sa vignette
+var _thumbs: Thumbs = null
+var _shots: Array = []  # tirs de l'aperçu : {p, d, age, col}
+var _shot_cv: Control = null
+var _shot_cd := 0.0
+var _shot_i := 0
+var _aim_k := 0.0
+
+func _hero_rig() -> Rig3D:
+	if main == null or not is_instance_valid(main.view) or main.view.relais == null:
+		return null
+	return main.view.relais.get_meta("hero") as Rig3D
+
+func _shown(kind: String) -> String:
+	var id := String(try_id[kind])
+	return id if id != "" else String(main.profile[kind])
+
+## Jo reprend ce qu'elle porte vraiment (apparence, bras baissés).
+func _restore_try() -> void:
+	if main == null or not is_instance_valid(main):
+		return
+	Loot.apply_skin(main.profile)
+	var rh := _hero_rig()
+	if rh != null:
+		rh.shooting = 0.0
+	try_id = {"skin": "", "trail": ""}
+
+func _exit_tree() -> void:
+	if tab == "collection":
+		_restore_try()
+
 func _build_collection(area: Rect2, anim: bool) -> void:
 	var p: Dictionary = main.profile
-	# fond sombre derrière la grille (le Relais 3D ne gêne pas la lecture)
+	var ins := UI.safe_insets(get_viewport())
+	if _thumbs == null:
+		_thumbs = Thumbs.new()
+		add_child(_thumbs)
+		_thumbs.rendered.connect(_on_thumb)
+		for a in OS.get_cmdline_user_args():  # captures : --ctab=trail, --try=<id>
+			if a.begins_with("--ctab="):
+				ctab = a.trim_prefix("--ctab=")
+			elif a.begins_with("--try="):
+				try_id[ctab] = a.trim_prefix("--try=")
+		Rig3D.set_hero_skin(Loot.skin_palette(_shown("skin")))
+	# tirs de l'aperçu, sous les panneaux
+	_shot_cv = Control.new()
+	_shot_cv.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_shot_cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_shot_cv.draw.connect(_draw_shots)
+	body.add_child(_shot_cv)
+	body.move_child(_shot_cv, 0)
+	# ---- à gauche, sous Jo : la fiche de ce qu'elle essaie
+	var lx := 16.0 + float(ins["left"])
+	var card := Rect2(lx, vs.y - 10.0 - float(ins["bottom"]) - CARD_H, area.position.x - 18.0 - lx, CARD_H)
+	_build_detail(card, anim)
+	# ---- à droite : deux onglets, puis les vignettes qui défilent
+	var tabs_h := 76.0
+	var tw2 := (area.size.x - 12.0) * 0.5
+	var k := 0
+	for tdef in [["skin", "APPARENCES", Loot.SKINS, "skins"], ["trail", "TRAÎNÉES DE TIR", Loot.TRAILS, "trails"]]:
+		var on: bool = ctab == tdef[0]
+		var b := UI.button("%s   %d/%d" % [tdef[1], (p[tdef[3]] as Array).size(), (tdef[2] as Array).size()], 26, UI.ACCENT)
+		b.position = Vector2(area.position.x + k * (tw2 + 12.0), area.position.y)
+		b.size = Vector2(tw2, tabs_h)
+		b.clip_text = true
+		if on:
+			for st in ["normal", "hover", "pressed", "hover_pressed"]:
+				b.add_theme_stylebox_override(st, UI.chunky(UI.ACCENT, UI.ACCENT.darkened(0.5), st.contains("pressed")))
+			for fc in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
+				b.add_theme_color_override(fc, UI.INK)
+		else:
+			for fc in ["font_color", "font_hover_color"]:
+				b.add_theme_color_override(fc, UI.SOFT)
+		var kind: String = tdef[0]
+		b.pressed.connect(func():
+			if ctab != kind:
+				ctab = kind
+				main.sfx.play("click", 1.1, -6.0)
+				_refresh())
+		body.add_child(b)
+		k += 1
+	var top := area.position.y + tabs_h + 10.0
+	# traînées : la grille laisse un couloir de tir entre Jo et les vignettes
+	var lane := clampf(area.size.x * 0.16, 110.0, 170.0) if ctab == "trail" else 0.0
 	var pane := Panel.new()
 	pane.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pane.position = area.position - Vector2(10, 4)
-	pane.size = area.size + Vector2(20, 8)
-	pane.add_theme_stylebox_override("panel", UI.flat(Color("#0A1430", 0.88), Color(UI.ACCENT, 0.25), 20, 2))
+	pane.position = Vector2(area.position.x + lane, top)
+	pane.size = Vector2(area.size.x - lane, area.end.y - top)
+	pane.add_theme_stylebox_override("panel", UI.flat(Color("#0A1430", 0.9), Color(UI.ACCENT, 0.25), 20, 2))
 	body.add_child(pane)
 	var scroll := UI.scroll()
-	scroll.position = area.position + Vector2(6, 8)
-	scroll.size = area.size - Vector2(12, 12)
+	scroll.position = pane.position + Vector2(8, 8)
+	scroll.size = pane.size - Vector2(12, 16)
 	body.add_child(scroll)
-	var list := UI.vbox(12)
-	list.custom_minimum_size = Vector2(scroll.size.x - 14.0, 0)
-	scroll.add_child(list)
-	var cols := clampi(int((scroll.size.x - 14.0 + 12.0) / 172.0), 3, 8)
-	var tw := (scroll.size.x - 14.0 - (cols - 1) * 12.0) / cols
-	for sec in [["skin", "APPARENCES DE JO", Loot.SKINS, "skins", "skin"], ["trail", "TRAÎNÉES DE TIR", Loot.TRAILS, "trails", "trail"]]:
-		var owned: Array = p[sec[3]]
-		var h := UI.hbox(14)
-		list.add_child(h)
-		h.add_child(UI.title(String(sec[1]), 28, UI.TEXT, UI.ACCENT))
-		h.add_child(UI.title("%d / %d obtenues" % [owned.size(), (sec[2] as Array).size()], 24, UI.SOFT, UI.INK))
-		var grid := GridContainer.new()
-		grid.columns = cols
-		grid.add_theme_constant_override("h_separation", 12)
-		grid.add_theme_constant_override("v_separation", 12)
-		list.add_child(grid)
-		for c in sec[2]:
-			var b := _cosmetic_tile(String(sec[0]), c, owned.has(c["id"]), String(p[sec[4]]) == String(c["id"]), Vector2(tw, tw * 1.18))
-			grid.add_child(b)
-			if anim:
-				Fx.rise_in(b, 0.04 + 0.012 * grid.get_child_count(), 0.26, 0.8)
+	var sw := scroll.size.x - 14.0
+	var cols := clampi(int((sw + 12.0) / 190.0), 3, 6)
+	var tw := (sw - (cols - 1) * 12.0) / cols
+	var tsz := Vector2(tw, roundf(tw * 0.92 + 66.0))
+	var grid := GridContainer.new()
+	grid.columns = cols
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 12)
+	grid.custom_minimum_size = Vector2(sw, 0)
+	scroll.add_child(grid)
+	_tiles.clear()
+	var list: Array = Loot.SKINS if ctab == "skin" else Loot.TRAILS
+	var owned: Array = p["skins" if ctab == "skin" else "trails"]
+	for c in list:
+		var id := String(c["id"])
+		var b := _cosmetic_tile(ctab, c, owned.has(id), String(p[ctab]) == id, id == _shown(ctab), tsz)
+		grid.add_child(b)
+		if anim:
+			Fx.rise_in(b, 0.04 + 0.015 * grid.get_child_count(), 0.26, 0.85)
+	# la vignette regardée (au départ : celle qui est portée) est visible sans chercher
+	var vi := 0
+	for i in range(list.size()):
+		if String(list[i]["id"]) == _shown(ctab):
+			vi = i
+	scroll.set_deferred("scroll_vertical", int(maxf(0.0, floorf(vi / float(cols)) * (tsz.y + 12.0) + tsz.y * 0.5 - scroll.size.y * 0.5)))
+	# vignettes 3D : celle qu'on regarde d'abord, puis les obtenues, puis les autres
+	var ids := [_shown("skin")]
+	for c in Loot.SKINS:
+		if (p["skins"] as Array).has(c["id"]):
+			ids.append(c["id"])
+	for c in Loot.SKINS:
+		ids.append(c["id"])
+	_thumbs.start(ids)
 
-func _cosmetic_tile(kind: String, c: Dictionary, owned: bool, equipped: bool, sz: Vector2) -> Button:
+## Fiche sous Jo : nom, rareté, état, et l'action (PORTER, PORTÉE, ou les coffres où la gagner).
+func _build_detail(r: Rect2, anim: bool) -> void:
+	var kind := ctab
+	var id := _shown(kind)
+	var c := Loot.cosmetic(kind, id)
 	var tier := int(c["tier"])
 	var col: Color = Loot.TIER_COLORS[tier]
+	var owned := (main.profile["skins" if kind == "skin" else "trails"] as Array).has(id)
+	var equipped := String(main.profile[kind]) == id
+	var pane := Panel.new()
+	pane.mouse_filter = Control.MOUSE_FILTER_STOP
+	pane.position = r.position
+	pane.size = r.size
+	var st := UI.flat(Color("#0A1430", 0.94), Color(col, 0.8), 20, 3)
+	st.border_width_top = 6
+	pane.add_theme_stylebox_override("panel", st)
+	body.add_child(pane)
+	var v := UI.vbox(4)
+	v.position = Vector2(16, 10)
+	v.size = Vector2(r.size.x - 32, r.size.y - 20)
+	pane.add_child(v)
+	var nm := UI.title(String(c["name"]).to_upper(), 34, col.lightened(0.45), col.darkened(0.55))
+	nm.clip_text = true
+	nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	v.add_child(nm)
+	var row := UI.hbox(10)
+	row.add_child(UI.tag(Loot.TIER_NAMES[tier], col, UI.INK, 20))
+	var sl := UI.label("Apparence de Jo" if kind == "skin" else "Traînée de tir", 22, UI.SOFT)
+	sl.clip_text = true
+	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(sl)
+	v.add_child(row)
+	var gap := Control.new()
+	gap.custom_minimum_size = Vector2(0, 2)
+	v.add_child(gap)
+	var act_h := 74.0
+	if owned and not equipped:
+		var b := UI.primary("PORTER", 34)
+		b.custom_minimum_size = Vector2(0, act_h)
+		b.pressed.connect(func(): _equip(kind, id))
+		v.add_child(b)
+		Fx.shine(b, 260.0, 2.2, 0.5)
+		if anim:
+			Fx.rise_in(b, 0.2, 0.3, 0.8)
+	else:
+		var box := PanelContainer.new()
+		box.custom_minimum_size = Vector2(0, act_h)
+		var bs := UI.flat(Color("#13203F", 1.0), Color(col, 0.45) if owned else Color(UI.LINE, 1.0), 16, 2)
+		bs.content_margin_left = 12
+		bs.content_margin_right = 12
+		bs.content_margin_top = 4
+		bs.content_margin_bottom = 4
+		box.add_theme_stylebox_override("panel", bs)
+		box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		v.add_child(box)
+		var h := UI.hbox(12)
+		h.alignment = BoxContainer.ALIGNMENT_CENTER if owned else BoxContainer.ALIGNMENT_BEGIN
+		box.add_child(h)
+		if owned:
+			h.add_child(UI.title("PORTÉE", 30, col.lightened(0.3), UI.INK))
+		else:
+			var lock := Control.new()
+			lock.custom_minimum_size = Vector2(40, 52)
+			lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			lock.draw.connect(func(): Thumbs.draw_lock(lock, Vector2(20, 28), 40.0, UI.SOFT, UI.INK))
+			h.add_child(lock)
+			var tv := UI.vbox(0)
+			tv.alignment = BoxContainer.ALIGNMENT_CENTER
+			tv.add_child(UI.label("Dans les coffres", 22, UI.SOFT))
+			var names := HFlowContainer.new()
+			names.add_theme_constant_override("h_separation", 14)
+			for bx in Loot.TIER_BOXES[tier]:
+				names.add_child(UI.title(String(Loot.BOX_NAMES[bx]).to_upper(), 24, (Loot.BOX_COLORS[bx] as Color).lightened(0.15), UI.INK))
+			tv.add_child(names)
+			tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			h.add_child(tv)
+	if anim:
+		Fx.slide_in(pane, Vector2(0, 60), 0.05, 0.3)
+
+func _cosmetic_tile(kind: String, c: Dictionary, owned: bool, equipped: bool, viewed: bool, sz: Vector2) -> Button:
+	var tier := int(c["tier"])
+	var col: Color = Loot.TIER_COLORS[tier]
+	var id := String(c["id"])
 	var b := Button.new()
 	b.custom_minimum_size = sz
 	b.focus_mode = Control.FOCUS_NONE
-	var st := UI.flat(Color("#15234A", 0.94) if owned else Color("#0D1730", 0.94), col if equipped else Color(col, 0.55 if owned else 0.22), 16, 4 if equipped else 2)
+	var bg := col.darkened(0.78) if owned else Color("#0D1730")
+	var st := UI.flat(Color(bg, 0.97), UI.TEXT if viewed else Color(col, 0.7 if owned else 0.35), 16, 4 if viewed else 2)
 	st.border_width_bottom = 7
 	for k in ["normal", "hover", "pressed", "disabled", "hover_pressed"]:
 		b.add_theme_stylebox_override(k, st)
+	var dim := Color(1, 1, 1) if owned else Color(0.42, 0.45, 0.58)
+	var ar := Rect2(Vector2(6, 6), Vector2(sz.x - 12, sz.y - 72))
 	var art := Control.new()
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	art.position = Vector2(sz.x * 0.14, 10)
-	art.size = Vector2(sz.x * 0.72, sz.y * 0.6)
-	var animated := kind == "trail" or bool(c.get("rainbow", false))
-	art.draw.connect(func():
-		if kind == "skin":
-			Art.draw_skin(art, Rect2(Vector2.ZERO, art.size), c, not owned, t)
-		else:
-			Art.draw_trail(art, Rect2(Vector2(0, art.size.y * 0.15), art.size * Vector2(1, 0.7)), c, not owned, t))
+	art.position = ar.position
+	art.size = ar.size
+	art.clip_contents = true
 	b.add_child(art)
-	if animated and owned:
+	var tex: TextureRect = null
+	if kind == "skin":
+		tex = TextureRect.new()
+		tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tex.size = Vector2(ar.size.x, ar.size.y + 6)
+		tex.self_modulate = dim
+		tex.texture = Thumbs.cache.get(id)
+		art.add_child(tex)
+		_tiles[id] = tex
+	var tex_ref := tex
+	art.draw.connect(func():
+		# fond : halo de la rareté derrière Jo (ou derrière les tirs)
+		var cc := Vector2(art.size.x * 0.5, art.size.y * 0.52)
+		var rad := art.size.y * 0.5
+		for i in range(6):
+			art.draw_circle(cc, rad * (1.0 - i * 0.14), Color(col, (0.05 + 0.025 * i) * (1.0 if owned else 0.45)))
+		if kind == "skin":
+			if tex_ref.texture == null:
+				Art.draw_skin(art, Rect2(Vector2(0, 4), art.size - Vector2(0, 4)), c, false, t)
+		else:
+			Art.draw_trail(art, Rect2(Vector2(0, art.size.y * 0.12), art.size * Vector2(1, 0.76)), c, false, t))
+	if kind == "trail" or tex == null or tex.texture == null:
+		art.self_modulate = dim
 		_anim.append(art)
-	var nm := UI.label(String(c["name"]) if owned else "À gagner", 24, UI.TEXT if owned else UI.SOFT, HORIZONTAL_ALIGNMENT_CENTER)
-	nm.position = Vector2(4, sz.y * 0.62)
+	if not owned:
+		var lk := Control.new()
+		lk.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		lk.position = Vector2(sz.x - 50, 10)
+		lk.size = Vector2(40, 46)
+		lk.draw.connect(func(): Thumbs.draw_lock(lk, Vector2(20, 24), 34.0, UI.SOFT, UI.INK))
+		b.add_child(lk)
+	var nm := UI.label(String(c["name"]), 24, UI.TEXT if owned else UI.SOFT, HORIZONTAL_ALIGNMENT_CENTER)
+	nm.position = Vector2(4, sz.y - 64)
 	nm.size = Vector2(sz.x - 8, 30)
 	nm.clip_text = true
 	nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	b.add_child(nm)
-	var tl := UI.label(Loot.TIER_NAMES[tier], UI.FS_SMALL, col if owned else col.darkened(0.1), HORIZONTAL_ALIGNMENT_CENTER)
-	tl.position = Vector2(4, sz.y * 0.62 + 28)
+	var tl := UI.label(Loot.TIER_NAMES[tier], UI.FS_SMALL, col.lightened(0.1) if owned else col.darkened(0.1), HORIZONTAL_ALIGNMENT_CENTER)
+	tl.position = Vector2(4, sz.y - 36)
 	tl.size = Vector2(sz.x - 8, 26)
 	b.add_child(tl)
 	if equipped:
 		var tg := UI.tag("PORTÉE", col, UI.INK, 20)
-		tg.position = Vector2(6, 6)
+		tg.position = Vector2(8, 8)
 		b.add_child(tg)
-	b.pressed.connect(func():
-		if not owned:
-			_toast("%s %s : à gagner dans les coffres" % ["Apparence" if kind == "skin" else "Traînée de tir", Loot.TIER_NAMES[tier].to_lower()], col)
-			main.sfx.play("click", 0.7, -8.0)
-			return
-		if equipped:
-			return
-		main.profile[kind] = String(c["id"])
-		Save.save_profile(main.profile)
-		main.on_boxes_changed()
-		main.sfx.play("pick", 1.1, -4.0)
-		var keep := _scroll_pos()
-		_refresh()
-		_set_scroll(keep)
-		_toast("%s : %s" % ["Apparence de Jo" if kind == "skin" else "Traînée de tir", String(c["name"])], col))
+	b.pressed.connect(func(): _try(kind, id))
 	return b
+
+## Toucher une vignette : Jo l'essaie tout de suite (même pas encore obtenue).
+func _try(kind: String, id: String) -> void:
+	if id == _shown(kind):
+		return
+	try_id[kind] = id
+	if kind == "skin":
+		Rig3D.set_hero_skin(Loot.skin_palette(id))
+	else:
+		_shot_cd = 0.0
+	var owned := (main.profile["skins" if kind == "skin" else "trails"] as Array).has(id)
+	main.sfx.play("pick" if owned else "click", 1.15, -6.0)
+	var keep := _scroll_pos()
+	_refresh()
+	_set_scroll(keep)
+
+func _equip(kind: String, id: String) -> void:
+	main.profile[kind] = id
+	Save.save_profile(main.profile)
+	main.on_boxes_changed()  # remet l'apparence portée (Loot.apply_skin) : c'est celle qu'on vient de choisir
+	try_id[kind] = ""
+	main.sfx.play("pick", 1.1, -4.0)
+	var keep := _scroll_pos()
+	_refresh()
+	_set_scroll(keep)
+	var c := Loot.cosmetic(kind, id)
+	_toast("%s : %s" % ["Jo porte" if kind == "skin" else "Traînée de tir", String(c["name"])], Loot.TIER_COLORS[int(c["tier"])])
+
+func _on_thumb(id: String, tex: Texture2D) -> void:
+	var tr = _tiles.get(id)
+	if tr == null or not is_instance_valid(tr):
+		return
+	(tr as TextureRect).texture = tex
+	var art := (tr as Control).get_parent() as Control
+	_anim.erase(art)
+	art.self_modulate = Color(1, 1, 1)
+	art.queue_redraw()
+	(tr as Control).modulate.a = 0.0
+	Fx._tw(tr).tween_property(tr, "modulate:a", 1.0, 0.25)
 
 func _scroll_pos() -> int:
 	for s in body.find_children("*", "ScrollContainer", true, false):
@@ -336,8 +584,69 @@ func _toast(text: String, col: Color) -> void:
 	tw.tween_interval(1.6)
 	tw.tween_property(toast, "modulate:a", 0.0, 0.4)
 
+# ---------------------------------------------------------------- aperçu des traînées : Jo tire
+func _tick_shots(dt: float) -> void:
+	var rh := _hero_rig()
+	if rh == null:
+		return
+	var aiming := ctab == "trail" and opener == null
+	_aim_k = move_toward(_aim_k, 1.0 if aiming else 0.0, dt * 3.0)
+	if _aim_k > 0.0:
+		# après le Relais (process_priority) : Jo se tourne de profil et vise
+		var k := smoothstep(0.0, 1.0, _aim_k)
+		rh.rotation.y = lerp_angle(rh.rotation.y, AIM_YAW, k)
+		rh.set_motion(0.0, 1.0 if aiming else 0.0)
+	if aiming and _aim_k > 0.85:
+		_shot_cd -= dt
+		if _shot_cd <= 0.0:
+			_shot_cd = SHOT_EVERY
+			_fire(rh)
+	for s in _shots:
+		s["age"] = float(s["age"]) + dt
+	_shots = _shots.filter(func(s): return float(s["age"]) < SHOT_LIFE)
+	if _shot_cv != null and is_instance_valid(_shot_cv):
+		_shot_cv.queue_redraw()
+
+## Un tir part du canon de Jo, dans l'axe de l'arme ; suivi dans le monde 3D du Relais, dessiné en 2D par-dessus.
+func _fire(rh: Rig3D) -> void:
+	var gun := rh.p("gun")
+	if gun == null:
+		return
+	var fw := (gun.global_transform.basis * Vector3(0, -1, 0)).normalized()
+	_shot_i += 1
+	_shots.append({"from": rh.muzzle_position(), "dir": fw, "age": 0.0, "col": Loot.trail_color(_shown("trail"), _shot_i)})
+	rh.fire()
+
+func _draw_shots() -> void:
+	if _shots.is_empty() or not is_instance_valid(main.view):
+		return
+	var cam: Camera3D = main.view.cam
+	for s in _shots:
+		var age := float(s["age"])
+		var a := clampf(age / 0.03, 0.0, 1.0) * clampf((SHOT_LIFE - age) / 0.15, 0.0, 1.0)
+		if age < 0.08 and not cam.is_position_behind(s["from"]):
+			# éclair au canon
+			var f2 := cam.unproject_position(s["from"])
+			var fk := 1.0 - age / 0.08
+			_shot_cv.draw_circle(f2, 6.0 + 16.0 * fk, Color(s["col"], 0.45 * fk))
+			_shot_cv.draw_circle(f2, 3.0 + 7.0 * fk, Color(1, 1, 1, 0.85 * fk))
+		var dir: Vector3 = s["dir"]
+		var head: Vector3 = (s["from"] as Vector3) + dir * SHOT_SPEED * age
+		var tail: Vector3 = (s["from"] as Vector3) + dir * maxf(0.0, SHOT_SPEED * age - SHOT_LEN)
+		if cam.is_position_behind(head) or cam.is_position_behind(tail):
+			continue
+		var h2 := cam.unproject_position(head)
+		var t2 := cam.unproject_position(tail)
+		var ln := h2.distance_to(t2)
+		if ln < 1.0:
+			continue
+		var w := clampf(SHOT_W / maxf(cam.global_position.distance_to(head), 0.5), 3.0, 12.0)
+		Thumbs.draw_bolt(_shot_cv, h2, (h2 - t2) / ln, ln, w, s["col"], a)
+
 func _process(dt: float) -> void:
 	t += dt
 	for a in _anim:
 		if is_instance_valid(a):
 			(a as Control).queue_redraw()
+	if tab == "collection":
+		_tick_shots(dt)

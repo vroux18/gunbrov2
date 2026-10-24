@@ -25,6 +25,9 @@ const BOX_HINT := {
 # ---------------------------------------------------------------- raretés des cosmétiques
 const TIER_NAMES := ["COMMUNE", "RARE", "ÉPIQUE", "LÉGENDAIRE"]
 const TIER_COLORS := [Color("#9FB3C8"), Color("#3CF2D8"), Color("#C77DFF"), Color("#FFB347")]
+## Coffres où un cosmétique de chaque rareté a une vraie chance de sortir (au moins 5 % par coffre, d'après
+## les tirages de roll() : à garder d'accord). Affiché sur l'écran APPARENCES (« Dans les coffres OR, LÉGENDAIRE »).
+const TIER_BOXES := [["bronze", "argent", "or"], ["argent", "or", "legendaire"], ["or", "legendaire"], ["or", "legendaire"]]
 ## Un doublon rapporte des tickets selon sa rareté.
 const DUP_TICKETS := [30, 80, 200, 500]
 
