@@ -10,6 +10,7 @@ var click_t := 0.0
 
 var _room_jump_done := false
 var _chest_done := false
+var _door_pick := randi() % 3
 var touch_test := false  # --touchtest : simule de vrais doigts sur les sticks au lieu de piloter le joystick
 var _touch_t := 0.0
 var _touch_started := false
@@ -141,6 +142,9 @@ func _process(dt: float) -> void:
 		dir = (away + pull + Vector2(randf_range(-1, 1), randf_range(-1, 1))).normalized()
 		if arena.cleared and not arena.chest.is_empty() and not arena.chest["open"]:
 			dir = (arena.chest["pos"] - hero.position).normalized()
+		if not arena.doors.is_empty():
+			dir = (arena.doors[_door_pick % arena.doors.size()]["pos"] - hero.position).normalized()
+			dir = arena.steer(hero.position, dir, hero.radius)
 	main.joy.bot_move = dir
 	var target: Node2D = arena.nearest_enemy(hero.position, hero.rng)
 	if target != null:

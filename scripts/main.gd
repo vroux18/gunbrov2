@@ -63,6 +63,7 @@ func _ready() -> void:
 	add_child(ui_layer)
 	arena.energy_full.connect(_show_power_choice)
 	arena.room_cleared.connect(_on_room_cleared)
+	arena.door_taken.connect(_on_door_taken)
 	arena.item_found.connect(_show_item)
 	arena.hero_died.connect(_on_hero_died)
 	arena.wave_changed.connect(func():
@@ -487,33 +488,37 @@ func _after_item() -> void:
 func _on_room_cleared() -> void:
 	hud.flash("SALLE %d TERMINÉE" % arena.room, 2.2, UI.GOLD)
 
+## Fin de salle : trois portails s'ouvrent dans l'arène (rendus en 3D par view3d.gd), Jo choisit sa route
+## en entrant dans l'un d'eux. Avant le boss, un seul portail.
 func _show_doors() -> void:
-	_pause_for_overlay()
 	var next: int = arena.room + 1
-	var box := _card_overlay("TROIS PORTAILS", "Salle %d · choisis ta route" % next)
-	var row := UI.hbox(22)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_child(row)
 	var doors := [
-		["COMBAT", "Vagues normales, coffre normal.", "combat", UI.ACCENT, "portal"],
-		["ÉLITE", "Une élite dorée en fin de salle. Meilleur coffre.", "elite", UI.DANGER, "skull"],
-		["TRÉSOR", "Moins d'ennemis, meilleur coffre, moins d'énergie.", "tresor", UI.GOLD, "chest"],
+		{"kind": "combat", "title": "COMBAT", "desc": "Vagues normales · coffre normal", "col": UI.ACCENT},
+		{"kind": "elite", "title": "ÉLITE", "desc": "Une élite dorée · meilleur coffre", "col": UI.DANGER},
+		{"kind": "tresor", "title": "TRÉSOR", "desc": "Moins d'ennemis · meilleur coffre", "col": UI.GOLD},
 	]
 	if next >= Data.ROOMS:
-		doors = [["LE PORTIQUE", "Le gardien de l'éclat du Cœur.", "combat", UI.DANGER, "skull"]]
-	var i := 0
-	for d in doors:
-		var b := UI.card(String(d[4]), String(d[0]), String(d[1]), d[3], Vector2(250, 300))
-		UI.pop_in(b, 0.06 * i)
-		i += 1
-		b.pressed.connect(func():
-			_resume()
-			arena.start_room(next, String(d[2]))
-			view.start_room()
-			hud.fade = 1.0
-			hud.flash(("SALLE %d" % next) if next < Data.ROOMS else "LE PORTIQUE", 1.8, UI.DANGER if next >= Data.ROOMS else UI.TEXT)
-			sfx.play("portal"))
-		row.add_child(b)
+		doors = [{"kind": "combat", "title": "LE PORTIQUE", "desc": "Le gardien de l'éclat du Cœur", "col": Color("#F23CB8")}]
+	_next_room = next
+	arena.open_doors(doors)
+	hud.flash("CHOISIS TON PORTAIL", 1.1, UI.ACCENT)
+
+var _next_room := 0
+
+func _on_door_taken(d: Dictionary) -> void:
+	sfx.play("portal")
+	joy.enabled = false
+	joy.reset()
+	view.door_enter(d)
+	await get_tree().create_timer(0.55, false).timeout
+	if state != "arena":
+		return
+	joy.enabled = true
+	var next := _next_room
+	arena.start_room(next, String(d["kind"]))
+	view.start_room()
+	hud.fade = 1.0
+	hud.flash(("SALLE %d · %s" % [next, String(d["title"])]) if next < Data.ROOMS else "LE PORTIQUE", 1.8, d["col"])
 
 func _show_pause() -> void:
 	if state != "arena" or get_tree().paused:

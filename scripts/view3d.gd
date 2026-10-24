@@ -10,6 +10,7 @@ const Rig3D = preload("res://scripts/rig3d.gd")
 const Mob3D = preload("res://scripts/mob3d.gd")
 const Data = preload("res://scripts/data.gd")
 const HangarShell = preload("res://scripts/decor/hangar_shell.gd")
+const Door3D = preload("res://scripts/fx/door3d.gd")
 const HangarProps = preload("res://scripts/decor/hangar_props.gd")
 const HangarBay = preload("res://scripts/decor/hangar_bay.gd")
 
@@ -57,6 +58,7 @@ var turret_nodes: Array = []
 var ally_nodes: Array = []
 var pickup_nodes := {}  # id du dictionnaire de ramassage -> Node3D
 var chest_node: Node3D = null
+var door_nodes: Array = []  # portails de fin de salle (scripts/fx/door3d.gd)
 var chest_beam: MeshInstance3D = null
 
 var bolt_mm: MultiMeshInstance3D
@@ -94,6 +96,7 @@ func build(arena_node: Node, hero_node: Node2D, joy_node: Node) -> void:
 	arena.bullet_blocked.connect(_on_blocked)
 	arena.exploded.connect(_on_exploded)
 	arena.shell_launched.connect(_on_shell)
+	arena.doors_opened.connect(_on_doors_opened)
 	hero2d.damaged.connect(_on_hero_damaged)
 
 static func p3(v: Vector2, h: float = 0.0) -> Vector3:
@@ -397,6 +400,9 @@ func _clear_dynamic() -> void:
 	if chest_node != null:
 		chest_node.queue_free()
 		chest_node = null
+	for n in door_nodes:
+		(n as Node).queue_free()
+	door_nodes.clear()
 	bolt_mm.multimesh.visible_instance_count = 0
 	halo_mm.multimesh.visible_instance_count = 0
 	part_mm.multimesh.visible_instance_count = 0
@@ -421,6 +427,7 @@ func _process(dt: float) -> void:
 	_tick_fx(dt)
 	_tick_labels(dt)
 	_tick_pads(dt)
+	_tick_doors()
 	_place_camera(dt)
 
 var boss_cam := 0.0  # > 0 : la caméra regarde le boss qui arrive
@@ -435,6 +442,13 @@ func _place_camera(dt: float) -> void:
 		boss_cam -= dt
 		if arena.boss != null:
 			target = target.lerp(p3(arena.boss.position), clampf(boss_cam / 0.6, 0.0, 1.0) * 0.85)
+	if not door_nodes.is_empty():
+		# portails ouverts : la caméra se cale à mi-chemin entre Jo et les portails, panneaux compris
+		var c := Vector3.ZERO
+		for n in door_nodes:
+			c += (n as Node3D).position
+		c /= door_nodes.size()
+		target = target.lerp(c + Vector3(0, 0, -0.6), 0.55)
 	var W: float = arena.W * K
 	var H: float = arena.H * K
 	target.x = clampf(target.x, 6.5, W - 6.5)
@@ -1016,6 +1030,46 @@ func _on_shell(from: Vector2, to: Vector2, flight: float, radius: float) -> void
 	var a := p3(from, 1.1)
 	ball.position = a
 	_add_fx(ball, flight, "lob", {"from": a, "to": p3(to, 0.1), "h": 2.6 + (to - from).length() * K * 0.25})
+
+## Portails de fin de salle : plantés dans l'arène là où la simulation les a placés.
+func _on_doors_opened() -> void:
+	if not active:
+		return
+	for n in door_nodes:
+		(n as Node).queue_free()
+	door_nodes.clear()
+	var i := 0
+	for d in arena.doors:
+		var n := Door3D.new()
+		n.position = p3(d["pos"])
+		add_child(n)
+		n.setup(d, 0.15 * i)
+		door_nodes.append(n)
+		_spawn_column(n.position, d["col"], 5.0, 0.6)
+		_spawn_ring(n.position + Vector3(0, 0.05, 0), d["col"], 4.0, 0.5)
+		i += 1
+	add_shake(0.25)
+
+func _tick_doors() -> void:
+	if door_nodes.is_empty():
+		return
+	var hp := p3(hero2d.position)
+	for n in door_nodes:
+		(n as Door3D).set_hero_distance((n as Node3D).position.distance_to(hp))
+
+## Jo entre dans un portail : il s'emballe et l'aspire, les autres se referment.
+func door_enter(d: Dictionary) -> void:
+	var at := p3(d["pos"])
+	for n in door_nodes:
+		var dn: Door3D = n
+		if dn.position.distance_to(at) < 0.1:
+			dn.enter()
+		else:
+			dn.entering = 0.0
+	_spawn_flash(at + Vector3(0, 1.4, 0), d["col"], 3.0, 0.35)
+	_spawn_column(at, d["col"], 7.0, 0.5)
+	_flash_light(at + Vector3(0, 1.5, 0), d["col"], 4.0, 6.0)
+	add_shake(0.35)
 
 func _on_enemy_spawned(e: Node2D) -> void:
 	if not active:
