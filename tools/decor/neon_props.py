@@ -219,60 +219,69 @@ def clim_m(name, hull, seed=0, code="R-07"):
 
 # ------------------------------------------------------------------ réservoirs d'eau
 def reservoir_haut(name="reservoir_haut", seed=0):
-    """Grand réservoir d'eau sur pieds (contre le bord nord) : cuve cerclée, toit conique et trappe,
-    pieds contreventés, échelle, jauge de niveau lumineuse, sortie d'eau."""
+    """Grand réservoir d'eau sur pieds (1,6 m, contre le bord nord) : cuve cerclée, toit conique et trappe,
+    pieds contreventés, échelle, jauge de niveau lumineuse, sortie d'eau ; groupe de pompage bas côté nord.
+    Cuve décalée vers le sud (+Z) et hauteur limitée : vue de la caméra à 56°, la bande de jeu au nord de
+    l'obstacle reste visible (Jo n'y disparaît pas)."""
     a = P(name, res=0.02, seed=seed, tol=0.014)
     dc = Decals(name)
-    R, y0, y1 = 0.92, 0.78, 1.95
+    R, y0, y1 = 0.8, 0.42, 1.28
     hull = "#62748A"
-    tk = a.piece(hull, tris=520, res=0.022, wear=0.7)
+    tk = a.piece(hull, tris=640, res=0.016, wear=0.7)
     tk.add(S.cyl((0, (y0 + y1) * 0.5, 0), R, (y1 - y0) * 0.5, 0.06))
-    tk.add(capsule((0, y1 - 0.02, 0), (0, y1 + 0.3, 0), R - 0.03, 0.12), k=0.06)
-    hp = a.piece(STEEL, tris=260, res=0.014, wear=0.8)
-    for y in (y0 + 0.12, (y0 + y1) * 0.5, y1 - 0.1):
+    tk.add(capsule((0, y1 - 0.02, 0), (0, y1 + 0.22, 0), R - 0.03, 0.1), k=0.06)
+    hp = a.piece(STEEL, tris=240, res=0.014, wear=0.8)
+    for y in (y0 + 0.1, (y0 + y1) * 0.5, y1 - 0.08):
         hp.add(torus((0, y, 0), R + 0.002, 0.022))
     # trappe et évent sur le toit
-    hp.add(box((0.0, y1 + 0.33, 0.0), (0.16, 0.035, 0.16), 0.02, rot=(0, 0, 0)))
-    hp.add(S.cyl((-0.3, y1 + 0.2, -0.2), 0.05, 0.12, 0.01))
+    hp.add(box((0.0, y1 + 0.25, 0.0), (0.14, 0.035, 0.14), 0.02))
+    hp.add(S.cyl((-0.28, y1 + 0.14, -0.18), 0.045, 0.1, 0.01))
     # châssis : quatre pieds, cadre, contreventements
-    st = a.piece(STEEL, tris=360, res=0.014, wear=0.8)
-    L = 0.8
+    st = a.piece(STEEL, tris=300, res=0.014, wear=0.8)
+    L = 0.66
     for sx in (-1, 1):
         for sz in (-1, 1):
-            st.add(box((sx * L, 0.4, sz * L), (0.05, 0.4, 0.05), 0.012))
+            st.add(box((sx * L, y0 * 0.5, sz * L), (0.05, y0 * 0.5, 0.05), 0.012))
             st.add(box((sx * L, 0.02, sz * L), (0.1, 0.02, 0.1), 0.01))
     for s in (-1, 1):
         st.add(box((s * L, y0 - 0.04, 0), (0.05, 0.04, L + 0.05), 0.01))
         st.add(box((0, y0 - 0.04, s * L), (L + 0.05, 0.04, 0.05), 0.01))
-        st.add(capsule((s * L, 0.12, -L), (s * L, y0 - 0.1, L), 0.018))
-        st.add(capsule((-L, 0.12, s * L), (L, y0 - 0.1, s * L), 0.018))
+        st.add(capsule((s * L, 0.08, -L), (s * L, y0 - 0.1, L), 0.018))
+        st.add(capsule((-L, 0.08, s * L), (L, y0 - 0.1, s * L), 0.018))
     # échelle sur la face avant
-    lad = a.piece(STEEL_M, tris=200, res=0.01, wear=0.5)
-    zl = R + 0.06
-    for x in (-0.18, 0.18):
-        lad.add(capsule((x, 0.04, zl + 0.02), (x, y1 + 0.12, zl - 0.02), 0.016))
-    for k in range(9):
-        y = 0.25 + k * 0.2
-        lad.add(capsule((-0.18, y, zl + 0.02 - 0.04 * y / y1), (0.18, y, zl + 0.02 - 0.04 * y / y1), 0.011))
+    lad = a.piece("#8C929C", tris=260, res=0.01, wear=0.3)
+    zl = R + 0.07
+    for x in (-0.19, 0.19):
+        lad.add(capsule((x, 0.04, zl + 0.02), (x, y1 + 0.1, zl - 0.03), 0.022))
+        lad.add(capsule((x, y1 + 0.1, zl - 0.03), (x * 0.8, y1 + 0.18, zl - 0.2), 0.02), k=0.01)
+    for k in range(6):
+        y = 0.22 + k * 0.2
+        lad.add(capsule((-0.19, y, zl + 0.02 - 0.05 * y / y1), (0.19, y, zl + 0.02 - 0.05 * y / y1), 0.014))
     # sortie d'eau et vanne
     pp = a.piece("#4A5462", tris=120, res=0.012, wear=0.6)
-    pp.add(capsule((0.5, y0 + 0.05, 0.5), (0.5, 0.08, 0.5), 0.045))
-    pp.add(capsule((0.5, 0.08, 0.5), (0.5, 0.08, L + 0.1), 0.045), k=0.03)
+    pp.add(capsule((0.45, y0 + 0.05, 0.42), (0.45, 0.08, 0.42), 0.045))
+    pp.add(capsule((0.45, 0.08, 0.42), (0.45, 0.08, L + 0.1), 0.045), k=0.03)
+    pp.add(capsule((-0.3, 0.1, -0.5), (-0.3, 0.1, -(R + 0.08)), 0.04))
     vv = a.piece("#8A4A42", tris=60, res=0.008, wear=0.5)
-    vv.add(torus((0.5, 0.35, 0.56), 0.06, 0.012, rot=(90, 0, 0)))
+    vv.add(torus((0.45, 0.27, 0.48), 0.06, 0.012, rot=(90, 0, 0)))
+    # groupe de pompage (côté nord, bas)
+    pu = a.piece("#4E5A58", tris=140, res=0.012, wear=0.8)
+    pu.add(box((-0.1, 0.2, -(R + 0.14)), (0.42, 0.2, 0.1), 0.03))
+    pu.add(S.cyl((0.18, 0.24, -(R + 0.14)), 0.1, 0.16, 0.02, rot=(0, 0, 90)))
     # jauge de niveau (tube lumineux bleu pâle)
     jg = a.piece(STEEL_M, tris=40, res=0.008, wear=0.4)
-    for y in (y0 + 0.1, y1 - 0.1):
-        jg.add(box((-0.55, y, R * 0.72 + 0.04), (0.035, 0.02, 0.035), 0.008))
+    for y in (y0 + 0.08, y1 - 0.08):
+        jg.add(box((-0.5, y, R * 0.7 + 0.04), (0.035, 0.02, 0.035), 0.008))
     g = P(name + "_glowlit", res=0.006)
-    g.piece("#8CC8FF", tris=40).add(capsule((-0.55, y0 + 0.12, R * 0.72 + 0.06), (-0.55, y0 + 0.7, R * 0.72 + 0.06), 0.016))
+    g.piece("#8CC8FF", tris=40).add(capsule((-0.5, y0 + 0.1, R * 0.7 + 0.06), (-0.5, y0 + 0.55, R * 0.7 + 0.06), 0.016))
     g2 = P(name + "_glow", res=0.004)
-    g2.piece("#FF5A4A", tris=30).add(sphere((0.0, y1 + 0.38, 0.0), 0.025))
+    g2.piece("#FF5A4A", tris=30).add(sphere((0.0, y1 + 0.3, 0.0), 0.025))
     rr = R + 0.004
-    dc.cyl("gly", rr, 1.42, 0.3, 28.0, 1.2, n=6)
-    dc.cyl("drip", rr, 1.0, 0.4, -30.0, 0.25, n=2)
-    dc.cyl("drip", rr, 1.05, 0.4, 70.0, 0.25, n=2)
-    dc.cyl("sticker", rr, 1.1, 0.16, -60.0, 0.16, n=1, crop=(0.5, 0.5, 1, 1))
+    dc.cyl("gly", rr, 0.95, 0.26, 30.0, 1.04, n=6)
+    dc.cyl("drip", rr, 0.7, 0.36, -30.0, 0.25, n=2)
+    dc.cyl("drip", rr, 0.75, 0.36, 70.0, 0.25, n=2)
+    dc.cyl("sticker", rr, 0.8, 0.14, -60.0, 0.14, n=1, crop=(0.5, 0.5, 1, 1))
+    dc.quad("vent", (-0.3, 0.2, -(R + 0.04)), 0.3, 0.2, FRONT, off=0.006)
     return M(name, [a, g, g2], dc)
 
 
@@ -309,55 +318,63 @@ def reservoir(name, hull, seed=0):
 
 # ------------------------------------------------------------------ kiosque à ramen et son robot cuisinier
 def kiosque(name="kiosque", seed=0):
-    """Kiosque à ramen (3,7 x 1,7 m, contre le bord nord) : meuble de cuisine et grande marmite au fond,
-    panneau de menus lumineux et enseigne à idéogrammes inventés, comptoir avant, auvent étroit à rideaux
-    (noren), lanternes ; tenu par un petit robot cuisinier figé, louche levée, écran éteint."""
+    """Kiosque à ramen (3,7 x 1,9 m, contre le bord nord) : réserve basse au fond (coffre, bonbonne de gaz),
+    panneau de menus lumineux et enseigne à idéogrammes inventés en retrait de 0,45 m (vue de la caméra à 56°,
+    la bande de jeu au nord du kiosque reste visible : Jo n'y disparaît pas), plan de cuisine avec marmite,
+    comptoir avant et bols servis, poteaux à lanternes ; tenu par un petit robot cuisinier figé, louche levée,
+    écran éteint."""
     a = P(name, res=0.016, seed=seed, tol=0.012)
     dc = Decals(name)
     dl = Decals(name, "decallit")
     wx = 1.82
-    zb, zf = -0.84, 0.84
+    zf = 0.84
+    zp = -0.42          # panneau du fond (centre)
+    zk = zp + 0.19      # plan de cuisine devant le panneau
     lac = "#5A2C2C"     # laque rouge éteinte
     wood = "#4A3A30"
-    # meuble du fond (cuisine) et panneau arrière
-    cb = a.piece(lac, tris=160, res=0.025, wear=0.8)
-    cb.add(box((0, 0.46, -0.62), (wx - 0.02, 0.46, 0.22), 0.025))
-    cb.add(box((0, 1.5, zb + 0.05), (wx - 0.04, 0.6, 0.05), 0.02))
-    # enseigne du haut
+    # réserve basse au nord du panneau (rien de haut contre le bord de l'aire de jeu)
+    rs = a.piece(lac, tris=90, res=0.02, wear=0.8)
+    rs.add(box((-0.75, 0.3, -0.66), (0.95, 0.3, 0.17), 0.03))
+    gs = a.piece("#5E6A72", tris=100, res=0.012, wear=0.6)
+    gs.add(capsule((1.15, 0.14, -0.66), (1.15, 0.52, -0.66), 0.16))
+    gs.add(S.cyl((1.15, 0.7, -0.66), 0.035, 0.03, 0.01))
+    # panneau, plan de cuisine sur meuble bas
+    cb = a.piece(lac, tris=160, res=0.022, wear=0.8)
+    cb.add(box((0, 0.73, zp), (wx - 0.04, 0.73, 0.04), 0.02))
+    cb.add(box((0, 0.43, zk), (wx - 0.06, 0.43, 0.14), 0.02))
+    # enseigne posée sur le panneau
     sg = a.piece("#22202A", tris=60, res=0.02, wear=0.3)
-    sg.add(box((0, 2.32, zb + 0.07), (1.2, 0.22, 0.06), 0.03))
-    tw = a.piece(wood, tris=180, res=0.014, wear=0.0)
-    tw.add(box((0, 0.93, -0.62), (wx, 0.025, 0.24), 0.01))           # plan de travail
+    sg.add(box((0, 1.63, zp + 0.02), (1.2, 0.17, 0.05), 0.03))
+    tw = a.piece(wood, tris=90, res=0.014, wear=0.0)
+    tw.add(box((0, 0.88, zk), (wx - 0.04, 0.025, 0.16), 0.01))       # plan de travail
     tw.add(box((0, 0.94, 0.58), (wx - 0.1, 0.03, 0.24), 0.012))      # dessus du comptoir
+    po = a.piece("#3A2E28", tris=64, res=0.012, wear=0.0)             # poteaux avant et longerons
     for sx in (-1, 1):
-        tw.add(box((sx * (wx - 0.06), 1.1, zf - 0.06), (0.05, 1.1, 0.05), 0.012))   # poteaux avant
-        tw.add(box((sx * (wx - 0.06), 2.17, 0.0), (0.04, 0.04, zf - 0.02), 0.01))    # longerons
-
+        po.add(box((sx * (wx - 0.06), 0.92, zf - 0.06), (0.05, 0.92, 0.05), 0.02))
+        po.add(box((sx * (wx - 0.06), 1.8, (zf + zp) * 0.5), (0.045, 0.045, (zf - zp) * 0.5), 0.02))
     # comptoir avant
     ct = a.piece(lac, tris=120, res=0.018, wear=0.8)
     ct.add(box((0, 0.46, 0.6), (wx - 0.14, 0.45, 0.2), 0.025))
-    # noren : cinq pans courts de tissu indigo au fond, sous l'enseigne (rien en travers de l'avant : vu de
-    # la caméra de jeu, le robot reste visible par-dessus le comptoir)
-    nr = a.piece("#28304E", tris=120, res=0.01, grime=0.3)
-    zn = zb + 0.13
-    for k in range(5):
-        x = (k - 2) * 0.66
-        nr.add(box((x, 1.99, zn), (0.3, 0.12, 0.018), 0.015))
-    # cuisine : grande marmite, bols empilés, cuiseur ; comptoir : bols de ramen servis, bouteilles
+    # noren : quatre pans courts de tissu indigo sous l'enseigne, de part et d'autre des menus
+    nr = a.piece("#28304E", tris=100, res=0.01, grime=0.3)
+    xs_n = (-1.45, -1.0, 1.0, 1.45)
+    for x in xs_n:
+        nr.add(box((x, 1.33, zp + 0.06), (0.2, 0.12, 0.016), 0.012))
+    # cuisine : marmite, bols empilés, cuiseur ; comptoir : bols de ramen servis, bouteilles
     kt = a.piece("#8A8E96", tris=120, res=0.01, wear=0.4)
-    kt.add(S.cyl((-0.95, 1.13, -0.62), 0.22, 0.18, 0.03))
-    kt.add(torus((-0.95, 1.3, -0.62), 0.22, 0.02))
-    kt.add(S.cyl((1.15, 1.06, -0.66), 0.17, 0.1, 0.06))
-    bw = a.piece("#C9C0B0", tris=160, res=0.008, wear=0.2)
+    kt.add(S.cyl((-1.0, 1.04, zk), 0.17, 0.14, 0.03))
+    kt.add(torus((-1.0, 1.17, zk), 0.17, 0.018))
+    kt.add(S.cyl((1.2, 0.98, zk), 0.13, 0.08, 0.05))
+    bw = a.piece("#C9C0B0", tris=130, res=0.008, wear=0.2)
     for k in range(4):
-        bw.add(S.cyl((0.55, 0.98 + k * 0.045, -0.6), 0.09 - k * 0.002, 0.024, 0.012))
+        bw.add(S.cyl((0.65, 0.93 + k * 0.045, zk), 0.08 - k * 0.002, 0.024, 0.012))
     bowls = [(-0.8, 0.62), (0.8, 0.58), (1.4, 0.64)]
     for x, z in bowls:
         bw.add(diff(S.cyl((x, 1.0, z), 0.1, 0.04, 0.03), S.cyl((x, 1.05, z), 0.08, 0.03, 0.01)))
     br = a.piece("#B07A3E", tris=60, res=0.008, grime=0.0)   # bouillon et nouilles
     for x, z in bowls:
         br.add(S.cyl((x, 1.02, z), 0.082, 0.01, 0.005))
-    eg = a.piece("#D8CFA8", tris=40, res=0.006, grime=0.0)    # demi-œuf, naruto
+    eg = a.piece("#D8CFA8", tris=40, res=0.006, grime=0.0)    # demi-œuf
     for x, z in bowls:
         eg.add(ellipsoid((x + 0.03, 1.035, z - 0.02), (0.03, 0.012, 0.022)))
     bt = a.piece("#6A2E2A", tris=50, res=0.008, wear=0.2)
@@ -368,30 +385,31 @@ def kiosque(name="kiosque", seed=0):
         ch.add(capsule((x - 0.13, 0.975, z + 0.12), (x + 0.1, 0.975, z + 0.15), 0.006))
     # lanternes de papier (lumineuses, douces) aux poteaux avant
     ln = P(name + "_glowlit", res=0.008)
-    lp = ln.piece("#FF9A5A", tris=80)
+    lp = ln.piece("#FF9A5A", tris=60)
     for sx in (-1, 1):
-        lp.add(ellipsoid((sx * (wx - 0.06), 1.75, zf + 0.06), (0.11, 0.15, 0.11)))
+        lp.add(ellipsoid((sx * (wx - 0.06), 1.45, zf + 0.06), (0.11, 0.15, 0.11)))
     lc = a.piece("#2A2428", tris=40, res=0.008)
     for sx in (-1, 1):
-        lc.add(S.cyl((sx * (wx - 0.06), 1.92, zf + 0.06), 0.06, 0.02, 0.008))
-        lc.add(S.cyl((sx * (wx - 0.06), 1.58, zf + 0.06), 0.06, 0.02, 0.008))
+        lc.add(S.cyl((sx * (wx - 0.06), 1.62, zf + 0.06), 0.06, 0.02, 0.008))
+        lc.add(S.cyl((sx * (wx - 0.06), 1.28, zf + 0.06), 0.06, 0.02, 0.008))
     # néon fin autour de l'enseigne (orange) et liseré violet sous le comptoir
     ng = P(name + "_glow", res=0.005)
-    ng.piece(NEON_O, tris=160).add(diff(box((0, 2.32, zb + 0.14), (1.17, 0.19, 0.012), 0.012), box((0, 2.32, zb + 0.14), (1.13, 0.15, 0.05), 0.01)))
+    ng.piece(NEON_O, tris=110).add(diff(box((0, 1.63, zp + 0.08), (1.17, 0.145, 0.012), 0.012), box((0, 1.63, zp + 0.08), (1.13, 0.105, 0.05), 0.01)))
     ng.piece(NEON_V, tris=40).add(box((0, 0.88, 0.81), (wx - 0.2, 0.01, 0.01), 0.008))
     # robot cuisinier (figé)
-    rb = robot_cuisinier(name, (0.0, 0.0, 0.1))
+    rb = robot_cuisinier(name, (0.0, 0.0, 0.12))
     # marquages : menus et enseigne lumineux, noren, idéogrammes du comptoir
-    dl.quad("menu", (-0.75, 1.5, zb + 0.105), 0.56, 0.56, FRONT, off=0.002)
-    dl.quad("menu", (0.75, 1.5, zb + 0.105), 0.56, 0.56, FRONT, off=0.002)
-    dl.quad("gly_lit", (0, 2.32, zb + 0.135), 2.0, 0.5, FRONT, off=0.002)
-    for k in range(5):
+    dl.quad("menu", (-0.5, 1.18, zp + 0.04), 0.4, 0.4, FRONT, off=0.002)
+    dl.quad("menu", (0.5, 1.18, zp + 0.04), 0.4, 0.4, FRONT, off=0.002)
+    dl.quad("gly_lit", (0, 1.63, zp + 0.075), 1.3, 0.32, FRONT, off=0.002)
+    for k, x in enumerate(xs_n):
         g4 = (k * 3 + 1) % 4
-        dc.quad("gly", ((k - 2) * 0.66, 1.98, zn + 0.02), 0.18, 0.18, FRONT, off=0.002, crop=(g4 / 4.0, 0.0, (g4 + 1) / 4.0, 1.0))
+        dc.quad("gly", (x, 1.33, zp + 0.08), 0.16, 0.16, FRONT, off=0.002, crop=(g4 / 4.0, 0.0, (g4 + 1) / 4.0, 1.0))
     dc.quad("gly", (0.35, 0.55, 0.805), 1.5, 0.37, FRONT, off=0.003)
     dc.quad("pakku", (-1.3, 0.62, 0.805), 0.3, 0.3, FRONT, off=0.002)
     dc.quad("sticker", (-0.9, 0.35, 0.805), 0.16, 0.16, FRONT, crop=(0.5, 0, 1, 0.5))
     dc.quad("scuff", (0.2, 0.2, 0.805), 0.9, 0.35, FRONT, off=0.0015)
+    dc.quad("pakku_k", (-0.6, 0.6, -0.49), 0.24, 0.24, TOP, off=0.002)
     return M(name, [a, ln, ng] + rb, dc, dl)
 
 

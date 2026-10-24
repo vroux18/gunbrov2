@@ -12,8 +12,9 @@ const HMAX := 0.85  # hauteur maximale d'un obstacle (Jo visible derrière, cam�
 
 ## Obstacles de l'arène (Rect2 en px ; 1 m = 64 px). Aire de jeu 2400 x 1400, murs 36, quai nord TOP = 250 :
 ## rien au nord de TOP + 40, rien à moins de 140 px d'un sas, le centre (départ de Jo, 1200 x 825) dégagé.
-## Deux grands éléments adossés au bord nord (réservoir sur tour, kiosque à ramen), des îlots de machines aux
-## quatre coins, des murets bas autour du centre : couloirs nord-sud et est-ouest, abris pour tirer à couvert.
+## Deux éléments plus hauts adossés au bord nord (réservoir sur pieds, kiosque à ramen : 1,6 et 1,8 m, parties
+## hautes en retrait du bord pour que Jo reste visible dans la bande de 40 px derrière eux), des îlots de
+## machines aux quatre coins, des murets bas autour du centre : couloirs nord-sud et est-ouest, abris.
 const BOXES := [
 	Rect2(800, 290, 128, 132),    # A : grand réservoir sur pieds (haut, contre le bord nord)
 	Rect2(1460, 290, 242, 123),   # B : kiosque à ramen (haut, contre le bord nord)
@@ -33,19 +34,19 @@ const BOXES := [
 ## en mètres depuis le centre du rectangle (face avant des modèles vers +z, la caméra). Sous chaque obstacle,
 ## une dalle de béton aux dimensions exactes du rectangle (« socle ») couvre les jours entre les objets.
 const DRESS := [
-	[["reservoir_haut", 0.0, -0.035, 0.0]],
-	[["kiosque", 0.0, -0.07, 0.0]],
+	[["reservoir_haut", 0.0, 0.06, 0.0]],
+	[["kiosque", 0.0, -0.095, 0.0]],
 	[["clim_l_a", -0.55, 0.0, 0.0], ["boitier_a", 1.15, 0.4, 0.0], ["caisse_s_b", 1.2, -0.37, 90.0]],
 	[["clim_l_b", 0.0, -0.6, -90.0], ["tas_cables", 0.045, 1.17, 0.0]],
 	[["boitier_a", -0.48, -0.01, 0.0], ["boitier_b", 0.48, -0.01, 0.0]],
 	[["parabole", 0.0, 0.0, 0.0]],
 	[["reservoir_a", 0.0, -0.77, 20.0], ["reservoir_b", 0.0, 0.71, -35.0]],
 	[["clim_m_b", -0.045, -0.47, 0.0], ["boitier_s", -0.36, 0.54, 0.0], ["caisse_s_a", 0.32, 0.45, 90.0]],
-	[["caisse_m_a", -0.38, -0.25, 0.0], ["caisse_m_b", -0.37, -0.25, 6.0, 0.43], ["caisse_s_a", 0.47, -0.27, 90.0],
+	[["caisse_m_a", -0.38, -0.25, 0.0], ["caisse_m_b", -0.37, -0.25, 6.0, 0.415], ["caisse_s_a", 0.47, -0.27, 90.0],
 		["carton", 0.45, 0.33, -8.0], ["caisse_s_b", -0.42, 0.32, 0.0]],
 	[["distributeur_a", -0.48, -0.045, 0.0], ["distributeur_b", 0.48, -0.045, 0.0]],
 	[["clim_l_a", -0.035, 0.0, 0.0]],
-	[["clim_m_a", -0.495, -0.015, 0.0], ["caisse_m_b", 0.675, 0.0, 0.0], ["caisse_s_b", 0.66, 0.02, -7.0, 0.43]],
+	[["clim_m_a", -0.495, -0.015, 0.0], ["caisse_m_b", 0.675, 0.0, 0.0], ["caisse_s_b", 0.66, 0.02, -7.0, 0.415]],
 ]
 const TALL := [0, 1]  # obstacles adossés au bord nord, autorisés au-dessus de HMAX
 
@@ -53,6 +54,7 @@ static var _parts := {}
 static var _mats := {}
 static var tris := 0  # triangles posés (contrôle du budget)
 static var _placed := []  # [indice d'obstacle, maillage, transformation] pour --props-check
+static var _flat := {}  # Mesh -> Array[Transform3D] : objets à plat, sans ombre projetée
 
 # ---------------------------------------------------------------- matériaux
 ## Peinture et plastique usés sous la pluie : couleur par sommet (occlusion cuite), marbrures et salissure en
@@ -246,15 +248,17 @@ static func _collect(n: Node, xf: Transform3D, out: Array) -> void:
 		if c is Node3D:
 			_collect(c, xf * (c as Node3D).transform, out)
 
-## Pose un modèle dans le lot statique de la vue (un MultiMesh par maillage, ombres projetées).
+## Pose un modèle dans le lot statique de la vue (un MultiMesh par maillage, ombres projetées) ; les objets
+## à plat (flaques, graffitis, plaques d'égout) vont dans un lot sans ombre, monté à la fin de build().
 static func put(v: Node, name: String, pos: Vector3, rot: float, scl: Vector3 = Vector3.ONE, box_i: int = -1) -> void:
 	var xf := Transform3D(Basis(Vector3.UP, rot) * Basis.from_scale(scl), pos)
+	var batch: Dictionary = _flat if name.begins_with("flaque") or name.begins_with("graf") or name == "egout" else v._batch
 	for part in parts(name):
 		var m: Mesh = part[0]
 		var x2: Transform3D = xf * (part[1] as Transform3D)
-		if not v._batch.has(m):
-			v._batch[m] = []
-		(v._batch[m] as Array).append(x2)
+		if not batch.has(m):
+			batch[m] = []
+		(batch[m] as Array).append(x2)
 		for i in range(m.get_surface_count()):
 			tris += (m.surface_get_array_index_len(i) / 3) if m.surface_get_format(i) & Mesh.ARRAY_FORMAT_INDEX else (m.surface_get_array_len(i) / 3)
 		if box_i >= 0 and _checking():
@@ -267,6 +271,7 @@ static func _checking() -> bool:
 static func build(v: Node, rng: RandomNumberGenerator) -> void:
 	tris = 0
 	_placed.clear()
+	_flat.clear()
 	var K: float = v.K
 	for i in range(v.arena.obstacles.size()):
 		var r: Rect2 = v.arena.obstacles[i]
@@ -280,6 +285,9 @@ static func build(v: Node, rng: RandomNumberGenerator) -> void:
 			put(v, it[0], c + Vector3(it[1], y, it[2]), deg_to_rad(it[3]), Vector3.ONE, i)
 	var t_obst := tris
 	_accessories(v, rng)
+	for m in _flat.keys():
+		v._mm(m, _flat[m], false)
+	_flat.clear()
 	if "--props-stats" in OS.get_cmdline_user_args() or _checking():
 		print("neon_props : obstacles %d triangles, accessoires %d" % [t_obst, tris - t_obst])
 	if _checking():
