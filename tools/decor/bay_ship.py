@@ -88,7 +88,7 @@ def build():
         ribs.add(box((DOOR_X - 0.6 + i * 0.3, 0.625, 0.72), (0.025, 0.02, 0.42), 0.01))
     crates = body.piece(ORANGE_D, tris=130, res=0.02, wear=0.9)
     crates.add(box((DOOR_X - 0.48, 0.86, 0.55), (0.26, 0.24, 0.24), 0.03))
-    crates2 = body.piece(ORVA, tris=150, res=0.02, wear=0.9)
+    crates2 = body.piece(HXF, tris=150, res=0.02, wear=0.9)
     crates2.add(box((DOOR_X + 0.12, 0.79, 0.5), (0.3, 0.17, 0.2), 0.03))
     crates2.add(box((DOOR_X + 0.07, 1.06, 0.48), (0.22, 0.1, 0.17), 0.03))
     strap = body.piece(BLACK, tris=60, res=0.01, wear=0.0)

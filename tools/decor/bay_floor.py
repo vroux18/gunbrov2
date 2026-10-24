@@ -128,7 +128,7 @@ def paint(out_dir):
     # ---- grilles d'évacuation
     lay = layer()
     d = ImageDraw.Draw(lay)
-    for gx, gz in ((5.2, 3.0), (8.0, 1.25), (27.4, 1.25), (33.6, 3.0)):
+    for gx, gz in ((5.2, 3.0), (8.0, 1.25), (27.4, 1.25), (36.0, 3.0)):
         a0, b0 = px(gx - 0.35, gz - 0.18); a1, b1 = px(gx + 0.35, gz + 0.18)
         d.rectangle([a0, b0, a1, b1], fill=(18, 20, 28, 255), outline=(80, 86, 104, 255), width=2)
         for k in range(9):
@@ -205,7 +205,7 @@ def paint(out_dir):
             pc = px(xc + s * 0.16, zc + 0.14)
             d.line([pa, pb, pc], fill=Y, width=8, joint="curve")
     base = comp(base, lay, wear_mask(21, 0.4))
-    # ---- inscriptions au pochoir : BAIE 07, 07, ORVA FRET, consignes
+    # ---- inscriptions au pochoir : BAIE 07, 07, consignes
     lay = layer()
     d = ImageDraw.Draw(lay)
     cream = (150, 146, 134, 180)
@@ -218,18 +218,29 @@ def paint(out_dir):
     stencil_text(d, px(24.4, 0.48), "ÉNERGIE SOL", 0.16 * SZ, small)
     stencil_text(d, px(19.25, 0.34), "AIRE DE POSÉ  07  -  MAX 40 T", 0.15 * SZ, (190, 184, 168, 190))
     stencil_text(d, px(2.6, 3.15), "ZONE DE STOCKAGE", 0.16 * SZ, small)
-    stencil_text(d, px(30.6, 3.12), "NE PAS STATIONNER", 0.16 * SZ, small)
+    stencil_text(d, px(30.4, 3.12), "NE PAS STATIONNER", 0.16 * SZ, small)
     base = comp(base, lay, wear_mask(33, 0.3, 0.35))
-    # ---- logo de la compagnie de fret ORVA : orbite et chevron, vert d'eau passé
+    # ---- logo de la compagnie de fret HÉLIX FRET (HXF) : hexagone, double hélice, même dessin que le sol
+    # de l'arène (tools/decor/shell_floor.py) ; blanc cassé et orange passés (le quai reste sombre)
     lay = layer()
     d = ImageDraw.Draw(lay)
-    lc = (84, 146, 134, 215)
-    cx, cz = px(33.0, 1.95)
-    r = 0.5 * SZ
-    d.ellipse([cx - r, cz - r, cx + r, cz + r], outline=lc, width=int(0.09 * SZ))
-    d.ellipse([cx - r * 1.55, cz - r * 0.45, cx + r * 1.55, cz + r * 0.45], outline=lc, width=int(0.05 * SZ))
-    d.polygon([px(32.9, 1.72), px(33.2, 1.95), px(32.9, 2.18), px(33.0, 1.95)], fill=lc)
-    stencil_text(d, px(33.0, 2.82), "ORVA FRET", 0.36 * SZ, lc, bridges=False)
+    lc = (176, 172, 160, 215)
+    hc = (190, 120, 52, 225)
+    cx, cz = 33.3, 1.72
+    rr = 0.56
+    hexa = [px(cx + rr * math.cos(math.pi / 6 + k * math.pi / 3), cz + rr * math.sin(math.pi / 6 + k * math.pi / 3)) for k in range(6)]
+    d.line(hexa + [hexa[0]], fill=lc, width=int(0.065 * SZ), joint="curve")
+    for ph0 in (0.0, math.pi):
+        pts = [px(cx + rr * 0.55 * math.sin(t * 2.2 * math.pi + ph0), cz - rr * 0.75 + t * rr * 1.5) for t in np.linspace(0, 1, 40)]
+        d.line(pts, fill=hc, width=int(0.055 * SZ), joint="curve")
+    for k in range(5):
+        zk = cz - rr * 0.6 + k * rr * 0.3
+        t = (zk - (cz - rr * 0.75)) / (rr * 1.5)
+        xa = rr * 0.55 * math.sin(t * 2.2 * math.pi)
+        d.line([px(cx - abs(xa), zk), px(cx + abs(xa), zk)], fill=hc, width=int(0.022 * SZ))
+    stencil_text(d, px(cx, 2.68), "HÉLIX FRET", 0.34 * SZ, lc, bridges=False)
+    sub = ImageFont.truetype(os.path.join(ROOT, "assets", "fonts", "Rajdhani-Bold.ttf"), int(0.15 * SZ))
+    d.text(px(cx, 3.0), "TRANSIT  NÉBULEUSE 7", font=sub, fill=lc, anchor="mm")
     base = comp(base, lay, wear_mask(47, 0.18, 0.3))
     # ---- assombrissement au pied du mur (le quai reste plus sombre que l'aire de jeu)
     zz = np.linspace(0, TM, HPX)[:, None]

@@ -1,5 +1,5 @@
 """Bras de chargement du quai (station, jaune de manutention) : socle boulonné, tourelle, bras, avant-bras,
-poignet à pince qui tient une caisse ORVA. Pièces articulées, animées par hangar_bay.gd (BayArm) :
+poignet à pince qui tient une caisse HÉLIX FRET. Pièces articulées, animées par hangar_bay.gd (BayArm) :
   arm_base (fixe) > arm_turret (lacet, axe Y) > arm_lower (épaule, axe X) > arm_upper (coude, axe X)
   > arm_head (poignet, garde la pince à la verticale) > arm_crate.
 Au repos : bras dressé, avant-bras tendu vers +Z."""
@@ -55,7 +55,7 @@ def build():
     parts.append(hd)
 
     cr = BPart("arm_crate", pivot=WR, parent="arm_head", res=0.02, seed=76.0)
-    cr.piece(ORVA, tris=100, wear=0.9).add(box(WR + v(0, -0.37, 0), (0.2, 0.2, 0.2), 0.03))
+    cr.piece(HXF, tris=100, wear=0.9).add(box(WR + v(0, -0.37, 0), (0.2, 0.2, 0.2), 0.03))
     cr.piece(BLACK, tris=60, res=0.012, wear=0.0).add(box(WR + v(0, -0.37, 0), (0.04, 0.206, 0.206), 0.01))
     parts.append(cr)
 
