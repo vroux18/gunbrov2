@@ -63,9 +63,11 @@ func setup(k: String, is_elite: bool, hp_scale: float) -> void:
 	var d: Dictionary = Data.ENEMIES[k]
 	hp_max = float(d["hp"]) * hp_scale * (3.0 if elite else 1.0)
 	hp = hp_max
-	speed = float(d["speed"]) * (1.25 if elite else 1.0)
+	# la puissance d'une salle avancée se lit aussi dans les dégâts et la vitesse (hp_scale grandit avec la salle)
+	var tough := hp_scale - 1.0
+	speed = float(d["speed"]) * (1.25 if elite else 1.0) * (1.0 + 0.05 * tough)
 	radius = float(d["radius"]) * (1.2 if elite else 1.0)
-	dmg = float(d["dmg"]) * (1.3 if elite else 1.0)
+	dmg = float(d["dmg"]) * (1.3 if elite else 1.0) * (1.0 + 0.35 * tough)
 	energy = int(d["energy"]) * (3 if elite else 1)
 	tickets = int(d["tickets"]) * (3 if elite else 1)
 	display_name = String(d["name"])

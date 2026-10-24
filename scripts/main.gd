@@ -894,23 +894,111 @@ func _show_pause() -> void:
 	var ca := UI.button("", 22, UI.ACCENT, 194)
 	ca.custom_minimum_size = Vector2(194, 80)
 	var cam_text := func():
-		cz.text = "VUE : " + String(view.CAM_ZOOMS[view.cam_zoom][0])
-		ca.text = "ANGLE : " + String(view.CAM_ANGLES[view.cam_angle][0])
+		cz.text = "VUE : " + String(Dev.ZOOMS[Dev.nearest(Dev.ZOOMS, Dev.get_f("cam_dist"))][0])
+		ca.text = "ANGLE : " + String(Dev.ANGLES[Dev.nearest(Dev.ANGLES, Dev.get_f("cam_pitch"))][0])
 	cam_text.call()
 	cz.pressed.connect(func():
-		view.set_cam(view.cam_zoom + 1, view.cam_angle)
+		var i := (Dev.nearest(Dev.ZOOMS, Dev.get_f("cam_dist")) + 1) % Dev.ZOOMS.size()
+		Dev.set_value("cam_dist", Dev.ZOOMS[i][1])
+		view.refresh_cam()
 		cam_text.call())
 	ca.pressed.connect(func():
-		view.set_cam(view.cam_zoom, view.cam_angle + 1)
+		var i := (Dev.nearest(Dev.ANGLES, Dev.get_f("cam_pitch")) + 1) % Dev.ANGLES.size()
+		Dev.set_value("cam_pitch", Dev.ANGLES[i][1])
+		view.refresh_cam()
 		cam_text.call())
 	cams.add_child(cz)
 	cams.add_child(ca)
+	var dv := UI.button("MODE DÉVELOPPEUR", 22, UI.MUTED, 400)
+	dv.custom_minimum_size = Vector2(400, 72)
+	dv.pressed.connect(_show_dev)
+	box.add_child(dv)
 	var q := UI.button("ABANDONNER  ·  le butin reste", 24, UI.MUTED, 400)
 	q.custom_minimum_size = Vector2(400, 80)
 	q.pressed.connect(func(): _show_end(false, "PARTIE ABANDONNÉE", "Le butin reste, les pouvoirs partent."))
 	box.add_child(q)
 	Fx.rise_in(r, 0.05)
 	Fx.rise_in(q, 0.12)
+
+## Mode développeur : panneau à droite, sans voile, la partie reste visible derrière (en pause) pour régler
+## la caméra et les tailles à l'œil ; cadence 60 / 120 i/s et compteur. Les valeurs s'affichent pour être notées.
+func _show_dev() -> void:
+	_clear_overlay()
+	overlay = _full(false)
+	ui_layer.add_child(overlay)
+	var panel := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.04, 0.06, 0.12, 0.88)
+	sb.set_corner_radius_all(18)
+	sb.content_margin_left = 22
+	sb.content_margin_right = 22
+	sb.content_margin_top = 16
+	sb.content_margin_bottom = 16
+	panel.add_theme_stylebox_override("panel", sb)
+	panel.anchor_left = 0.56
+	panel.anchor_right = 0.985
+	panel.anchor_top = 0.03
+	panel.anchor_bottom = 0.97
+	overlay.add_child(panel)
+	var box := UI.vbox(6)
+	panel.add_child(box)
+	box.add_child(UI.title("MODE DÉVELOPPEUR", 30, UI.TEXT, UI.ACCENT))
+	var summary := UI.label(Dev.summary(), 17, UI.MUTED)
+	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var rows := [["cam_dist", "Recul caméra", 0.1], ["cam_pitch", "Inclinaison", 1.0], ["cam_fov", "Champ de vision", 1.0], ["hero_scale", "Taille de Jo", 0.01], ["mob_scale", "Taille des ennemis (nouveaux)", 0.01]]
+	for r in rows:
+		var key: String = r[0]
+		var head := UI.hbox(8)
+		var name_l := UI.label(String(r[1]), 19, UI.TEXT)
+		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		head.add_child(name_l)
+		var val_l := UI.label("%.2f" % Dev.get_f(key), 19, UI.ACCENT)
+		head.add_child(val_l)
+		box.add_child(head)
+		var sl := HSlider.new()
+		sl.min_value = Dev.RANGES[key][0]
+		sl.max_value = Dev.RANGES[key][1]
+		sl.step = float(r[2])
+		sl.value = Dev.get_f(key)
+		sl.custom_minimum_size = Vector2(0, 44)
+		sl.value_changed.connect(func(x: float):
+			Dev.set_value(key, x)
+			val_l.text = "%.2f" % x
+			summary.text = Dev.summary()
+			view.refresh_cam())
+		box.add_child(sl)
+	var fps_row := UI.hbox(10)
+	box.add_child(fps_row)
+	for f in [60, 120]:
+		var fb := UI.button("%d i/s" % f, 22, UI.ACCENT if int(Dev.v["fps"]) == f else UI.MUTED, 120)
+		fb.custom_minimum_size = Vector2(120, 64)
+		fb.pressed.connect(func():
+			Dev.set_value("fps", f)
+			_show_dev())
+		fps_row.add_child(fb)
+	var cnt := UI.button("COMPTEUR : " + ("OUI" if bool(Dev.v["show_fps"]) else "NON"), 20, UI.MUTED, 180)
+	cnt.custom_minimum_size = Vector2(180, 64)
+	cnt.pressed.connect(func():
+		Dev.set_value("show_fps", not bool(Dev.v["show_fps"]))
+		_show_dev())
+	fps_row.add_child(cnt)
+	box.add_child(summary)
+	var end_row := UI.hbox(10)
+	box.add_child(end_row)
+	var rs := UI.button("PAR DÉFAUT", 20, UI.MUTED, 170)
+	rs.custom_minimum_size = Vector2(170, 64)
+	rs.pressed.connect(func():
+		Dev.reset()
+		view.refresh_cam()
+		_show_dev())
+	end_row.add_child(rs)
+	var back := UI.primary("RETOUR", 24, 170)
+	back.custom_minimum_size = Vector2(170, 64)
+	back.pressed.connect(func():
+		_clear_overlay()
+		get_tree().paused = false
+		_show_pause())
+	end_row.add_child(back)
 
 func _on_hero_died() -> void:
 	if get_tree().paused:

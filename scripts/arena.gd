@@ -197,7 +197,8 @@ func start_room(r: int, mod: String) -> void:
 	spawn_queue = []
 	running = true
 	cleared = false
-	hp_scale = 1.0 + (r - 1) * 0.13
+	# difficulté : les ennemis gagnent 20 % de PV par salle, et chaque monde repart plus haut (+40 %)
+	hp_scale = (1.0 + (r - 1) * 0.2) * (1.0 + 0.4 * Data.world)
 	# tourelles et drones des pouvoirs, replacés à chaque salle
 	turrets.clear()
 	for i in range(hero.turrets):

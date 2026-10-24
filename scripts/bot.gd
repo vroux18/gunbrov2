@@ -60,7 +60,7 @@ func _capture_screen() -> bool:
 				main.show_loge()
 			"arsenal":
 				main.show_arsenal()
-			"power", "item", "victory", "defeat", "enemy", "tuto", "pause", "hud":
+			"power", "item", "victory", "defeat", "enemy", "tuto", "pause", "hud", "dev":
 				# écrans de partie : on entre directement dans l'arène, Jo reste immobile
 				main.start_run()
 				if mode == "tuto":
@@ -102,6 +102,9 @@ func _capture_events(mode: String) -> void:
 					main._show_end(false, "RAPPEL AU RELAIS", "Le butin reste, les pouvoirs partent.")
 			"pause":
 				main._show_pause()
+			"dev":
+				main._show_pause()
+				main._show_dev()
 			"hud":
 				# HUD sous tension : énergie presque pleine, coup reçu, tickets qui tombent
 				main.arena.energy = main.arena.energy_need * 0.93

@@ -80,7 +80,7 @@ func _build_rig(k: String, is_elite: bool) -> bool:
 	rig.elite = is_elite
 	body.add_child(rig)
 	rig.setup(glb)
-	rig.scale = Vector3.ONE * float(RIG_SCALE.get(k, 1.75)) * (1.12 if is_elite else 1.0)
+	rig.scale = Vector3.ONE * float(RIG_SCALE.get(k, 1.75)) * (1.12 if is_elite else 1.0) * Dev.get_f("mob_scale")
 	return true
 
 func _build_legacy(k: String, r: float) -> void:

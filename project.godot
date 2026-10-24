@@ -24,6 +24,7 @@ run/max_fps=120
 
 Perf="*res://scripts/perf.gd"
 Music="*res://scripts/music.gd"
+Dev="*res://scripts/dev.gd"
 
 [display]
 
