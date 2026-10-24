@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tools/touch_scroll_test.gd" id="1"]
+
+[node name="T" type="Control"]
+script = ExtResource("1")
