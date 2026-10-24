@@ -885,6 +885,26 @@ func _show_pause() -> void:
 		Music.set_enabled(not Music.enabled)
 		mu.text = "MUSIQUE : " + ("OUI" if Music.enabled else "NON"))
 	box.add_child(mu)
+	# caméra : recul et inclinaison, appliqués tout de suite derrière le menu
+	var cams := UI.hbox(12)
+	cams.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_child(cams)
+	var cz := UI.button("", 22, UI.ACCENT, 194)
+	cz.custom_minimum_size = Vector2(194, 80)
+	var ca := UI.button("", 22, UI.ACCENT, 194)
+	ca.custom_minimum_size = Vector2(194, 80)
+	var cam_text := func():
+		cz.text = "VUE : " + String(view.CAM_ZOOMS[view.cam_zoom][0])
+		ca.text = "ANGLE : " + String(view.CAM_ANGLES[view.cam_angle][0])
+	cam_text.call()
+	cz.pressed.connect(func():
+		view.set_cam(view.cam_zoom + 1, view.cam_angle)
+		cam_text.call())
+	ca.pressed.connect(func():
+		view.set_cam(view.cam_zoom, view.cam_angle + 1)
+		cam_text.call())
+	cams.add_child(cz)
+	cams.add_child(ca)
 	var q := UI.button("ABANDONNER  ·  le butin reste", 24, UI.MUTED, 400)
 	q.custom_minimum_size = Vector2(400, 80)
 	q.pressed.connect(func(): _show_end(false, "PARTIE ABANDONNÉE", "Le butin reste, les pouvoirs partent."))

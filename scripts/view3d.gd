@@ -30,6 +30,12 @@ const MAGENTA := Color("#F23CB8")
 const CAM_PITCH := 56.0
 const CAM_DIST := 11.5
 const CAM_FOV := 38.0
+## Réglage du joueur (menu pause) : recul et inclinaison de la caméra de jeu, gardés sur l'appareil.
+const CAM_ZOOMS := [["PROCHE", 9.0], ["NORMALE", 11.5], ["LARGE", 14.0], ["TRÈS LARGE", 16.5]]
+const CAM_ANGLES := [["PLONGÉE", 66.0], ["STANDARD", 56.0], ["RASANTE", 46.0]]
+const CAM_CFG := "user://camera.cfg"
+var cam_zoom := 1
+var cam_angle := 1
 const HERO_SCALE := 1.85
 
 var arena: Node
@@ -78,6 +84,7 @@ var _box_meshes := {}  # clé -> BoxMesh unité avec son matériau
 var _flash_i := 0
 
 func build(arena_node: Node, hero_node: Node2D, joy_node: Node) -> void:
+	_load_cam()
 	arena = arena_node
 	hero2d = hero_node
 	joy = joy_node
@@ -528,8 +535,8 @@ func _place_camera(dt: float) -> void:
 	target.x = clampf(target.x, 6.5, W - 6.5)
 	target.z = clampf(target.z, 2.6, H - 3.2)
 	cam_target = cam_target.lerp(target, clampf(dt * 6.0, 0.0, 1.0))
-	var pitch := deg_to_rad(CAM_PITCH)
-	var off := Vector3(0, sin(pitch), cos(pitch)) * CAM_DIST
+	var pitch := deg_to_rad(float(CAM_ANGLES[cam_angle][1]))
+	var off := Vector3(0, sin(pitch), cos(pitch)) * float(CAM_ZOOMS[cam_zoom][1])
 	var sh := Vector3.ZERO
 	if shake > 0.0:
 		shake = maxf(0.0, shake - dt * 2.5)
@@ -538,6 +545,23 @@ func _place_camera(dt: float) -> void:
 	cam.position = cam_target + off + sh
 	cam.look_at(cam_target + sh * 0.5, Vector3.UP)
 	cam.make_current()
+
+func _load_cam() -> void:
+	var cf := ConfigFile.new()
+	if cf.load(CAM_CFG) == OK:
+		cam_zoom = clampi(int(cf.get_value("camera", "zoom", 1)), 0, CAM_ZOOMS.size() - 1)
+		cam_angle = clampi(int(cf.get_value("camera", "angle", 1)), 0, CAM_ANGLES.size() - 1)
+
+## Change le recul (`zoom`) ou l'inclinaison de la caméra, l'applique tout de suite (même en pause) et le garde.
+func set_cam(zoom: int, angle: int) -> void:
+	cam_zoom = posmod(zoom, CAM_ZOOMS.size())
+	cam_angle = posmod(angle, CAM_ANGLES.size())
+	var cf := ConfigFile.new()
+	cf.set_value("camera", "zoom", cam_zoom)
+	cf.set_value("camera", "angle", cam_angle)
+	cf.save(CAM_CFG)
+	if active:
+		_place_camera(1.0)
 
 ## Arrêt sur image : le temps ralentit un instant (durée en secondes réelles).
 var _stop_until := 0
