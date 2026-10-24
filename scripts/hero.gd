@@ -173,7 +173,7 @@ func recalc() -> void:
 	shield_time = 3.0 if has_evo("forteresse") else 8.0 / (1.0 + 0.4 * maxi(0, shield_max - 1))
 	armor = pow(0.88, lv("armor"))
 	vamp = lv("vamp")
-	regen = 1.0 * lv("regen")
+	regen = 0.6 * lv("regen")
 	after_hit = 0.55 + 0.5 * lv("reflex")
 	# machines
 	turrets = lv("turret")

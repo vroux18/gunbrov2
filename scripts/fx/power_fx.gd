@@ -63,7 +63,7 @@ func setup(v: Node3D, a: Node, h: Node2D) -> void:
 	_mm["mine"] = _make_mm(_disc_mesh(0.2, 0.08, 10), 12, _solid_mat(1.0))
 	_mm["saw"] = _make_mm(_saw_mesh(), 8, _solid_mat(1.3, true))
 	_mm["mini"] = _make_mm(_sphere(0.11), 20, _solid_mat(1.2))
-	_mm["ice"] = _make_mm(_sphere(1.0, 10, 6), 64, _ice_mat())
+	_mm["ice"] = _make_mm(_sphere(1.0, 7, 3), 64, _ice_mat())
 	# aura glaciale : un disque au sol qui suit Jo
 	_aura = MeshInstance3D.new()
 	var pm := PlaneMesh.new()
@@ -72,8 +72,8 @@ func setup(v: Node3D, a: Node, h: Node2D) -> void:
 	_aura_mat = ShaderMaterial.new()
 	_aura_mat.shader = load("res://shaders/ground_ring.gdshader")
 	_aura_mat.set_shader_parameter("color", Color(ICE, 0.55))
-	_aura_mat.set_shader_parameter("width", 0.06)
-	_aura_mat.set_shader_parameter("fill", 0.1)
+	_aura_mat.set_shader_parameter("width", 0.035)
+	_aura_mat.set_shader_parameter("fill", 0.06)
 	_aura_mat.render_priority = 3
 	_aura.material_override = _aura_mat
 	_aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -144,11 +144,14 @@ func _ice_mat() -> ShaderMaterial:
 shader_type spatial;
 render_mode unshaded, blend_mix, cull_back, depth_draw_never, shadows_disabled;
 void fragment() {
-	float f = 1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0);
-	float facet = step(0.5, fract((NORMAL.x * 3.0 + NORMAL.z * 2.0) * 1.7));
-	vec3 c = mix(vec3(0.55, 0.85, 1.0), vec3(1.0), f * f) + facet * 0.08;
-	ALBEDO = c * 1.25;
-	ALPHA = clamp(0.22 + f * 0.7 + facet * 0.05, 0.0, 0.92) * COLOR.a;
+	// facettes nettes (normale de la face), bleu glacier, arêtes claires
+	vec3 n = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
+	float f = 1.0 - clamp(abs(dot(n, VIEW)), 0.0, 1.0);
+	float lit = clamp(dot(n, normalize(vec3(0.35, 0.85, 0.4))), 0.0, 1.0);
+	vec3 c = mix(vec3(0.25, 0.62, 1.0), vec3(0.8, 0.96, 1.0), lit * lit);
+	c = mix(c, vec3(1.0), f * 0.7);
+	ALBEDO = c * 1.3;
+	ALPHA = clamp(0.4 + 0.4 * f + 0.2 * lit, 0.0, 0.9);
 }
 """
 	var m := ShaderMaterial.new()
@@ -314,25 +317,35 @@ func _process(_dt: float) -> void:
 func _tick_status(dt: float) -> void:
 	var ice: MultiMesh = _mm["ice"]
 	var ni := 0
+	# les flammes et bulles partent du devant du modèle (côté caméra), sinon la coque les cache
+	var cf := Vector3(0, -0.83, -0.56)
+	var cam := get_viewport().get_camera_3d()
+	if cam != null:
+		cf = -cam.global_transform.basis.z
 	for e in arena.enemies:
 		if e.dead:
 			continue
 		var r: float = e.radius * K
-		var p := p3(e.position)
-		var h := 0.3 + r * 0.9
-		if e.burn_t > 0.0 and _emit < MAX_EMIT and randf() < dt * 14.0:
+		var top := (0.3 + r * 2.0) * 1.5  # haut du modèle, à peu près
+		var p := p3(e.position) - cf * (r + 0.2)
+		var h := top * 0.55
+		if e.burn_t > 0.0:
+			# halo orange qui vacille : on lit « en feu » même de loin
+			_dot(p + UP * h * 1.2, Color(1.0, 0.42, 0.1) * (0.75 + 0.2 * sin(now * 23.0 + r * 40.0)), 1.5 + r * 3.0)
+		if e.burn_t > 0.0 and _emit < MAX_EMIT and randf() < dt * 26.0:
 			_emit += 1
 			var off := Vector3(randf_range(-1, 1), 0.0, randf_range(-1, 1)) * r * 0.6
 			var hot := Color(2.0, 1.15, 0.4).lerp(Color(1.6, 0.5, 0.15), randf())
-			_p(fire, p + off + UP * h * randf_range(0.5, 1.1), Vector3(randf_range(-0.2, 0.2), randf_range(0.6, 1.2), randf_range(-0.2, 0.2)), randf_range(0.35, 0.55), 0.0, r * 0.55, r * 0.15, 1.0, Color(hot, 0.95), Color(0.6, 0.12, 0.04))
+			_p(fire, p + off + UP * h * randf_range(0.6, 1.6), Vector3(randf_range(-0.2, 0.2), randf_range(0.6, 1.2), randf_range(-0.2, 0.2)), randf_range(0.35, 0.55), 0.0, 0.38 + r * 1.1, 0.08, 1.0, Color(hot, 0.95), Color(0.6, 0.12, 0.04))
 			if randf() < 0.4:
 				_p(glow, p + off + UP * h, Vector3(randf_range(-0.4, 0.4), randf_range(1.0, 2.0), randf_range(-0.4, 0.4)), 0.6, -0.5, 0.07, 0.02, 1.0, Color(1.0, 0.7, 0.3), Color(0.9, 0.2, 0.05), 0.02)
 		if e.freeze_t > 0.0:
 			if ni < ice.instance_count:
-				var s := r * 1.35 + 0.12
-				var hh := maxf(s, 0.45 + r * 0.9)
-				var bs := Basis(UP, float(e.get_instance_id() % 7)) * Basis.from_scale(Vector3(s, hh, s))
-				ice.set_instance_transform(ni, Transform3D(bs, p + UP * hh * 0.82))
+				# bloc de glace à la taille du modèle (les gros ennemis sont plus hauts que leur rayon)
+				var s := 0.12 + r * 1.8
+				var hh := 0.3 + r * 2.0
+				var bs := Basis.from_euler(Vector3(0.0, float(e.get_instance_id() % 7), 0.0)).scaled(Vector3(s, hh, s))
+				ice.set_instance_transform(ni, Transform3D(bs, p3(e.position) + UP * hh * 0.82))
 				ice.set_instance_color(ni, Color(1, 1, 1, clampf(e.freeze_t * 3.0, 0.0, 1.0)))
 				ni += 1
 			if _emit < MAX_EMIT and randf() < dt * 4.0:
@@ -341,7 +354,9 @@ func _tick_status(dt: float) -> void:
 		elif e.chill_t > 0.0 and _emit < MAX_EMIT and randf() < dt * 6.0:
 			_emit += 1
 			_p(glow, p + Vector3(randf_range(-1, 1), randf_range(0.2, 1.1), randf_range(-1, 1)) * r, Vector3(0, -0.3, 0), 0.5, 0.0, 0.1, 0.03, 0.5, Color(0.85, 0.97, 1.0), ICE, 0.02)
-		if e.poison_t > 0.0 and _emit < MAX_EMIT and randf() < dt * 5.0:
+		if e.poison_t > 0.0:
+			_dot(p + UP * h, Color(0.45, 1.0, 0.25) * 0.35, 0.9 + r * 1.8)
+		if e.poison_t > 0.0 and _emit < MAX_EMIT and randf() < dt * 8.0:
 			_emit += 1
 			_p(glow, p + Vector3(randf_range(-0.7, 0.7) * r, h, randf_range(-0.7, 0.7) * r), Vector3(0, 0.9, 0), 0.6, 0.0, 0.08, 0.14, 0.5, Color(0.7, 1.0, 0.4), VENOM)
 	ice.visible_instance_count = ni
@@ -477,7 +492,7 @@ func _tick_sky(dt: float) -> void:
 		var k: float = 1.0 - a["t"] / a["life"]
 		var col: Color = a["col"]
 		for j in range(pts.size() - 1):
-			_bolt(pts[j], pts[j + 1], Color(col, 1.0) * (0.6 + 0.6 * k), 0.13 * (0.5 + 0.5 * k), 5, 0.2)
+			_bolt(pts[j], pts[j + 1], Color(col, 1.0) * (0.7 + 0.6 * k), 0.2 * (0.5 + 0.5 * k), 5, 0.22)
 		i += 1
 	i = 0
 	while i < _strikes.size():
@@ -542,7 +557,7 @@ func _tick_aura() -> void:
 	_aura.position = p3(hero2d.position, 0.05)
 	_aura.scale = Vector3(r, 1, r)
 	_aura.rotation.y = now * 0.4
-	_aura_mat.set_shader_parameter("color", Color(ICE, 0.45 + 0.1 * sin(now * 3.0)))
+	_aura_mat.set_shader_parameter("color", Color(ICE, 0.13 + 0.04 * sin(now * 3.0)))
 	if _emit < MAX_EMIT and randf() < 0.5:
 		_emit += 1
 		var a := randf() * TAU
@@ -558,7 +573,7 @@ func _on_event(kind: String, info: Dictionary) -> void:
 			var pts: Array = []
 			for q in info["pts"]:
 				pts.append(p3(q, 0.75))
-			_arcs.append({"pts": pts, "t": 0.0, "life": 0.22, "col": info["col"]})
+			_arcs.append({"pts": pts, "t": 0.0, "life": 0.3, "col": info["col"]})
 			for q in pts:
 				_p(glow, q, Vector3.ZERO, 0.12, 0.0, 0.7, 1.0, 0.0, Color(1, 1, 0.8), info["col"])
 		"strike":
@@ -648,7 +663,7 @@ func _blast(info: Dictionary) -> void:
 			fx.explosion(g, r * 0.5, col, false, 0.0, true)
 			view.add_shake(0.25)
 		"missile", "mine", "mini":
-			fx.explosion(g, r * 0.55, col, false, 0.0, false, 0.4)
+			fx.explosion(g, r * 0.45, col, false, 0.0, false, 0.4)
 		"shatter":
 			fx.flash(g + UP * 0.6, Color(0.9, 1.0, 1.0), r * 1.4, 0.12)
 			fx.chunks(g + UP * 0.5, [Color("#E8FBFF"), Color("#9FDCFF"), Color("#5AA8FF")], 12, 6.0, Vector3.ZERO, 0.13, 0.6, 0.0, true)

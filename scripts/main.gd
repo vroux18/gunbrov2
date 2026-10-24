@@ -663,6 +663,49 @@ func _ars_tile(p: Dictionary, bc: Color) -> Button:
 			_ars_detail.text = txt)
 	return b
 
+## Tuile d'évolution : pictogramme doré, nom, recette, effet (deux lignes au plus).
+func _ars_evo_tile(ev: Dictionary, recipe: String) -> Button:
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(0, 84)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var st := UI.chunky(UI.PANEL.lightened(0.05), UI.GOLD.darkened(0.45), false, 16)
+	st.border_width_left = 5
+	st.border_color = UI.GOLD
+	b.add_theme_stylebox_override("normal", st)
+	b.add_theme_stylebox_override("hover", st)
+	b.add_theme_stylebox_override("pressed", st)
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	var hb := UI.hbox(12)
+	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hb.offset_left = 14
+	hb.offset_right = -10
+	hb.offset_top = 4
+	hb.offset_bottom = -8
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(hb)
+	var ic := UI.Icon.new(String(ev["icon"]), UI.GOLD, 40.0)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hb.add_child(ic)
+	var v := UI.vbox(0)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(v)
+	var n := UI.title(String(ev["name"]), 19, UI.TEXT, UI.GOLD)
+	n.add_theme_constant_override("shadow_offset_y", 0)
+	v.add_child(n)
+	var r := UI.label(recipe, 15, UI.GOLD.lightened(0.15))
+	r.add_theme_font_override("font", UI.TITLE)
+	v.add_child(r)
+	var d := UI.label(String(ev["desc"]), 15, UI.MUTED)
+	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	d.add_theme_constant_override("line_spacing", -4)
+	v.add_child(d)
+	for c in v.get_children():
+		(c as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return b
+
 func _ars_evolutions(body: Control) -> void:
 	var grid := GridContainer.new()
 	grid.columns = 2
@@ -676,8 +719,7 @@ func _ars_evolutions(body: Control) -> void:
 		var a := Data.power(String(need[0]))
 		var b := Data.power(String(need[1]))
 		var recipe := "%s %s  +  %s %s" % [String(a["name"]), Data.roman(int(a["max"])), String(b["name"]), Data.roman(int(b["max"]))]
-		var t := UI.tile(String(ev["icon"]), String(ev["name"]), recipe + "\n" + String(ev["desc"]), UI.GOLD, true, 88)
-		t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var t := _ars_evo_tile(ev, recipe)
 		t.pressed.connect(func():
 			if _ars_detail != null and is_instance_valid(_ars_detail):
 				_ars_detail.text = "%s  ·  %s  ·  %s" % [String(ev["name"]).to_upper(), recipe, String(ev["desc"])])
@@ -818,6 +860,12 @@ func _start_run_ui() -> void:
 	if tutorial != null and is_instance_valid(tutorial):
 		tutorial.queue_free()
 	tutorial = null
+	# premières parties : rappel de l'esquive, une fois les deux pouces en place
+	if int(profile["runs"]) <= 3:
+		var run_n := int(profile["runs"])
+		get_tree().create_timer(9.0 if bool(profile.get("tutorial_done", false)) else 16.0, false).timeout.connect(func():
+			if state == "arena" and int(profile["runs"]) == run_n:
+				hud.flash("ESQUIVE : BOUTON » AU-DESSUS DU TIR", 2.4, UI.ACCENT))
 	if not bool(profile.get("tutorial_done", false)):
 		tutorial = TutorialScript.new()
 		tutorial.joy = joy

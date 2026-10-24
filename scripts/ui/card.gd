@@ -204,7 +204,7 @@ func _build_face(sz: Vector2, icon_kind: String, title_text: String, body_text: 
 		c.add_child(rib)
 		rib.reset_size()
 		rib.position = Vector2((sz.x - rib.size.x) * 0.5, -14)
-	var name_l := UI.title(title_text, 27 if title_text.length() < 17 else 23, UI.TEXT, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	var name_l := UI.title(title_text, 27 if title_text.length() < 15 else 21, UI.TEXT, accent, HORIZONTAL_ALIGNMENT_CENTER)
 	name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	name_l.custom_minimum_size = Vector2(sz.x - 24, 0)
 	name_l.position = Vector2(12, art_h + 6)
@@ -214,9 +214,19 @@ func _build_face(sz: Vector2, icon_kind: String, title_text: String, body_text: 
 	_name_label = name_l
 	if tier >= 2:
 		Fx.shine(name_l, sz.x, 2.2 if tier == 3 else 3.2, 0.7)
+	var fs := 21 if body_text.length() < 64 else 18
 	if info.has("recipe"):
-		body_text += "\n" + String(info["recipe"])
-	var d := UI.label(body_text, 21 if body_text.length() < 70 else 19, Color("#C4D2E4"), HORIZONTAL_ALIGNMENT_CENTER)
+		# recette de l'évolution, juste au-dessus du bandeau
+		var rl := UI.label(String(info["recipe"]), 15, accent.lightened(0.2), HORIZONTAL_ALIGNMENT_CENTER)
+		rl.add_theme_font_override("font", UI.TITLE)
+		rl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		rl.position = Vector2(10, sz.y - 92)
+		rl.size = Vector2(sz.x - 20, 40)
+		rl.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		rl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		c.add_child(rl)
+		fs = 17
+	var d := UI.label(body_text, fs, Color("#C4D2E4"), HORIZONTAL_ALIGNMENT_CENTER)
 	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	d.custom_minimum_size = Vector2(sz.x - 36, 0)
 	d.position = Vector2(18, art_h + 50)

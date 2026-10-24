@@ -218,6 +218,7 @@ func _clear_entities() -> void:
 	blade_pos.clear()
 	_later.clear()
 	_pt.clear()
+	_grid.clear()
 
 func start_room(r: int, mod: String) -> void:
 	room = r
@@ -275,7 +276,7 @@ func consume_energy() -> void:
 ## Énergie demandée pour le choix n° `level` : barre courte au début (les premiers choix arrivent vite),
 ## qui s'allonge ensuite.
 static func need_for(level: int) -> float:
-	return 4.0 + 1.8 * level + 0.03 * level * level
+	return 4.0 + 3.0 * level + 0.6 * level * level
 
 func enemies_left() -> int:
 	return enemies.size() + spawn_queue.size()
@@ -459,6 +460,11 @@ func _room_done() -> void:
 	var p := hero.position + Vector2(0, -140)
 	p.x = clampf(p.x, 200, W - 200)
 	p.y = clampf(p.y, TOP + 160, H - 200)
+	# jamais dans une caisse : on le rapproche de Jo jusqu'à une place libre
+	for k in range(12):
+		if not _blocked(p, 40.0):
+			break
+		p = p.lerp(hero.position, 0.2) if k < 6 else p + Vector2.RIGHT.rotated(k) * 60.0
 	chest = {"pos": p, "open": false}
 	sfx.play("level", 1.2)
 	Music.stinger()
@@ -576,7 +582,7 @@ func on_enemy_died(e: Node2D, rewarded: bool = true) -> void:
 		pickups.append({"pos": e.position, "kind": "item", "vel": Vector2.ZERO, "t": 0.0, "item": Data.roll_item(1)})
 		bonus_choice.emit()
 	if hero.vamp > 0:
-		hero.heal(float(hero.vamp))
+		hero.heal(0.5 * hero.vamp)
 	if hero.lv("impulse") > 0:
 		hero.dash_stock = minf(float(hero.dash_max), hero.dash_stock + [0.0, 0.25, 0.4][hero.lv("impulse")] / hero.dash_cd)
 	# effets de mort des pouvoirs (détonation, venin, contagion, éclats de glace, nuée) : une image plus tard,
@@ -671,7 +677,10 @@ func _near(pos: Vector2, reach: float) -> Array:
 		for cy in range(y0, y1 + 1):
 			var k := cx * 1000 + cy
 			if _grid.has(k):
-				out.append_array(_grid[k])
+				for e in _grid[k]:
+					# la grille date du début de l'image : un ennemi libéré entre-temps est sauté
+					if is_instance_valid(e):
+						out.append(e)
 	return out
 
 ## Dégâts d'un pouvoir sur un ennemi ; `show` : chiffre et étincelles comme un tir.

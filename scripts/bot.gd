@@ -15,6 +15,14 @@ var _room_jump_done := false
 var _dash_t := 0.0  # délai entre deux ruées du robot
 var _look_t := 0.0
 var _orbit := 1.0
+var _dash_tested := false
+var _dash_reported := false
+var _dash_before := 0.0
+var _stall_sig := ""
+var _stall_n := 0
+var _proc_sum := 0.0  # temps de traitement par image (mesure de performance)
+var _proc_n := 0.0
+var _proc_max := 0.0
 var _chest_done := false
 var _door_pick := randi() % 3
 var touch_test := false  # --touchtest : simule de vrais doigts sur les sticks au lieu de piloter le joystick
@@ -95,12 +103,17 @@ func _capture_screen() -> bool:
 			"loge":
 				main.show_loge()
 			"arsenal":
+				if "--tab=evo" in OS.get_cmdline_user_args():
+					main._ars_tab = "evo"
 				main.show_arsenal()
 			"talents":
 				main.show_talents()
+			"cards":
+				_card_board()
 			"power", "item", "victory", "defeat", "enemy", "tuto", "pause", "hud", "dev":
 				# écrans de partie : on entre directement dans l'arène, Jo reste immobile
 				main.start_run()
+				_give_powers()
 				if mode == "tuto":
 					main.joy.bot = false  # sticks dessinés, aucun doigt
 				for a in OS.get_cmdline_user_args():
@@ -191,6 +204,41 @@ func _capture_talents() -> void:
 				_touch(0, p, false)
 				print("TALENTS : glisser ok=%s (défilement %s)" % [str((sc.get("_pan") - get_meta("pan0")).length() > 100.0), str(sc.get("_pan") - get_meta("pan0"))])
 
+## --screen=cards --page=N : planche des cartes de pouvoir (24 par page, faces visibles), évolutions en dernier.
+func _card_board() -> void:
+	var Data = load("res://scripts/data.gd")
+	var CardScript = load("res://scripts/ui/card.gd")
+	var page := 0
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--page="):
+			page = int(a.trim_prefix("--page="))
+	var all := []
+	for bid in Data.BRANCH_ORDER:
+		for p in Data.POWERS:
+			if String(p["b"]) == bid:
+				all.append([p, false])
+	for ev in Data.EVOLUTIONS:
+		all.append([ev, true])
+	var root := ColorRect.new()
+	root.color = Color("#0E1B33")
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	main.ui_layer.add_child(root)
+	var cs := Vector2(264, 356)
+	var k := 0.5
+	for i in range(24):
+		var idx := page * 24 + i
+		if idx >= all.size():
+			break
+		var entry: Array = all[idx]
+		var c: Button = CardScript.new()
+		var p: Dictionary = entry[0]
+		c.setup_power(p, 1 if entry[1] else mini(2, int(p["max"])), entry[1], cs)
+		c.show_face()
+		c.scale = Vector2(k, k)
+		c.pivot_offset = Vector2.ZERO
+		c.position = Vector2(14 + (i % 8) * (cs.x * k + 25), 14 + (i / 8) * (cs.y * k + 46))
+		root.add_child(c)
+
 func _give_stuff() -> void:
 	var Data = load("res://scripts/data.gd")
 	var Save = load("res://scripts/save.gd")
@@ -227,6 +275,20 @@ func _process(dt: float) -> void:
 				var n := int(a.trim_prefix("--room="))
 				arena.start_room(n, "elite" if n == 5 else "combat")
 				main.view.start_room()
+	# --status=gel|feu|mix (captures) : les ennemis gelés, en feu (et empoisonnés), ou un sur deux
+	for a3 in OS.get_cmdline_user_args():
+		if a3.begins_with("--status="):
+			var mode := a3.trim_prefix("--status=")
+			var k := 0
+			for e in arena.enemies:
+				var gel := mode == "gel" or (mode == "mix" and k % 2 == 0)
+				if gel:
+					if e.freeze_t <= 0.0:
+						arena.freeze(e, 2.0)
+				else:
+					arena.ignite(e, 0.0, 1.0)
+					e.poison_t = 0.5
+				k += 1
 	if "--god" in OS.get_cmdline_user_args():
 		hero.hp = hero.hp_max
 	# --hero=x,y : place Jo (px) et la laisse immobile, pour filmer un coin du décor
@@ -258,6 +320,16 @@ func _process(dt: float) -> void:
 			_touch(0, Vector2(290, 560), false)
 			_touch(1, Vector2(1080, 470), false)
 			print("TOUCH : stick gauche ok=%s (déplacement %.0f px), stick droit tirs=%d" % [str(hero.position.x - _start_pos.x > 200.0), hero.position.x - _start_pos.x, arena.bullets.size() + arena.kills])
+		elif _touch_t > 2.6 and not _dash_tested:
+			# bouton d'esquive : un appui au doigt doit consommer une charge
+			_dash_tested = true
+			_dash_before = hero.dash_stock
+			var db: Vector2 = main.joy.dash_base()
+			_touch(2, db, true)
+			_touch(2, db, false)
+		elif _dash_tested and not _dash_reported and _touch_t > 2.8:
+			_dash_reported = true
+			print("TOUCH : esquive ok=%s (charges %.2f -> %.2f)" % [str(hero.dash_stock < _dash_before - 0.5), _dash_before, hero.dash_stock])
 		return
 	think -= dt
 	if think <= 0.0:
@@ -276,7 +348,14 @@ func _process(dt: float) -> void:
 		var tgt: Node2D = arena.nearest_enemy(hero.position, 99999.0)
 		if tgt != null and (arena.enemies.size() <= 3 or tgt.kind == "shield"):
 			var to: Vector2 = tgt.position - hero.position
-			pull = to.normalized().orthogonal() * 1.4 * _orbit + to.normalized() * clampf((to.length() - 260.0) / 200.0, -1.0, 1.0)
+			var want := 150.0 if tgt.kind == "shield" else 260.0
+			pull = to.normalized().orthogonal() * 1.4 * _orbit + to.normalized() * clampf((to.length() - want) / 150.0, -1.0, 1.0)
+			if tgt.kind == "shield":
+				away = Vector2.ZERO
+				# le bouclier suit Jo : une ruée de côté pour passer derrière
+				if hero.dash_stock >= 1.0 and randf() < 0.25:
+					main.joy.bot_dash = true
+					_dashes += 1
 			if randf() < 0.05:
 				_orbit = -_orbit
 		dir = (away + pull + Vector2(randf_range(-1, 1), randf_range(-1, 1))).normalized()
@@ -287,6 +366,10 @@ func _process(dt: float) -> void:
 			dir = (arena.doors[_door_pick % arena.doors.size()]["pos"] - hero.position).normalized()
 			dir = arena.steer(hero.position, dir, hero.radius)
 	main.joy.bot_move = dir
+	var pt := Performance.get_monitor(Performance.TIME_PROCESS)
+	_proc_sum += pt
+	_proc_n += 1.0
+	_proc_max = maxf(_proc_max, pt)
 	_bot_dash(dt, arena, hero)
 	var target: Node2D = arena.nearest_enemy(hero.position, hero.rng)
 	if target != null:
@@ -295,8 +378,23 @@ func _process(dt: float) -> void:
 	else:
 		main.joy.bot_aim_active = false
 	if int(t) % 10 == 0 and fmod(t, 1.0) < dt:
-		print("PERF : appels de dessin %d, objets %d, primitives %d, nœuds %d" % [Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME), Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME), Performance.get_monitor(Performance.OBJECT_NODE_COUNT)])
+		print("PERF : appels de dessin %d, objets %d, primitives %d, nœuds %d, script %.1f ms (max %.1f), tirs %d, ennemis %d" % [Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME), Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME), Performance.get_monitor(Performance.OBJECT_NODE_COUNT), _proc_sum * 1000.0 / maxf(1.0, _proc_n), _proc_max * 1000.0, arena.bullets.size(), arena.enemies.size()])
+		_proc_sum = 0.0
+		_proc_n = 0.0
+		_proc_max = 0.0
 		print("BOT : salle %d, vague %d, PV %d, kills %d, ennemis %d, pouvoirs %d, ruées %d" % [arena.room, arena.wave_i + 1, int(hero.hp), arena.kills, arena.enemies.size(), arena.energy_level, _dashes])
+		# robot bloqué (rien ne bouge depuis 30 s) : on dit où, pour corriger le robot ou l'arène
+		var sig := "%d/%d/%d" % [arena.room, arena.kills, arena.enemies.size()]
+		if sig == _stall_sig:
+			_stall_n += 1
+			if _stall_n >= 3:
+				var what := []
+				for e in arena.enemies:
+					what.append("%s@%d,%d" % [e.kind, int(e.position.x), int(e.position.y)])
+				print("BOT : bloqué, Jo @%d,%d, ennemis %s, file %d, vidée %s, coffre %s, portails %d, pause %s" % [int(hero.position.x), int(hero.position.y), " ".join(what), arena.spawn_queue.size(), str(arena.cleared), str(arena.chest), arena.doors.size(), str(get_tree().paused)])
+		else:
+			_stall_sig = sig
+			_stall_n = 0
 
 ## Ruée du robot : un tir ennemi qui arrive droit sur Jo, un ennemi au contact, ou de temps en temps.
 func _bot_dash(dt: float, arena: Node, hero: Node2D) -> void:
@@ -366,6 +464,7 @@ func _click_something() -> void:
 			build.append("%s%d" % [id, main.hero.powers[id]])
 		for id in main.hero.evo:
 			build.append("*" + String(id))
-		print("BOT : fin de partie, salle %d, kills %d, t=%.0f s, build %s" % [main.arena.room, main.arena.kills, main.arena.elapsed, " ".join(build)])
+		var won: bool = main.arena.room >= 10 and main.arena.cleared
+		print("BOT : fin de partie, salle %d%s, kills %d, t=%.0f s, build %s" % [main.arena.room, " VICTOIRE" if won else "", main.arena.kills, main.arena.elapsed, " ".join(build)])
 	print("BOT : clic « %s »" % pick.text)
 	pick.pressed.emit()

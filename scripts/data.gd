@@ -44,11 +44,11 @@ const POWERS := [
 	# Défense
 	{"id": "heal", "b": "def", "tier": 1, "max": 5, "name": "Vitalité", "desc": "+20 PV max et 30 PV soignés tout de suite."},
 	{"id": "shield", "b": "def", "tier": 1, "max": 3, "name": "Bouclier", "desc": "Absorbe un coup, se recharge en 8 s (plus vite à chaque niveau)."},
-	{"id": "vamp", "b": "def", "tier": 1, "max": 3, "name": "Vampirisme", "desc": "+1 PV par ennemi tué (par niveau)."},
+	{"id": "vamp", "b": "def", "tier": 1, "max": 3, "name": "Vampirisme", "desc": "Chaque ennemi tué soigne 0,5 PV (par niveau)."},
 	{"id": "armor", "b": "def", "tier": 1, "max": 3, "name": "Blindage", "desc": "-12 % de dégâts reçus."},
 	{"id": "thorns", "b": "def", "tier": 2, "max": 2, "name": "Épines", "desc": "Qui te frappe au corps à corps prend 4× tes dégâts et recule."},
 	{"id": "reflex", "b": "def", "tier": 2, "max": 2, "name": "Réflexes", "desc": "Après un coup, invulnérable 0,5 s de plus."},
-	{"id": "regen", "b": "def", "tier": 2, "max": 2, "name": "Nanites", "desc": "Régénère 1 PV par seconde (par niveau)."},
+	{"id": "regen", "b": "def", "tier": 2, "max": 2, "name": "Nanites", "desc": "Régénère 0,6 PV par seconde (par niveau)."},
 	{"id": "repulse", "b": "def", "tier": 3, "max": 2, "name": "Onde de choc", "lv": ["Toutes les 6 s, une onde repousse les ennemis, les blesse et efface les tirs proches.", "Une onde toutes les 4 s, plus large."]},
 	{"id": "deflect", "b": "def", "tier": 3, "max": 2, "name": "Déflecteur", "lv": ["25 % des tirs ennemis qui te touchent sont renvoyés.", "45 % des tirs renvoyés."]},
 	{"id": "phoenix", "b": "def", "tier": 3, "max": 1, "name": "Seconde chance", "desc": "Une fois par partie, un coup fatal te laisse à 50 % de PV et déclenche une onde."},
@@ -75,15 +75,15 @@ const POWERS := [
 
 ## Évolutions : légendaires, une seule fois par partie, quand les deux pouvoirs `need` sont au maximum.
 const EVOLUTIONS := [
-	{"id": "rafale", "name": "Rafale perforante", "need": ["double", "pierce"], "icon": "pierce", "desc": "Un projectile de plus, et tous les tirs traversent tout."},
-	{"id": "pyro", "name": "Pyromane", "need": ["boom", "fire"], "icon": "fire", "desc": "Détonations deux fois plus grandes qui enflamment tout ce qu'elles touchent."},
-	{"id": "essaim", "name": "Essaim orageux", "need": ["ally", "shock"], "icon": "ally", "desc": "Deux drones de plus ; chacun de leurs tirs lance un arc de foudre."},
-	{"id": "moulinette", "name": "Tempête de lames", "need": ["blades", "speed"], "icon": "blades", "desc": "Deux fois plus de lames, en cercle qui respire ; elles coupent les tirs ennemis."},
-	{"id": "blizzard", "name": "Blizzard", "need": ["frost", "aura"], "icon": "frost", "desc": "L'aura gèle net toutes les 3 s ; les gelés prennent double dégâts."},
+	{"id": "rafale", "name": "Rafale perforante", "need": ["double", "pierce"], "icon": "pierce", "desc": "Un projectile de plus ; tous les tirs traversent tout."},
+	{"id": "pyro", "name": "Pyromane", "need": ["boom", "fire"], "icon": "fire", "desc": "Détonations deux fois plus grandes, qui enflamment tout."},
+	{"id": "essaim", "name": "Essaim orageux", "need": ["ally", "shock"], "icon": "ally", "desc": "Deux drones de plus ; leurs tirs lancent la foudre."},
+	{"id": "moulinette", "name": "Tempête de lames", "need": ["blades", "speed"], "icon": "blades", "desc": "Lames ×2 en cercle qui respire ; elles coupent les tirs."},
+	{"id": "blizzard", "name": "Blizzard", "need": ["frost", "aura"], "icon": "frost", "desc": "L'aura gèle tout toutes les 3 s ; gelés : dégâts ×2."},
 	{"id": "salve", "name": "Salve infinie", "need": ["rate", "fan"], "icon": "fan", "desc": "Chaque tir part en éventail."},
-	{"id": "forteresse", "name": "Forteresse", "need": ["shield", "armor"], "icon": "shield", "desc": "Bouclier rechargé en 3 s ; quand il cède, une onde de choc repousse tout."},
-	{"id": "comete", "name": "Comète", "need": ["dashboom", "charges"], "icon": "dash", "desc": "Ruée : une charge de plus, recharge deux fois plus vite, explosion géante qui enflamme."},
-	{"id": "artillerie", "name": "Arsenal volant", "need": ["missile", "turret"], "icon": "missile", "desc": "Les tourelles tirent des missiles ; deux fois plus de missiles."},
+	{"id": "forteresse", "name": "Forteresse", "need": ["shield", "armor"], "icon": "shield", "desc": "Bouclier rechargé en 3 s ; il cède dans une onde de choc."},
+	{"id": "comete", "name": "Comète", "need": ["dashboom", "charges"], "icon": "dash", "desc": "Ruée : +1 charge, recharge ×2, explosion géante en feu."},
+	{"id": "artillerie", "name": "Arsenal volant", "need": ["missile", "turret"], "icon": "missile", "desc": "Les tourelles tirent des missiles ; missiles ×2."},
 	{"id": "sangfroid", "name": "Sang d'acier", "need": ["vamp", "crit"], "icon": "vamp", "desc": "+15 % de critique ; chaque critique soigne 1 PV."},
 ]
 
