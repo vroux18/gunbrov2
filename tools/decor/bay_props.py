@@ -1,6 +1,6 @@
-"""Équipement du quai nord (baie 07, compagnie de fret ORVA). Tous les objets regardent vers +Z (le quai, la
+"""Équipement du quai nord (baie 07, compagnie de fret HXF). Tous les objets regardent vers +Z (le quai, la
 caméra), sol à y = 0. Les tuyaux qui vont jusqu'au vaisseau suivent la disposition de hangar_bay.gd.
-  bay_pump    : pompe à carburant ORVA (armoire, cadran, enrouleur, pistolet, gyrophare) + tuyau jusqu'à la
+  bay_pump    : pompe à carburant HÉLIX FRET (armoire, cadran, enrouleur, pistolet, gyrophare) + tuyau jusqu'à la
                 trappe de carburant de la Pie ;
   bay_power   : groupe de parc « énergie sol » sur roues + câble jusqu'à la prise du nez ;
   bay_console : pupitre (l'écran animé est posé par hangar_bay.gd), bay_console2 : pupitre double ;
@@ -23,7 +23,7 @@ def pump():
     p = BPart("pump", res=0.014, seed=11.0)
     p.stain((0, 0.0, 0.3), 0.5, 0.5, "#141414")
     p.piece(GUN, tris=60, wear=0.7).add(box((0, 0.05, 0), (0.42, 0.05, 0.3), 0.015))
-    cab = p.piece(ORVA_D, tris=200, res=0.018, wear=0.7)
+    cab = p.piece(HXF_D, tris=200, res=0.018, wear=0.7)
     cab.add(box((0, 0.68, 0), (0.36, 0.6, 0.25), 0.05))
     cab.sub(box((0, 0.85, 0.27), (0.29, 0.3, 0.04), 0.02))
     pan = p.piece(CREAM, tris=80, wear=0.6)
@@ -55,7 +55,7 @@ def pump():
 
 def power():
     p = BPart("power", res=0.016, seed=12.0)
-    body = p.piece(ORVA, tris=220, wear=0.7)
+    body = p.piece(HXF, tris=220, wear=0.7)
     body.add(box((0, 0.5, 0), (0.55, 0.3, 0.36), 0.06))
     body.sub(box((0, 0.5, 0.38), (0.4, 0.18, 0.04), 0.02))
     p.piece(CREAM, tris=50, wear=0.6).add(box((0, 0.5, 0.345), (0.38, 0.16, 0.015), 0.01))
@@ -90,7 +90,7 @@ def console(double=False):
     ped = p.piece(NAVY, tris=160, res=0.018, wear=0.7)
     ped.add(box((0, 0.42, 0), (hw, 0.42, 0.24), 0.04))
     ped.sub(box((0, 0.05, 0.26), (hw - 0.05, 0.06, 0.06), 0.02))
-    p.piece(ORVA, tris=40, wear=0.7).add(box((0, 0.62, 0.236), (hw, 0.035, 0.012), 0.008))
+    p.piece(HXF, tris=40, wear=0.7).add(box((0, 0.62, 0.236), (hw, 0.035, 0.012), 0.008))
     desk = p.piece(SLATE, tris=80, wear=0.8)
     desk.add(obox((0, 0.86, 0.08), (hw + 0.04, 0.035, 0.27), 0.015, R(25, 0, 0)))
     hs = (-0.42, 0.42) if double else (0.0,)
@@ -126,9 +126,9 @@ def rack(seed):
         p.prim_box(SLATE, (x, 1.2, 0.425), (0.015, 0.02, 0.32))
     for y in (0.14, 0.86):
         for z in (0.1, 0.75):
-            p.prim_box(ORVA_D, (0, y, z), (1.42, 0.045, 0.028))
+            p.prim_box(HXF_D, (0, y, z), (1.42, 0.045, 0.028))
         p.prim_box(GUN_D, (0, y + 0.05, 0.425), (1.38, 0.012, 0.33))
-    cols = [ORVA, CREAM, SLATE, ORVA_D, CREAM, "#8C6A4A"]
+    cols = [HXF, CREAM, SLATE, HXF_D, CREAM, "#8C6A4A"]
     bodies = {c: p.piece(c, tris=110, res=0.02, wear=0.8) for c in set(cols)}
     band = p.piece(BLACK, tris=120, res=0.012, wear=0.0)
     for y0 in (0.2, 0.92):
@@ -166,9 +166,9 @@ def pallet(name, layout):
 
 def container():
     p = BPart("container", res=0.02, seed=21.0)
-    b = p.piece(ORVA, tris=260, wear=0.9)
+    b = p.piece(HXF, tris=260, wear=0.9)
     b.add(box((0, 0.48, 0), (0.62, 0.45, 0.48), 0.04))
-    rib = p.piece(ORVA_D, tris=200, res=0.016, wear=0.9)
+    rib = p.piece(HXF_D, tris=200, res=0.016, wear=0.9)
     for x in (-0.45, -0.15, 0.15, 0.45):
         rib.add(box((x, 0.48, 0), (0.03, 0.42, 0.5), 0.012))
     p.piece(GUN, tris=120, wear=0.7).add(box((0, 0.95, 0), (0.64, 0.025, 0.5), 0.012))
@@ -222,7 +222,7 @@ def gas():
     for y in (0.05, 0.75):
         p.prim_box(SLATE, (0, y, 0.55), (0.72, 0.025, 0.02))
         p.prim_box(SLATE, (0, y, 0.1), (0.72, 0.025, 0.02))
-    cols = [ORVA, CREAM, ORVA, SLATE, CREAM]
+    cols = [HXF, CREAM, HXF, SLATE, CREAM]
     bodies = {c: p.piece(c, tris=120, res=0.016, wear=0.7) for c in set(cols)}
     tops = p.piece(GUN_D, tris=120, res=0.012, wear=0.3)
     for i, c in enumerate(cols):
@@ -235,7 +235,7 @@ def gas():
 
 def drums():
     p = BPart("drums", res=0.016, seed=61.0)
-    b = p.piece(ORVA_D, tris=300, wear=0.8)
+    b = p.piece(HXF_D, tris=300, wear=0.8)
     r = p.piece(GUN, tris=200, res=0.012, wear=0.6)
     t = p.piece(GUN_D, tris=60, res=0.012, wear=0.2)
     for (x, z) in ((0, 0), (0.58, 0.12), (0.25, 0.55)):
@@ -261,7 +261,7 @@ def cones():
 
 def cart():
     p = BPart("cart", res=0.014, seed=82.0)
-    p.piece(ORVA_D, tris=120, wear=0.8).add(box((0, 0.5, 0), (0.38, 0.36, 0.25), 0.03))
+    p.piece(HXF_D, tris=120, wear=0.8).add(box((0, 0.5, 0), (0.38, 0.36, 0.25), 0.03))
     for i in range(4):
         p.prim_box(GUN_D, (0, 0.28 + i * 0.15, 0.252), (0.34, 0.006, 0.004))
         p.prim_box(STEEL, (0, 0.33 + i * 0.15, 0.258), (0.08, 0.012, 0.008))
@@ -294,7 +294,7 @@ def reel():
 
 
 def build():
-    pa = pallet("bay_pallet_a", [(ORVA, (-0.28, 0.4, 0.0), (0.28, 0.28, 0.42), 2), (CREAM, (0.3, 0.36, 0.05), (0.26, 0.24, 0.36), -4), (ORVA_D, (-0.2, 0.86, 0.02), (0.22, 0.18, 0.3), 8)])
-    pb = pallet("bay_pallet_b", [(CREAM, (0.0, 0.42, 0.0), (0.56, 0.3, 0.45), 1), (ORVA, (0.15, 0.9, 0.05), (0.3, 0.18, 0.3), -9)])
-    pc = pallet("bay_pallet_c", [(SLATE, (-0.3, 0.32, -0.1), (0.25, 0.2, 0.3), 3), (ORVA, (0.25, 0.38, 0.0), (0.3, 0.26, 0.42), -2), ("#8C6A4A", (-0.3, 0.32, 0.3), (0.24, 0.2, 0.16), 0)])
+    pa = pallet("bay_pallet_a", [(HXF, (-0.28, 0.4, 0.0), (0.28, 0.28, 0.42), 2), (CREAM, (0.3, 0.36, 0.05), (0.26, 0.24, 0.36), -4), (HXF_D, (-0.2, 0.86, 0.02), (0.22, 0.18, 0.3), 8)])
+    pb = pallet("bay_pallet_b", [(CREAM, (0.0, 0.42, 0.0), (0.56, 0.3, 0.45), 1), (HXF, (0.15, 0.9, 0.05), (0.3, 0.18, 0.3), -9)])
+    pc = pallet("bay_pallet_c", [(SLATE, (-0.3, 0.32, -0.1), (0.25, 0.2, 0.3), 3), (HXF, (0.25, 0.38, 0.0), (0.3, 0.26, 0.42), -2), ("#8C6A4A", (-0.3, 0.32, 0.3), (0.24, 0.2, 0.16), 0)])
     return [pump(), power(), console(), console(True), rack(1), rack(2), pa, pb, pc, container(), flood(), beacon(), gas(), drums(), cones(), cart(), reel()]
