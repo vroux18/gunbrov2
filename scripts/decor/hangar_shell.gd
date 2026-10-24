@@ -19,13 +19,11 @@ static func build(v: Node, rng: RandomNumberGenerator) -> void:
 	var plain := []
 	var panel := []
 	var detail := []
-	var bay := []
 	for ix in range(int(ceil(W))):
 		for iz in range(int(ceil(H))):
 			var xf := Transform3D(Basis(), Vector3(ix + 0.5, -0.3, iz + 0.5))
 			if iz + 0.5 < TOP:
-				bay.append(xf)
-				continue
+				continue  # quai nord : hangar_bay.gd
 			var r := rng.randf()
 			if (ix + iz) % 2 == 0 and r < 0.7:
 				panel.append(xf)
@@ -36,7 +34,6 @@ static func build(v: Node, rng: RandomNumberGenerator) -> void:
 	v._mm(Models.mesh_of(ST + "floor.glb"), plain)
 	v._mm(Models.mesh_of(ST + "floor-panel.glb"), panel)
 	v._mm(Models.mesh_of(ST + "floor-detail.glb"), detail)
-	v._mm(Models.mesh_of(ST + "floor-panel-straight.glb"), bay)
 	# bandes lumineuses au sol (croix centrale et bord du quai)
 	var strip_mat := Models.glow_mat(CYAN, 1.6)
 	var s1 := Models.box(Vector3(W - 2 * WALL, 0.02, 0.06), strip_mat)
@@ -45,10 +42,7 @@ static func build(v: Node, rng: RandomNumberGenerator) -> void:
 	var s2 := Models.box(Vector3(0.06, 0.02, H - TOP - WALL), strip_mat)
 	s2.position = Vector3(W * 0.5, 0.012, (TOP + H - WALL) * 0.5)
 	level.add_child(s2)
-	var edge := Models.box(Vector3(W - 2 * WALL, 0.03, 0.08), Models.glow_mat(ORANGE, 1.8))
-	edge.position = Vector3(W * 0.5, 0.015, TOP + 0.05)
-	level.add_child(edge)
-	# murs : ouest, est (hauts), quai nord (fenêtres), sud (garde-corps bas pour ne pas masquer le jeu)
+	# murs : ouest, est (hauts), sud (garde-corps bas pour ne pas masquer le jeu) ; le mur nord est au quai
 	var wall_scale := Vector3(1.0, 1.7, 1.0)
 	for iz in range(int(TOP) - 1, int(ceil(H))):
 		var z := iz + 0.5
@@ -56,16 +50,7 @@ static func build(v: Node, rng: RandomNumberGenerator) -> void:
 		v._bput(piece, Vector3(WALL - 0.15, 0, z), PI * 0.5, wall_scale)
 		v._bput(piece, Vector3(W - WALL + 0.15, 0, z), -PI * 0.5, wall_scale)
 	for ix in range(int(ceil(W))):
-		var x := ix + 0.5
-		var piece := ST + ("wall-window.glb" if ix % 3 != 0 else "wall-pillar.glb")
-		v._bput(piece, Vector3(x, 0, 0.15), 0.0, Vector3(1.0, 2.2, 1.0))
-		v._bput(ST + "rail.glb", Vector3(x, 0, H - WALL + 0.1), PI)
-	# garde-corps du quai (bord nord de l'arène), interrompu au centre devant le sas
-	for ix in range(int(ceil(W))):
-		var x := ix + 0.5
-		if absf(x - W * 0.5) < 1.6:
-			continue
-		v._bput(ST + "rail.glb", Vector3(x, 0, TOP - 0.05), 0.0)
+		v._bput(ST + "rail.glb", Vector3(ix + 0.5, 0, H - WALL + 0.1), PI)
 	_details(v, W, H, WALL, TOP)
 
 ## Lumières d'ambiance colorées (peu nombreuses : chaque lumière coûte sur téléphone). Appelé après le lot.
@@ -136,8 +121,6 @@ static func _details(v: Node, W: float, H: float, WALL: float, TOP: float) -> vo
 		if iz % 5 == 0:
 			v._bbox("wall_bar", bar, Vector3(WALL + 0.02, 1.0, iz + 0.5), Vector3(0.04, 1.2, 0.12))
 			v._bbox("wall_bar", bar, Vector3(W - WALL - 0.02, 1.0, iz + 0.5), Vector3(0.04, 1.2, 0.12))
-	# bandeau orange en haut du mur nord
-	v._bbox("north_strip", Models.glow_mat(ORANGE, 1.6), Vector3(W * 0.5, 2.15, 0.33), Vector3(W, 0.06, 0.04))
 	# emblème du Relais peint au centre de l'arène
 	var c := Vector3(W * 0.5, 0.016, (TOP + H - WALL) * 0.5)
 	for r in [[2.6, 2.68, 0.28], [1.7, 1.74, 0.18]]:

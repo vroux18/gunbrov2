@@ -3,3 +3,4 @@ build/
 *.import
 export_credentials.cfg
 .claude/worktrees/
+__pycache__/

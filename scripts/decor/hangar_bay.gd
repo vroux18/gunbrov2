@@ -6,11 +6,33 @@ const Models = preload("res://scripts/models.gd")
 const ST := "res://assets/models/station/"
 const SP := "res://assets/models/space/"
 const CYAN := Color("#3CF2D8")
+const ORANGE := Color("#FF7A2F")
 
 static func build(v: Node, rng: RandomNumberGenerator) -> void:
 	var W: float = v.arena.W * v.K
 	var TOP: float = v.arena.TOP * v.K
 	var level: Node3D = v.level
+	# sol du quai
+	var bay := []
+	for ix in range(int(ceil(W))):
+		for iz in range(int(ceil(TOP))):
+			if iz + 0.5 < TOP:
+				bay.append(Transform3D(Basis(), Vector3(ix + 0.5, -0.3, iz + 0.5)))
+	v._mm(Models.mesh_of(ST + "floor-panel-straight.glb"), bay)
+	# bord lumineux du quai, garde-corps interrompu au centre devant le sas
+	var edge := Models.box(Vector3(W - 2.0 * v.arena.WALL * v.K, 0.03, 0.08), Models.glow_mat(ORANGE, 1.8))
+	edge.position = Vector3(W * 0.5, 0.015, TOP + 0.05)
+	level.add_child(edge)
+	for ix in range(int(ceil(W))):
+		var x := ix + 0.5
+		if absf(x - W * 0.5) < 1.6:
+			continue
+		v._bput(ST + "rail.glb", Vector3(x, 0, TOP - 0.05), 0.0)
+	# mur nord à fenêtres sur la nébuleuse, bandeau orange
+	for ix in range(int(ceil(W))):
+		var piece := ST + ("wall-window.glb" if ix % 3 != 0 else "wall-pillar.glb")
+		v._bput(piece, Vector3(ix + 0.5, 0, 0.15), 0.0, Vector3(1.0, 2.2, 1.0))
+	v._bbox("north_strip", Models.glow_mat(ORANGE, 1.6), Vector3(W * 0.5, 2.15, 0.33), Vector3(W, 0.06, 0.04))
 	# vaisseau du Relais garé au centre du quai
 	var ship: Node3D = v._put(SP + "craft_cargoA.glb", Vector3(W * 0.5, 0.0, TOP * 0.5 + 0.1), PI * 0.5, Vector3.ONE * 2.3, null, true)
 	Models.tint_node(ship, 0.5)
