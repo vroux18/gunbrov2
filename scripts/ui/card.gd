@@ -1,6 +1,8 @@
 extends Button
 ## Carte à jouer (pouvoir, objet trouvé) : distribuée en éventail face cachée, se retourne, rebondit.
 ## La rareté se lit à la couleur (bordure, bandeau, halo), à la lueur qui pulse et aux étincelles qui montent.
+## Carte de pouvoir (`setup_power`) : couleur et pictogramme de sa branche, palier (éclat qui monte avec lui),
+## niveau en chiffres romains ; carte d'évolution : légendaire dorée, ruban ÉVOLUTION, recette, liseré qui court.
 ## Tout est dessiné en code (styleboxes, polygones, quelques labels) ; aucune particule 2D, aucun nœud par frame.
 
 const UI = preload("res://scripts/ui.gd")
@@ -9,14 +11,8 @@ const Fx = preload("res://scripts/ui/fx.gd")
 
 ## Couleurs de rareté : mêmes que les objets (data.gd), du commun au culte.
 const TIER_COLORS := [Color("#9FB3C8"), Color("#3CF2D8"), Color("#C77DFF"), Color("#FFB347")]
-## Rareté des pouvoirs (cosmétique : le tirage reste uniforme) et noms affichés.
-const POWER_TIER := {
-	"rate": 0, "dmg": 0, "speed": 0, "heal": 0, "magnet": 0, "range": 0, "slow": 0,
-	"shield": 1, "crit": 1, "vamp": 1, "pierce": 1, "bounce": 1,
-	"turret": 2, "double": 2, "boom": 2,
-	"ally": 3,
-}
 const POWER_TIER_NAMES := ["COMMUN", "RARE", "ÉPIQUE", "LÉGENDAIRE"]
+const Data = preload("res://scripts/data.gd")
 const SPARKS := [0, 7, 12, 18]
 
 var tier := 0
@@ -30,11 +26,28 @@ var _flash: Panel
 var _t := 0.0
 var _burst := 0.0  # 1 au retournement, décroît
 var _name_label: Label
+var evo := false  # carte d'évolution : liseré doré qui court autour
 
-func setup(icon_kind: String, title_text: String, body_text: String, tier_i: int, tier_name: String, badge: String = "", card_size: Vector2 = Vector2(264, 356)) -> void:
+## Carte de pouvoir : `p` est une entrée de Data.POWERS (ou Data.EVOLUTIONS si `is_evo`), `level` le niveau
+## qu'elle donne.
+func setup_power(p: Dictionary, level: int, is_evo: bool, card_size: Vector2) -> void:
+	if is_evo:
+		evo = true
+		var need: Array = p["need"]
+		var recipe := "%s + %s" % [Data.power(String(need[0]))["name"], Data.power(String(need[1]))["name"]]
+		setup(String(p["icon"]), String(p["name"]), String(p["desc"]), 3, "LÉGENDAIRE", "", card_size, Data.EVO_COL, {"recipe": recipe, "branch_icon": "star"})
+		return
+	var br := Data.branch(String(p["b"]))
+	var palier := int(p["tier"])
+	var info := {"branch_icon": String(br["icon"]), "pips": palier}
+	setup(String(p["id"]), String(p["name"]), Data.power_text(p, level), palier - 1,
+		"%s · PALIER %s" % [String(br["name"]).to_upper(), Data.roman(palier)],
+		"NIV. " + Data.roman(level), card_size, br["col"], info)
+
+func setup(icon_kind: String, title_text: String, body_text: String, tier_i: int, tier_name: String, badge: String = "", card_size: Vector2 = Vector2(264, 356), col: Color = Color(0, 0, 0, 0), info: Dictionary = {}) -> void:
 	UI.load_fonts()
 	tier = clampi(tier_i, 0, 3)
-	accent = TIER_COLORS[tier]
+	accent = TIER_COLORS[tier] if col.a == 0.0 else col
 	focus_mode = Control.FOCUS_NONE
 	custom_minimum_size = card_size
 	size = card_size
@@ -49,7 +62,7 @@ func setup(icon_kind: String, title_text: String, body_text: String, tier_i: int
 	add_child(_halo)
 	back = _build_back(card_size)
 	add_child(back)
-	face = _build_face(card_size, icon_kind, title_text, body_text, tier_name, badge)
+	face = _build_face(card_size, icon_kind, title_text, body_text, tier_name, badge, info)
 	face.visible = false
 	add_child(face)
 	_flash = Panel.new()
@@ -111,7 +124,7 @@ func _build_back(sz: Vector2) -> Control:
 	c.add_child(deco)
 	return c
 
-func _build_face(sz: Vector2, icon_kind: String, title_text: String, body_text: String, tier_name: String, badge: String) -> Control:
+func _build_face(sz: Vector2, icon_kind: String, title_text: String, body_text: String, tier_name: String, badge: String, info: Dictionary = {}) -> Control:
 	var c := Control.new()
 	c.size = sz
 	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -123,7 +136,7 @@ func _build_face(sz: Vector2, icon_kind: String, title_text: String, body_text: 
 	s.border_width_left = 4
 	s.border_width_right = 4
 	s.border_width_bottom = 9
-	s.border_color = accent.darkened(0.15) if tier > 0 else Color("#4A5E86")
+	s.border_color = accent.darkened(0.15) if tier > 0 or not info.is_empty() else Color("#4A5E86")
 	p.add_theme_stylebox_override("panel", s)
 	c.add_child(p)
 	var art_h := sz.y * 0.47
@@ -158,10 +171,40 @@ func _build_face(sz: Vector2, icon_kind: String, title_text: String, body_text: 
 	ic.position = Vector2(sz.x * 0.5 - 39, art_h * 0.56 - 39)
 	c.add_child(ic)
 	if badge != "":
-		var bt := UI.tag(badge, UI.ORANGE, UI.INK, 18)
-		bt.position = Vector2(sz.x - 98, 14)
+		var bt := UI.tag(badge, UI.ORANGE if info.is_empty() else accent.lightened(0.1), UI.INK, 18)
 		c.add_child(bt)
-	var name_l := UI.title(title_text, 27, UI.TEXT, accent, HORIZONTAL_ALIGNMENT_CENTER)
+		bt.reset_size()
+		bt.position = Vector2(sz.x - bt.size.x - 14, 14)
+	if info.has("branch_icon"):
+		# pastille de la branche (coin haut gauche) et pips du palier dessous
+		var chip := Panel.new()
+		chip.size = Vector2(44, 44)
+		chip.position = Vector2(12, 12)
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chip.add_theme_stylebox_override("panel", UI.flat(Color(UI.INK, 0.75), accent, 22, 3))
+		c.add_child(chip)
+		var bi := Icon.new(String(info["branch_icon"]), accent.lightened(0.2), 30.0)
+		bi.position = Vector2(7, 7)
+		chip.add_child(bi)
+		var pips := int(info.get("pips", 0))
+		if pips > 0:
+			var pp := Control.new()
+			pp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			pp.position = Vector2(12, 60)
+			pp.size = Vector2(44, 12)
+			pp.draw.connect(func():
+				for k in range(3):
+					var q := Vector2(8 + k * 14, 6)
+					var on := k < pips
+					pp.draw_colored_polygon(PackedVector2Array([q + Vector2(0, -6), q + Vector2(5, 0), q + Vector2(0, 6), q + Vector2(-5, 0)]), accent.lightened(0.2) if on else Color(1, 1, 1, 0.18)))
+			c.add_child(pp)
+	if evo:
+		# ruban ÉVOLUTION en travers du haut de la carte
+		var rib := UI.tag("ÉVOLUTION", accent, UI.INK, 20)
+		c.add_child(rib)
+		rib.reset_size()
+		rib.position = Vector2((sz.x - rib.size.x) * 0.5, -14)
+	var name_l := UI.title(title_text, 27 if title_text.length() < 17 else 23, UI.TEXT, accent, HORIZONTAL_ALIGNMENT_CENTER)
 	name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	name_l.custom_minimum_size = Vector2(sz.x - 24, 0)
 	name_l.position = Vector2(12, art_h + 6)
@@ -171,7 +214,9 @@ func _build_face(sz: Vector2, icon_kind: String, title_text: String, body_text: 
 	_name_label = name_l
 	if tier >= 2:
 		Fx.shine(name_l, sz.x, 2.2 if tier == 3 else 3.2, 0.7)
-	var d := UI.label(body_text, 21, Color("#C4D2E4"), HORIZONTAL_ALIGNMENT_CENTER)
+	if info.has("recipe"):
+		body_text += "\n" + String(info["recipe"])
+	var d := UI.label(body_text, 21 if body_text.length() < 70 else 19, Color("#C4D2E4"), HORIZONTAL_ALIGNMENT_CENTER)
 	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	d.custom_minimum_size = Vector2(sz.x - 36, 0)
 	d.position = Vector2(18, art_h + 50)
@@ -260,6 +305,22 @@ func discard(side: float) -> void:
 	tw.tween_property(self, "modulate:a", 0.0, 0.35)
 
 # ---------------------------------------------------------------- étincelles (une seule passe de dessin)
+## Point du bord de la carte (rectangle) à la fraction `u` du tour.
+static func _perimeter(sz: Vector2, u: float) -> Vector2:
+	var w := sz.x - 8.0
+	var h := sz.y - 8.0
+	var d := u * 2.0 * (w + h)
+	if d < w:
+		return Vector2(4.0 + d, 4.0)
+	d -= w
+	if d < h:
+		return Vector2(4.0 + w, 4.0 + d)
+	d -= h
+	if d < w:
+		return Vector2(4.0 + w - d, 4.0 + h)
+	d -= w
+	return Vector2(4.0, 4.0 + h - d)
+
 static func _star(ci: CanvasItem, p: Vector2, r: float, col: Color) -> void:
 	ci.draw_colored_polygon(PackedVector2Array([p + Vector2(0, -r), p + Vector2(r * 0.22, 0), p + Vector2(0, r), p + Vector2(-r * 0.22, 0)]), col)
 	ci.draw_colored_polygon(PackedVector2Array([p + Vector2(-r, 0), p + Vector2(0, r * 0.22), p + Vector2(r, 0), p + Vector2(0, -r * 0.22)]), col)
@@ -267,6 +328,14 @@ static func _star(ci: CanvasItem, p: Vector2, r: float, col: Color) -> void:
 func _draw_sparks() -> void:
 	var sz := _sparks.size
 	var n: int = SPARKS[tier]
+	if evo and face_up:
+		# liseré qui court autour de la carte : deux comètes dorées sur le bord
+		for k in range(2):
+			var u := fmod(_t * 0.32 + k * 0.5, 1.0)
+			for j in range(10):
+				var uu := fmod(u - j * 0.008 + 1.0, 1.0)
+				var q := _perimeter(sz, uu)
+				_sparks.draw_circle(q, 7.0 - j * 0.55, Color(accent.lightened(0.5), (1.0 - j / 10.0) * 0.9))
 	if face_up:
 		for i in range(n):
 			var h := fmod(float(i) * 0.6180339 + 0.13, 1.0)

@@ -1,27 +1,93 @@
 extends RefCounted
-## Données fixes du jeu : pouvoirs de l'arsenal, objets de loot, ennemis, plan des salles.
+## Données fixes du jeu : arbre des pouvoirs de partie, objets de loot, ennemis, plan des salles.
 
 # ---------------------------------------------------------------- pouvoirs
-# Chaque pouvoir se cumule jusqu'à « max » fois dans une partie.
+## Arbre des pouvoirs d'une partie : cinq branches, trois paliers chacune. Le palier 2 d'une branche s'ouvre après
+## 2 choix dans cette branche, le palier 3 après 4. Chaque pouvoir se cumule jusqu'à « max » niveaux (I, II, III…).
+## « lv » : texte propre à chaque niveau, sinon « desc ». Quand deux pouvoirs précis sont au maximum, leur
+## évolution (EVOLUTIONS) peut sortir : une carte légendaire qui transforme le jeu.
+const BRANCHES := {
+	"canon": {"name": "Canon", "col": Color("#3CF2D8"), "icon": "b_canon"},
+	"elem": {"name": "Éléments", "col": Color("#C77DFF"), "icon": "b_elem"},
+	"def": {"name": "Défense", "col": Color("#5AA8FF"), "icon": "shield"},
+	"mach": {"name": "Machines", "col": Color("#9BE15D"), "icon": "gear"},
+	"move": {"name": "Mouvement", "col": Color("#FF7A2F"), "icon": "dash"},
+}
+const BRANCH_ORDER := ["canon", "elem", "def", "mach", "move"]
+const TIER_NEED := [0, 0, 2, 4]  # choix déjà faits dans la branche pour ouvrir le palier 1, 2, 3
+const EVO_COL := Color("#FFB347")
+
 const POWERS := [
-	{"id": "turret", "name": "Tourelle", "desc": "Pose une tourelle qui tire sur les ennemis.", "max": 3},
-	{"id": "rate", "name": "Cadence", "desc": "+25 % de cadence de tir.", "max": 4},
-	{"id": "dmg", "name": "Dégâts", "desc": "+20 % de dégâts.", "max": 4},
-	{"id": "speed", "name": "Vitesse", "desc": "+15 % de vitesse de déplacement.", "max": 3},
-	{"id": "double", "name": "Tir double", "desc": "Un projectile de plus par tir.", "max": 2},
-	{"id": "bounce", "name": "Rebond", "desc": "Les tirs rebondissent sur les murs.", "max": 2},
-	{"id": "pierce", "name": "Perforant", "desc": "Les tirs traversent un ennemi de plus.", "max": 2},
-	{"id": "heal", "name": "Soin", "desc": "+30 PV maintenant, +10 PV max.", "max": 5},
-	{"id": "shield", "name": "Bouclier", "desc": "Absorbe un coup toutes les 8 s.", "max": 2},
-	{"id": "magnet", "name": "Aimant", "desc": "Ramasse les tickets de plus loin.", "max": 2},
-	{"id": "boom", "name": "Détonation", "desc": "Les ennemis tués explosent.", "max": 2},
-	{"id": "ally", "name": "Drone allié", "desc": "Un drone orbite et tire avec toi.", "max": 2},
-	{"id": "slow", "name": "Ralenti", "desc": "Les ennemis sont 10 % plus lents.", "max": 3},
-	{"id": "crit", "name": "Critique", "desc": "15 % de chances de dégâts doublés.", "max": 3},
-	{"id": "range", "name": "Portée", "desc": "+25 % de portée.", "max": 2},
-	{"id": "vamp", "name": "Vampirisme", "desc": "+1 PV par ennemi tué.", "max": 2},
+	# Canon
+	{"id": "rate", "b": "canon", "tier": 1, "max": 4, "name": "Cadence", "desc": "+20 % de cadence de tir."},
+	{"id": "dmg", "b": "canon", "tier": 1, "max": 4, "name": "Puissance", "desc": "+20 % de dégâts."},
+	{"id": "crit", "b": "canon", "tier": 1, "max": 3, "name": "Critique", "desc": "+10 % de chances de coup critique (dégâts doublés)."},
+	{"id": "range", "b": "canon", "tier": 1, "max": 2, "name": "Longue portée", "desc": "+25 % de portée, tirs plus rapides."},
+	{"id": "double", "b": "canon", "tier": 2, "max": 2, "name": "Tir multiple", "lv": ["Tir double : un projectile de plus à chaque tir.", "Tir triple : encore un projectile de plus."]},
+	{"id": "pierce", "b": "canon", "tier": 2, "max": 3, "name": "Perforant", "desc": "Les tirs traversent un ennemi de plus."},
+	{"id": "bounce", "b": "canon", "tier": 2, "max": 2, "name": "Ricochet", "lv": ["Les tirs rebondissent deux fois sur les murs et les caisses.", "Un tir qui touche rebondit vers l'ennemi suivant."]},
+	{"id": "back", "b": "canon", "tier": 2, "max": 2, "name": "Tir arrière", "lv": ["Un tir part aussi derrière toi.", "Plus deux tirs sur les côtés."]},
+	{"id": "fan", "b": "canon", "tier": 3, "max": 2, "name": "Salve en éventail", "lv": ["Un tir sur quatre part en éventail de 5.", "Un tir sur trois, éventail de 7."]},
+	{"id": "giant", "b": "canon", "tier": 3, "max": 2, "name": "Obus géants", "desc": "Tirs 40 % plus gros, +30 % de dégâts, ils font reculer."},
+	{"id": "fatal", "b": "canon", "tier": 3, "max": 2, "name": "Coup fatal", "lv": ["Critiques ×3 et +5 % de critique.", "Critiques ×4 et +5 % de critique."]},
+	# Éléments
+	{"id": "fire", "b": "elem", "tier": 1, "max": 3, "name": "Balles incendiaires", "desc": "Les ennemis touchés brûlent 3 s. Plus fort à chaque niveau."},
+	{"id": "frost", "b": "elem", "tier": 1, "max": 3, "name": "Balles givrantes", "desc": "Les touchés ralentissent ; à force de coups, ils gèlent sur place."},
+	{"id": "shock", "b": "elem", "tier": 1, "max": 3, "name": "Foudre", "desc": "1 tir sur 4 lance un arc qui saute d'ennemi en ennemi (+1 saut par niveau)."},
+	{"id": "venom", "b": "elem", "tier": 1, "max": 3, "name": "Venin", "desc": "Les ennemis tués laissent un nuage toxique. Plus grand à chaque niveau."},
+	{"id": "boom", "b": "elem", "tier": 2, "max": 3, "name": "Détonation", "desc": "Les ennemis tués explosent et blessent leurs voisins."},
+	{"id": "aura", "b": "elem", "tier": 2, "max": 2, "name": "Aura glaciale", "desc": "Les ennemis proches de toi sont ralentis et se couvrent de givre."},
+	{"id": "spread", "b": "elem", "tier": 2, "max": 1, "name": "Contagion", "desc": "Un ennemi qui meurt en brûlant ou empoisonné contamine ses voisins."},
+	{"id": "meteor", "b": "elem", "tier": 3, "max": 2, "name": "Météores", "lv": ["Toutes les 5 s, un météore s'écrase sur le plus gros groupe.", "Deux météores à chaque fois."]},
+	{"id": "storm", "b": "elem", "tier": 3, "max": 2, "name": "Orage", "lv": ["Toutes les 2,5 s, la foudre tombe sur un ennemi et rebondit.", "La foudre tombe toutes les 1,5 s."]},
+	{"id": "shatter", "b": "elem", "tier": 3, "max": 1, "name": "Zéro absolu", "desc": "Un ennemi gelé qui meurt éclate : ses éclats gèlent et blessent autour."},
+	# Défense
+	{"id": "heal", "b": "def", "tier": 1, "max": 5, "name": "Vitalité", "desc": "+20 PV max et 30 PV soignés tout de suite."},
+	{"id": "shield", "b": "def", "tier": 1, "max": 3, "name": "Bouclier", "desc": "Absorbe un coup, se recharge en 8 s (plus vite à chaque niveau)."},
+	{"id": "vamp", "b": "def", "tier": 1, "max": 3, "name": "Vampirisme", "desc": "+1 PV par ennemi tué (par niveau)."},
+	{"id": "armor", "b": "def", "tier": 1, "max": 3, "name": "Blindage", "desc": "-12 % de dégâts reçus."},
+	{"id": "thorns", "b": "def", "tier": 2, "max": 2, "name": "Épines", "desc": "Qui te frappe au corps à corps prend 4× tes dégâts et recule."},
+	{"id": "reflex", "b": "def", "tier": 2, "max": 2, "name": "Réflexes", "desc": "Après un coup, invulnérable 0,5 s de plus."},
+	{"id": "regen", "b": "def", "tier": 2, "max": 2, "name": "Nanites", "desc": "Régénère 1 PV par seconde (par niveau)."},
+	{"id": "repulse", "b": "def", "tier": 3, "max": 2, "name": "Onde de choc", "lv": ["Toutes les 6 s, une onde repousse les ennemis, les blesse et efface les tirs proches.", "Une onde toutes les 4 s, plus large."]},
+	{"id": "deflect", "b": "def", "tier": 3, "max": 2, "name": "Déflecteur", "lv": ["25 % des tirs ennemis qui te touchent sont renvoyés.", "45 % des tirs renvoyés."]},
+	{"id": "phoenix", "b": "def", "tier": 3, "max": 1, "name": "Seconde chance", "desc": "Une fois par partie, un coup fatal te laisse à 50 % de PV et déclenche une onde."},
+	# Machines
+	{"id": "turret", "b": "mach", "tier": 1, "max": 3, "name": "Tourelle", "desc": "Pose une tourelle qui tire sur les ennemis."},
+	{"id": "ally", "b": "mach", "tier": 1, "max": 3, "name": "Drone allié", "desc": "Un drone orbite autour de toi et tire avec toi."},
+	{"id": "blades", "b": "mach", "tier": 1, "max": 3, "name": "Lames orbitales", "desc": "Deux lames tournent autour de toi et tranchent (+1 lame par niveau)."},
+	{"id": "missile", "b": "mach", "tier": 2, "max": 3, "name": "Missiles", "desc": "Toutes les 2 s, des missiles à tête chercheuse (+1 par niveau)."},
+	{"id": "mine", "b": "mach", "tier": 2, "max": 3, "name": "Mines", "desc": "En marchant, tu sèmes des mines (plus souvent à chaque niveau)."},
+	{"id": "overclock", "b": "mach", "tier": 2, "max": 2, "name": "Surcharge", "desc": "Tourelles, drones, missiles, lames : +30 % de cadence, +25 % de dégâts."},
+	{"id": "saw", "b": "mach", "tier": 3, "max": 2, "name": "Scie volante", "lv": ["Toutes les 3 s, une scie file d'ennemi en ennemi (6 rebonds).", "Deux scies à la fois."]},
+	{"id": "swarm", "b": "mach", "tier": 3, "max": 2, "name": "Nuée", "lv": ["Un ennemi tué sur quatre lâche un mini-drone kamikaze.", "Presque un sur deux."]},
+	# Mouvement
+	{"id": "speed", "b": "move", "tier": 1, "max": 3, "name": "Vitesse", "desc": "+12 % de vitesse de déplacement."},
+	{"id": "magnet", "b": "move", "tier": 1, "max": 2, "name": "Aimant", "desc": "Ramasse de bien plus loin, +15 % d'énergie par ennemi."},
+	{"id": "turbo", "b": "move", "tier": 1, "max": 3, "name": "Turbo", "desc": "Esquive : recharge 20 % plus rapide."},
+	{"id": "charges", "b": "move", "tier": 2, "max": 2, "name": "Double ruée", "desc": "Esquive : une charge de plus, à enchaîner."},
+	{"id": "trail", "b": "move", "tier": 2, "max": 2, "name": "Traînée ardente", "lv": ["La ruée laisse une traînée de feu.", "La course aussi laisse du feu."]},
+	{"id": "dashboom", "b": "move", "tier": 2, "max": 2, "name": "Ruée explosive", "desc": "La ruée finit par une explosion (plus forte au niveau II)."},
+	{"id": "phantom", "b": "move", "tier": 2, "max": 2, "name": "Fantôme", "desc": "La ruée va plus loin, traverse les ennemis et les blesse."},
+	{"id": "momentum", "b": "move", "tier": 3, "max": 2, "name": "Élan", "lv": ["Après une ruée : +60 % de cadence pendant 2 s.", "+100 % de cadence après une ruée."]},
+	{"id": "impulse", "b": "move", "tier": 3, "max": 2, "name": "Impulsion", "lv": ["Chaque ennemi tué recharge l'esquive de 0,25 s.", "0,4 s par ennemi tué."]},
 ]
-const ARSENAL_SIZE := 8
+
+## Évolutions : légendaires, une seule fois par partie, quand les deux pouvoirs `need` sont au maximum.
+const EVOLUTIONS := [
+	{"id": "rafale", "name": "Rafale perforante", "need": ["double", "pierce"], "icon": "pierce", "desc": "Un projectile de plus, et tous les tirs traversent tout."},
+	{"id": "pyro", "name": "Pyromane", "need": ["boom", "fire"], "icon": "fire", "desc": "Détonations deux fois plus grandes qui enflamment tout ce qu'elles touchent."},
+	{"id": "essaim", "name": "Essaim orageux", "need": ["ally", "shock"], "icon": "ally", "desc": "Deux drones de plus ; chacun de leurs tirs lance un arc de foudre."},
+	{"id": "moulinette", "name": "Tempête de lames", "need": ["blades", "speed"], "icon": "blades", "desc": "Deux fois plus de lames, en cercle qui respire ; elles coupent les tirs ennemis."},
+	{"id": "blizzard", "name": "Blizzard", "need": ["frost", "aura"], "icon": "frost", "desc": "L'aura gèle net toutes les 3 s ; les gelés prennent double dégâts."},
+	{"id": "salve", "name": "Salve infinie", "need": ["rate", "fan"], "icon": "fan", "desc": "Chaque tir part en éventail."},
+	{"id": "forteresse", "name": "Forteresse", "need": ["shield", "armor"], "icon": "shield", "desc": "Bouclier rechargé en 3 s ; quand il cède, une onde de choc repousse tout."},
+	{"id": "comete", "name": "Comète", "need": ["dashboom", "charges"], "icon": "dash", "desc": "Ruée : une charge de plus, recharge deux fois plus vite, explosion géante qui enflamme."},
+	{"id": "artillerie", "name": "Arsenal volant", "need": ["missile", "turret"], "icon": "missile", "desc": "Les tourelles tirent des missiles ; deux fois plus de missiles."},
+	{"id": "sangfroid", "name": "Sang d'acier", "need": ["vamp", "crit"], "icon": "vamp", "desc": "+15 % de critique ; chaque critique soigne 1 PV."},
+]
+
+const ARSENAL_SIZE := 8  # ancien arsenal (sauvegardes) : n'est plus utilisé en partie
 const DEFAULT_ARSENAL := ["turret", "rate", "dmg", "speed", "double", "heal", "shield", "boom"]
 
 static func power(id: String) -> Dictionary:
@@ -29,6 +95,46 @@ static func power(id: String) -> Dictionary:
 		if p["id"] == id:
 			return p
 	return {}
+
+static func evolution(id: String) -> Dictionary:
+	for p in EVOLUTIONS:
+		if p["id"] == id:
+			return p
+	return {}
+
+static func branch(id: String) -> Dictionary:
+	return BRANCHES.get(id, BRANCHES["canon"])
+
+const ROMAN := ["", "I", "II", "III", "IV", "V", "VI"]
+static func roman(n: int) -> String:
+	return ROMAN[clampi(n, 0, ROMAN.size() - 1)]
+
+## Texte d'un pouvoir pour son niveau `level` (1 = premier).
+static func power_text(p: Dictionary, level: int) -> String:
+	if p.has("lv"):
+		var lv: Array = p["lv"]
+		return String(lv[clampi(level - 1, 0, lv.size() - 1)])
+	return String(p.get("desc", ""))
+
+# ---------------------------------------------------------------- talents (Relais)
+## Talents permanents du Relais (scripts/talents.gd, livré à part) : tolère son absence.
+const TALENTS_PATH := "res://scripts/talents.gd"
+static var _talents: Script = null
+static var _talents_tried := false
+
+static func talents_script() -> Script:
+	if not _talents_tried:
+		_talents_tried = true
+		if ResourceLoader.exists(TALENTS_PATH):
+			_talents = load(TALENTS_PATH)
+	return _talents
+
+## Valeur d'un talent (0 si les talents ne sont pas là).
+static func talent(profile: Dictionary, id: String) -> float:
+	var t := talents_script()
+	if t == null or profile.is_empty():
+		return 0.0
+	return float(t.value(profile, id))
 
 # ---------------------------------------------------------------- loot
 const SLOTS := ["arme", "arme2", "tete", "torse", "jambes", "gadget"]

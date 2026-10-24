@@ -1,5 +1,5 @@
 extends Node2D
-## Chef d'orchestre : le Relais (base), la Loge (équipement), l'Arsenal (pouvoirs de la partie),
+## Chef d'orchestre : le Relais (base), la Loge (équipement), l'Arsenal (arbre des pouvoirs de partie),
 ## la partie dans l'arène et ses overlays (choix de pouvoir, objet trouvé, portails, pause, fin).
 
 const Data = preload("res://scripts/data.gd")
@@ -75,6 +75,7 @@ func _ready() -> void:
 	ui_layer.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(ui_layer)
 	arena.energy_full.connect(_show_power_choice)
+	arena.bonus_choice.connect(_on_bonus_choice)
 	arena.room_cleared.connect(_on_room_cleared)
 	arena.door_taken.connect(_on_door_taken)
 	arena.item_found.connect(_show_item)
@@ -93,6 +94,7 @@ func _ready() -> void:
 
 func _apply_profile_to_hero() -> void:
 	hero.items = Save.equipped_items(profile)
+	hero.profile = profile
 	hero.recalc()
 	if view != null:
 		view.set_hero_items(hero.items)
@@ -104,6 +106,9 @@ func _process(_dt: float) -> void:
 		hud.hp_max = hero.hp_max
 		hud.shield = hero.shield_max > 0 and hero.shield_ready
 		hud.energy = arena.energy / arena.energy_need
+		joy.dash_max = hero.dash_max
+		joy.dash_charges = int(floorf(hero.dash_stock + 0.0001))
+		joy.dash_ratio = hero.dash_stock - floorf(hero.dash_stock)
 		hud.room = arena.room
 		hud.rooms = Data.ROOMS
 		hud.wave = maxi(1, arena.wave_i + 1)
@@ -329,7 +334,7 @@ func _build_relais_panel() -> void:
 	var loge := _side_button("LOGE", "torse", UI.ACCENT, str(inv_n) if inv_n > 0 else "")
 	loge.pressed.connect(show_loge)
 	row.add_child(loge)
-	var ars := _side_button("ARSENAL", "bolt", UI.ORANGE, "%d/%d" % [profile["arsenal"].size(), Data.ARSENAL_SIZE])
+	var ars := _side_button("ARSENAL", "bolt", UI.ORANGE, str(Data.POWERS.size()))
 	ars.pressed.connect(show_arsenal)
 	row.add_child(ars)
 	var equipped := Save.equipped_items(profile)
@@ -471,55 +476,170 @@ func show_loge() -> void:
 			show_loge())
 		list.add_child(b)
 
+## Arsenal : l'arbre des pouvoirs de partie, à lire (rien à composer). Cinq colonnes, une par branche, rangées
+## par palier ; un onglet pour les évolutions et leurs recettes. Toucher un pouvoir l'explique en bas.
+var _ars_tab := "branches"
+var _ars_detail: Label = null
+
 func show_arsenal() -> void:
 	var fresh := state != "arsenal"
 	_clear_screen(fresh)
 	state = "arsenal"
 	screen = _full(false)
 	ui_layer.add_child(screen)
-	screen.add_child(UI.dim(0.8))
+	screen.add_child(UI.dim(0.86))
 	if fresh:
 		Fx.screen_in(screen)
-	var col := UI.vbox(12)
-	col.anchor_left = 0.04
-	col.anchor_right = 0.96
-	col.anchor_top = 0.05
-	col.anchor_bottom = 0.96
+	var ins := UI.safe_insets(get_viewport())
+	var col := UI.vbox(8)
+	col.anchor_left = 0.0
+	col.anchor_right = 1.0
+	col.offset_left = float(ins["left"]) + 22.0
+	col.offset_right = -float(ins["right"]) - 22.0
+	col.anchor_top = 0.025
+	col.anchor_bottom = 0.975
 	screen.add_child(col)
-	var head := UI.hbox(20)
+	var head := UI.hbox(14)
 	col.add_child(head)
-	head.add_child(UI.title("ARSENAL", 44, UI.TEXT, UI.ORANGE))
-	head.add_child(UI.title("%d / %d" % [profile["arsenal"].size(), Data.ARSENAL_SIZE], 32, UI.ORANGE, UI.ORANGE))
+	head.add_child(UI.title("ARSENAL", 40, UI.TEXT, UI.ORANGE))
+	for tab in [["branches", "BRANCHES"], ["evo", "ÉVOLUTIONS"]]:
+		var on: bool = _ars_tab == tab[0]
+		var tb := UI.button(String(tab[1]), 20, UI.GOLD if tab[0] == "evo" else UI.ACCENT, 170)
+		tb.custom_minimum_size = Vector2(170, 58)
+		tb.modulate = Color(1, 1, 1, 1.0 if on else 0.55)
+		var key: String = tab[0]
+		tb.pressed.connect(func():
+			_ars_tab = key
+			sfx.play("click", 1.1, -6.0)
+			show_arsenal())
+		head.add_child(tb)
 	var sp := Control.new()
 	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(sp)
 	var back := UI.primary("RETOUR", 24)
-	back.custom_minimum_size = Vector2(150, 80)
+	back.custom_minimum_size = Vector2(150, 64)
 	back.pressed.connect(show_base)
 	head.add_child(back)
-	col.add_child(UI.label("Les pouvoirs allumés peuvent t'être proposés quand ta barre d'énergie est pleine. Trois sont tirés à chaque fois.", 20, UI.MUTED))
-	var grid := GridContainer.new()
-	grid.columns = 4
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
-	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	col.add_child(grid)
-	for p in Data.POWERS:
-		var id := String(p["id"])
-		var on: bool = id in profile["arsenal"]
-		var b := UI.tile(id, String(p["name"]), String(p["desc"]), UI.ORANGE if on else UI.MUTED, on, 104)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.pressed.connect(func():
-			if id in profile["arsenal"]:
-				if profile["arsenal"].size() > 3:
-					profile["arsenal"].erase(id)
-			elif profile["arsenal"].size() < Data.ARSENAL_SIZE:
-				profile["arsenal"].append(id)
-			Save.save_profile(profile)
-			show_arsenal())
-		grid.add_child(b)
+	var ex := UI.label("Tous les pouvoirs peuvent sortir en partie. Palier II : après 2 choix dans la branche ; palier III : après 4. Deux pouvoirs au maximum ouvrent leur évolution.", 17, UI.MUTED)
+	ex.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(ex)
+	var body := Control.new()
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(body)
+	if _ars_tab == "evo":
+		_ars_evolutions(body)
+	else:
+		_ars_branches(body, fresh)
+	var dp := PanelContainer.new()
+	dp.add_theme_stylebox_override("panel", UI.flat(Color(UI.PANEL_DARK, 0.9), UI.LINE, 14, 2))
+	dp.custom_minimum_size = Vector2(0, 64)
+	col.add_child(dp)
+	_ars_detail = UI.label("Touche un pouvoir pour le lire en entier.", 18, UI.TEXT)
+	_ars_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_ars_detail.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	dp.add_child(_ars_detail)
+
+func _ars_branches(body: Control, fresh: bool) -> void:
+	var row := UI.hbox(10)
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	body.add_child(row)
+	var k := 0
+	for bid in Data.BRANCH_ORDER:
+		var br := Data.branch(bid)
+		var bc: Color = br["col"]
+		var v := UI.vbox(3)
+		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(v)
+		var bh := UI.hbox(6)
+		var bi := UI.Icon.new(String(br["icon"]), bc, 30.0)
+		bh.add_child(bi)
+		var bl := UI.title(String(br["name"]).to_upper(), 21, bc, bc)
+		bl.add_theme_constant_override("shadow_offset_y", 0)
+		bh.add_child(bl)
+		v.add_child(bh)
+		for tier in [1, 2, 3]:
+			var tl := UI.label("PALIER %s%s" % [Data.roman(tier), "" if tier == 1 else "  ·  %d choix" % Data.TIER_NEED[tier]], 13, Color(bc, 0.75))
+			tl.add_theme_font_override("font", UI.TITLE)
+			v.add_child(tl)
+			for p in Data.POWERS:
+				if String(p["b"]) != bid or int(p["tier"]) != tier:
+					continue
+				var b := _ars_tile(p, bc)
+				v.add_child(b)
 		if fresh:
-			Fx.rise_in(b, 0.06 + 0.025 * grid.get_child_count(), 0.3, 0.85)
+			Fx.rise_in(v, 0.05 + 0.05 * k, 0.3, 0.85)
+		k += 1
+
+func _ars_tile(p: Dictionary, bc: Color) -> Button:
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(0, 34)
+	var st := UI.flat(Color(UI.PANEL, 0.85), Color(bc, 0.35), 10, 1)
+	b.add_theme_stylebox_override("normal", st)
+	var hv := UI.flat(Color(UI.PANEL.lightened(0.08), 0.95), bc, 10, 2)
+	b.add_theme_stylebox_override("hover", hv)
+	b.add_theme_stylebox_override("pressed", hv)
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	var hb := UI.hbox(6)
+	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hb.offset_left = 6
+	hb.offset_right = -6
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(hb)
+	var ic := UI.Icon.new(String(p["id"]), bc.lightened(0.15), 24.0)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hb.add_child(ic)
+	var nl := UI.label(String(p["name"]), 15, UI.TEXT)
+	nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	nl.clip_text = true
+	nl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(nl)
+	var ml := UI.label(Data.roman(int(p["max"])), 13, Color(bc, 0.8))
+	ml.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	ml.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(ml)
+	b.pressed.connect(func():
+		sfx.play("click", 1.2, -8.0)
+		var br := Data.branch(String(p["b"]))
+		var txt := "%s  ·  %s, palier %s, jusqu'au niveau %s.  " % [String(p["name"]).to_upper(), String(br["name"]), Data.roman(int(p["tier"])), Data.roman(int(p["max"]))]
+		if p.has("lv"):
+			var parts := []
+			var i := 1
+			for t in p["lv"]:
+				parts.append("%s : %s" % [Data.roman(i), String(t)])
+				i += 1
+			txt += "  ".join(parts)
+		else:
+			txt += String(p["desc"])
+		for ev in Data.EVOLUTIONS:
+			if String(p["id"]) in ev["need"]:
+				txt += "  Évolution : " + String(ev["name"]) + "."
+		if _ars_detail != null and is_instance_valid(_ars_detail):
+			_ars_detail.text = txt)
+	return b
+
+func _ars_evolutions(body: Control) -> void:
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.set_anchors_preset(Control.PRESET_FULL_RECT)
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 8)
+	body.add_child(grid)
+	var i := 0
+	for ev in Data.EVOLUTIONS:
+		var need: Array = ev["need"]
+		var a := Data.power(String(need[0]))
+		var b := Data.power(String(need[1]))
+		var recipe := "%s %s  +  %s %s" % [String(a["name"]), Data.roman(int(a["max"])), String(b["name"]), Data.roman(int(b["max"]))]
+		var t := UI.tile(String(ev["icon"]), String(ev["name"]), recipe + "\n" + String(ev["desc"]), UI.GOLD, true, 88)
+		t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		t.pressed.connect(func():
+			if _ars_detail != null and is_instance_valid(_ars_detail):
+				_ars_detail.text = "%s  ·  %s  ·  %s" % [String(ev["name"]).to_upper(), recipe, String(ev["desc"])])
+		grid.add_child(t)
+		Fx.rise_in(t, 0.04 + 0.03 * i, 0.3, 0.85)
+		i += 1
 
 # ---------------------------------------------------------------- partie
 # ---------------------------------------------------------------- mondes
@@ -612,8 +732,20 @@ func start_run() -> void:
 	_clear_screen()
 	_clear_overlay()
 	state = "arena"
+	hero.profile = profile
 	hero.reset_run()
 	arena.reset_run()
+	_pending_bonus = 0
+	_rerolls = int(Data.talent(profile, "reroll"))
+	# talent « départ » : un ou plusieurs pouvoirs du palier I au hasard
+	var starts: Array = []
+	for k in range(int(Data.talent(profile, "start_power"))):
+		var firsts := _power_pool().filter(func(q): return int(q["tier"]) == 1)
+		if firsts.is_empty():
+			break
+		var sp: Dictionary = firsts.pick_random()
+		hero.add_power(String(sp["id"]))
+		starts.append(String(sp["name"]).to_upper())
 	arena.visible = false
 	arena.cam.enabled = false
 	hud.visible = true
@@ -626,7 +758,7 @@ func start_run() -> void:
 	arena.start_room(1, "combat")
 	view.start_room()
 	hud.fade = 1.0
-	hud.flash(Data.world_name().to_upper(), 2.0, Data.WORLDS[Data.world]["accent"])
+	hud.flash(Data.world_name().to_upper() if starts.is_empty() else "DÉPART : " + ", ".join(starts), 2.0, Data.WORLDS[Data.world]["accent"])
 	sfx.play("portal")
 	_start_run_ui()
 
@@ -676,6 +808,7 @@ func _resume() -> void:
 	_clear_overlay()
 	get_tree().paused = false
 	joy.enabled = true
+	_maybe_more_choices.call_deferred()
 
 func _card_overlay(title: String, subtitle: String) -> VBoxContainer:
 	_clear_overlay()
@@ -693,54 +826,144 @@ func _card_overlay(title: String, subtitle: String) -> VBoxContainer:
 	box.add_child(sp)
 	return box
 
-func _show_power_choice() -> void:
-	if get_tree().paused:
+## Choix d'un pouvoir : barre d'énergie pleine, ou élite abattue (choix en prime, mis en attente si un autre écran
+## est ouvert). Cartes tirées dans l'arbre (paliers ouverts selon les choix faits dans chaque branche) ; une
+## évolution prête prend la carte du milieu. Talents du Relais : carte de plus, relances.
+var _pending_bonus := 0
+var _rerolls := 0
+
+func _on_bonus_choice() -> void:
+	_pending_bonus += 1
+	_show_power_choice.call_deferred()
+
+## Rouvre un choix en attente (élite, ou énergie encore pleine) dès que le jeu reprend.
+func _maybe_more_choices() -> void:
+	if state != "arena" or get_tree().paused or overlay != null or hero.dead:
 		return
+	if _pending_bonus > 0 or arena.energy >= arena.energy_need:
+		_show_power_choice()
+
+## Pouvoirs proposables : pas encore au maximum, palier ouvert dans leur branche.
+func _power_pool() -> Array:
 	var pool := []
-	for id in profile["arsenal"]:
-		var p := Data.power(String(id))
-		if not p.is_empty() and hero.power_count(String(id)) < int(p["max"]):
-			pool.append(p)
-	pool.shuffle()
-	if pool.is_empty():
-		arena.consume_energy()
+	for p in Data.POWERS:
+		if hero.lv(String(p["id"])) >= int(p["max"]):
+			continue
+		if hero.branch_count(String(p["b"])) < int(Data.TIER_NEED[int(p["tier"])]):
+			continue
+		pool.append(p)
+	return pool
+
+## Évolutions prêtes : les deux pouvoirs de la recette au maximum, pas encore prise.
+func _evo_pool() -> Array:
+	var out := []
+	for ev in Data.EVOLUTIONS:
+		if hero.has_evo(String(ev["id"])):
+			continue
+		var ok := true
+		for id in ev["need"]:
+			if hero.lv(String(id)) < int(Data.power(String(id))["max"]):
+				ok = false
+		if ok:
+			out.append(ev)
+	return out
+
+## Tirage de `n` cartes différentes : un pouvoir déjà commencé ou d'un palier haut sort un peu plus souvent.
+func _deal_powers(n: int) -> Array:
+	var out := []
+	var pool := _power_pool()
+	var evos := _evo_pool()
+	var with_evo := not evos.is_empty() and randf() < 0.75
+	while out.size() < n - (1 if with_evo else 0) and not pool.is_empty():
+		var total := 0.0
+		for p in pool:
+			total += _deal_weight(p)
+		var r := randf() * total
+		var pick: Dictionary = pool[pool.size() - 1]
+		for p in pool:
+			r -= _deal_weight(p)
+			if r <= 0.0:
+				pick = p
+				break
+		pool.erase(pick)
+		out.append({"p": pick, "evo": false})
+	if with_evo:
+		out.insert(out.size() / 2, {"p": evos.pick_random(), "evo": true})
+	return out
+
+func _deal_weight(p: Dictionary) -> float:
+	var w := 1.0
+	if hero.lv(String(p["id"])) > 0:
+		w += 0.7  # finir ce qu'on a commencé : les évolutions deviennent possibles
+	if int(p["tier"]) >= 2:
+		w += 0.3
+	return w
+
+func _show_power_choice() -> void:
+	if get_tree().paused or state != "arena" or hero.dead:
+		return
+	var bonus := _pending_bonus > 0
+	if not bonus and arena.energy < arena.energy_need:
+		return
+	var n := clampi(3 + int(Data.talent(profile, "extra_card")), 1, 5)
+	var deal := _deal_powers(n)
+	if deal.is_empty():
+		if bonus:
+			_pending_bonus -= 1
+		else:
+			arena.consume_energy()
 		return
 	_pause_for_overlay()
 	sfx.play("level")
+	_power_cards(deal, bonus, n)
+
+func _power_cards(deal: Array, bonus: bool, n: int) -> void:
 	var vs := get_viewport().get_visible_rect().size
-	var head := _deal_overlay("ÉNERGIE PLEINE", "Choisis un pouvoir pour cette partie", UI.ACCENT)
-	var n := mini(3, pool.size())
+	var has_evo := false
+	for d in deal:
+		if d["evo"]:
+			has_evo = true
+	var title := "ÉLITE ABATTUE" if bonus else "ÉNERGIE PLEINE"
+	var sub := "Pouvoir en prime" if bonus else "Choisis un pouvoir pour cette partie"
+	if has_evo:
+		sub = "Une évolution est prête !"
+	var head := _deal_overlay(title, sub, UI.GOLD if (bonus or has_evo) else UI.ACCENT)
+	var gap := 30.0 if deal.size() <= 3 else 18.0
 	var cs := Vector2(264, 356)
 	if vs.y < 700.0:
 		cs = Vector2(240, 324)
-	var gap := 34.0
-	var cy := head + (vs.y - head) * 0.5 - 6.0
+	var room_w := (vs.x - 70.0 - gap * (deal.size() - 1)) / deal.size()
+	if room_w < cs.x:
+		cs = cs * (room_w / cs.x)
+	var cy := head + (vs.y - head) * 0.5 - (22.0 if _rerolls > 0 else 6.0)
 	var cards: Array = []
-	for i in range(n):
-		var p: Dictionary = pool[i]
+	for i in range(deal.size()):
+		var entry: Dictionary = deal[i]
+		var p: Dictionary = entry["p"]
+		var is_evo: bool = entry["evo"]
 		var id := String(p["id"])
-		var have: int = hero.power_count(id)
-		var tier: int = CardScript.POWER_TIER.get(id, 0)
+		var level: int = 1 if is_evo else hero.lv(id) + 1
+		var sz := cs * (1.07 if is_evo else 1.0)
 		var b: Button = CardScript.new()
-		b.setup(id, String(p["name"]), String(p["desc"]), tier, CardScript.POWER_TIER_NAMES[tier], ("NIV. %d" % (have + 1)) if have > 0 else "", cs)
+		b.setup_power(p, level, is_evo, sz)
 		overlay.add_child(b)
 		cards.append(b)
 		# éventail : les cartes du bord descendent un peu et penchent vers l'extérieur
-		var k := i - (n - 1) * 0.5
-		var to := Vector2(vs.x * 0.5 + k * (cs.x + gap) - cs.x * 0.5, cy - cs.y * 0.5 + absf(k) * 18.0)
-		b.deal(Vector2(vs.x * 0.5 - cs.x * 0.5, vs.y + 60.0), to, k * 0.075, 0.12 + 0.09 * i)
+		var k := i - (deal.size() - 1) * 0.5
+		var to := Vector2(vs.x * 0.5 + k * (cs.x + gap) - sz.x * 0.5, cy - sz.y * 0.5 + absf(k) * 18.0)
+		b.deal(Vector2(vs.x * 0.5 - sz.x * 0.5, vs.y + 60.0), to, k * 0.075, 0.12 + 0.09 * i)
 		b.reveal(0.62 + 0.16 * i)
 		b.pressed.connect(func():
 			var ov := overlay
 			for o in cards:
 				(o as Button).disabled = true
 			hero.add_power(id)
-			arena.consume_energy()
-			if id == "turret":
-				arena.turrets.append({"pos": hero.position + Vector2.RIGHT.rotated(randf() * TAU) * 100.0, "cd": 0.0, "ang": 0.0})
-			if id == "ally":
-				arena.allies.append({"ang": randf() * TAU, "cd": 0.0})
-			sfx.play("chest", 1.1, -4.0)
+			if bonus:
+				_pending_bonus = maxi(0, _pending_bonus - 1)
+			else:
+				arena.consume_energy()
+			arena.sync_machines()
+			sfx.play("chest", 1.1 if not is_evo else 0.8, -4.0)
 			b.pick(Vector2(vs.x * 0.5, cy))
 			for o in cards:
 				if o != b:
@@ -749,9 +972,24 @@ func _show_power_choice() -> void:
 			tw.tween_interval(0.42)
 			tw.tween_callback(func():
 				if overlay == ov:
-					hud.flash(String(p["name"]).to_upper(), 1.4, UI.ORANGE)
+					var label := String(p["name"]).to_upper()
+					if not is_evo and int(p["max"]) > 1:
+						label += " " + Data.roman(level)
+					hud.flash(label, 1.6 if is_evo else 1.4, Data.EVO_COL if is_evo else Data.branch(String(p["b"]))["col"])
 					_resume()
-					view.power_fx()))
+					view.power_fx()
+					if is_evo:
+						arena.power_event.emit("evolve", {"pos": hero.position})))
+	if _rerolls > 0:
+		var rr := UI.button("RELANCER  ·  %d" % _rerolls, 22, UI.GOLD, 260)
+		rr.custom_minimum_size = Vector2(260, 60)
+		rr.position = Vector2(vs.x * 0.5 - 130.0, minf(vs.y - 72.0, cy + cs.y * 0.5 + 34.0))
+		rr.pressed.connect(func():
+			_rerolls -= 1
+			sfx.play("click", 0.9, -4.0)
+			_power_cards(_deal_powers(n), bonus, n))
+		overlay.add_child(rr)
+		Fx.rise_in(rr, 0.9, 0.3, 0.6)
 
 ## Fond des overlays à cartes : voile, halo coloré au centre, titre tamponné, sous-titre. Renvoie le bas du titre.
 func _deal_overlay(title: String, subtitle: String, col: Color) -> float:

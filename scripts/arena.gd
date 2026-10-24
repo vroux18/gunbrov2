@@ -1,7 +1,9 @@
 extends Node2D
 ## L'arène : une grande carte (plus grande que l'écran, caméra qui suit), des caisses en obstacles,
 ## des vagues d'ennemis par salle, les projectiles, les ramassages, le coffre de fin de salle,
-## les tourelles et drones alliés des pouvoirs. Toute la simulation est ici, les entités ne font que se dessiner.
+## et les effets des pouvoirs (tourelles, drones, lames, missiles, mines, scies, nuages, feu, foudre, gel, ruée).
+## Toute la simulation est ici, les entités ne font que se dessiner ; view3d.gd et scripts/fx/power_fx.gd suivent
+## les signaux et lisent les listes (missiles, mines, scies…) pour le rendu.
 
 const Data = preload("res://scripts/data.gd")
 const Enemy = preload("res://scripts/enemy.gd")
@@ -26,6 +28,11 @@ signal doors_opened
 signal shockwave_started(pos: Vector2, max_r: float, speed: float, color: Color)
 signal door_taken(door: Dictionary)
 signal shield_blocked(e: Node2D, pos: Vector2, vel: Vector2)  # tir de Jo arrêté par le bouclier d'un rempart
+signal bonus_choice  # élite abattue : un pouvoir de plus à choisir
+## Effet de pouvoir pour le rendu (power_fx.gd) : "arc" {pts, col}, "strike" {pos}, "blast" {pos, r, col, kind},
+## "pulse" {pos, r, col}, "meteor_call" {pos, delay}, "dash" {from, dir}, "dash_end" {pos}, "freeze" {pos, r},
+## "cloud" {pos, r, life}, "fire" {pos, r, life}, "mine" {pos}, "revive" {pos}.
+signal power_event(kind: String, info: Dictionary)
 
 const W := 2400.0
 const H := 1400.0
@@ -41,13 +48,17 @@ const CYAN := Color("#3CF2D8")
 const ORANGE := Color("#FF7A2F")
 const GOLD := Color("#FFB347")
 const RED := Color("#FF4D6D")
+const FIRE := Color("#FF8A3C")
+const ICE := Color("#9FDCFF")
+const SHOCK := Color("#FFE45C")
+const VENOM := Color("#8BE05A")
+const GRID_CELL := 128.0
 
 var sfx: Node
 var hero: Node2D
 var joy: Node
 var cam: Camera2D
 var ents: Node2D
-var shots: Node2D
 var fxn: Node2D
 var fxa: Node2D  # couche additive : halos, particules
 var obstacles: Array[Rect2] = []
@@ -63,6 +74,21 @@ var doors: Array = []  # portails de fin de salle : {pos, kind, title, desc, col
 var turrets: Array = []
 var allies: Array = []
 var chest := {}
+# pouvoirs : entités simulées ici, rendues par power_fx.gd
+var missiles: Array = []  # {pos, vel, t, dmg, target}
+var mines: Array = []  # {pos, t, dmg}
+var saws: Array = []  # {pos, vel, t, left, hit, target, dmg}
+var minis: Array = []  # mini-drones kamikazes de la Nuée : {pos, vel, t, target}
+var clouds: Array = []  # nuages toxiques : {pos, r, t, life, dps}
+var fires: Array = []  # flaques de feu : {pos, r, t, life, dps}
+var blade_pos := PackedVector2Array()  # lames orbitales, recalculées à chaque image
+var blade_ang := 0.0
+var _later: Array = []  # effets différés : {t, kind, pos, ...} (météores, morts qui explosent)
+var _pt := {}  # minuteries des pouvoirs périodiques
+var _dash_hits: Array = []
+var _trail_last := Vector2.ZERO
+var _boom_sfx := 0.0
+var _grid := {}  # ennemis rangés par case (collisions des tirs et des zones)
 
 var room := 1
 var modifier := "combat"
@@ -90,8 +116,6 @@ func build(sfx_node: Node, hero_node: Node2D) -> void:
 	hero.arena = self
 	ents = Node2D.new()
 	add_child(ents)
-	shots = Node2D.new()
-	add_child(shots)
 	add_child(hero)
 	fxn = Node2D.new()
 	fxn.draw.connect(_draw_fx)
@@ -112,6 +136,12 @@ func build(sfx_node: Node, hero_node: Node2D) -> void:
 	add_child(cam)
 	hero.died.connect(func(): hero_died.emit())
 	hero.damaged.connect(func(): shake_t = 0.22)
+	hero.dashed.connect(_on_dash)
+	hero.dash_ended.connect(_on_dash_end)
+	hero.shield_broke.connect(func(): pulse(hero.position, 260.0, hero.dmg * 2.0, Color("#5AA8FF")))
+	hero.revived.connect(func():
+		pulse(hero.position, 340.0, hero.dmg * 4.0, GOLD)
+		power_event.emit("revive", {"pos": hero.position}))
 	_layout()
 	queue_redraw()
 
@@ -161,8 +191,8 @@ func reset_run() -> void:
 	kills = 0
 	tickets = 0
 	energy = 0.0
-	energy_need = 10.0
 	energy_level = 0
+	energy_need = need_for(0)
 	elapsed = 0.0
 	turrets.clear()
 	allies.clear()
@@ -171,8 +201,6 @@ func _clear_entities() -> void:
 	for e in enemies:
 		e.queue_free()
 	enemies.clear()
-	for b in bullets:
-		b.queue_free()
 	bullets.clear()
 	pickups.clear()
 	particles.clear()
@@ -181,6 +209,15 @@ func _clear_entities() -> void:
 	waves_fx.clear()
 	chest = {}
 	boss = null
+	missiles.clear()
+	mines.clear()
+	saws.clear()
+	minis.clear()
+	clouds.clear()
+	fires.clear()
+	blade_pos.clear()
+	_later.clear()
+	_pt.clear()
 
 func start_room(r: int, mod: String) -> void:
 	room = r
@@ -201,12 +238,21 @@ func start_room(r: int, mod: String) -> void:
 	hp_scale = (1.0 + (r - 1) * 0.2) * (1.0 + 0.4 * Data.world)
 	# tourelles et drones des pouvoirs, replacés à chaque salle
 	turrets.clear()
-	for i in range(hero.turrets):
-		turrets.append({"pos": hero.position + Vector2.RIGHT.rotated(TAU * i / 3.0 + 0.5) * 110.0, "cd": 0.0, "ang": 0.0})
 	allies.clear()
-	for i in range(hero.ally):
-		allies.append({"ang": TAU * i / 2.0, "cd": 0.0})
+	sync_machines()
+	_trail_last = hero.position
 	queue_redraw()
+
+## Tourelles et drones alliés : autant que le héros en a (après un choix de pouvoir ou en début de salle).
+func sync_machines() -> void:
+	while turrets.size() < hero.turrets:
+		var i := turrets.size()
+		var p: Vector2 = hero.position + Vector2.RIGHT.rotated(TAU * i / 3.0 + 0.5 + randf() * 0.3) * 110.0
+		p.x = clampf(p.x, WALL + 40.0, W - WALL - 40.0)
+		p.y = clampf(p.y, TOP + 40.0, H - WALL - 40.0)
+		turrets.append({"pos": p, "cd": 0.0, "ang": 0.0, "mcd": 0.6})
+	while allies.size() < hero.ally:
+		allies.append({"ang": TAU * allies.size() / maxf(1.0, float(hero.ally)), "cd": 0.0})
 
 func stop() -> void:
 	running = false
@@ -223,7 +269,12 @@ func consume_energy() -> void:
 	energy -= energy_need
 	energy = maxf(0.0, energy)
 	energy_level += 1
-	energy_need += 6.0
+	energy_need = need_for(energy_level)
+
+## Énergie demandée pour le choix n° `level` : barre courte au début (les premiers choix arrivent vite),
+## qui s'allonge ensuite.
+static func need_for(level: int) -> float:
+	return 4.0 + 1.8 * level + 0.03 * level * level
 
 func enemies_left() -> int:
 	return enemies.size() + spawn_queue.size()
@@ -253,7 +304,9 @@ func _process(dt: float) -> void:
 			if spawn_t <= 0.0:
 				spawn_t = 0.22 if room < Data.ROOMS else 0.1
 				_spawn(String(spawn_queue.pop_back()))
-	# héros
+	# héros (le bouton d'esquive lance la ruée)
+	if joy.has_method("take_dash") and joy.take_dash():
+		hero.try_dash(joy.move)
 	hero.update(dt, joy.move, joy.aim, joy.aim_active)
 	_clamp_circle(hero, hero.radius)
 	cam.position = hero.position
@@ -273,9 +326,13 @@ func _process(dt: float) -> void:
 				b.position += push
 	for e in enemies:
 		_clamp_circle(e, e.radius)
-	# projectiles
+	_grid_build()
+	_tick_status(dt)
+	# projectiles (objets légers, déplacés ici)
 	var dead_bullets := []
 	for b in bullets:
+		b.position += b.vel * dt
+		b.life -= dt
 		if b.life <= 0.0:
 			dead_bullets.append(b)
 			continue
@@ -283,7 +340,7 @@ func _process(dt: float) -> void:
 			dead_bullets.append(b)
 			continue
 		if b.hero_shot:
-			for e in enemies:
+			for e in _near(b.position, b.radius + 80.0):
 				if e.dead or e in b.hits:
 					continue
 				if (e.position - b.position).length() < e.radius + b.radius + (10.0 if e.kind == "shield" else 0.0):
@@ -296,24 +353,19 @@ func _process(dt: float) -> void:
 						break
 					if (e.position - b.position).length() >= e.radius + b.radius:
 						continue
-					enemy_hit.emit(e, b.position, b.dmg, b.radius > 6.0)
-					e.hit(b.dmg)
-					sfx.play("hit", randf_range(0.8, 1.2), -10.0)
-					_burst(b.position, b.color, 4, 140.0, 2.0)
-					if b.pierce > 0:
-						b.pierce -= 1
-						b.hits.append(e)
-					else:
+					if _bullet_hit(b, e):
 						dead_bullets.append(b)
 					break
 		else:
 			if (hero.position - b.position).length() < hero.radius + b.radius:
+				if hero.dodge_t <= 0.0 and hero.invuln <= 0.0 and randf() < [0.0, 0.25, 0.45][hero.lv("deflect")]:
+					_deflect(b)
+					continue
 				if hero.take_damage(b.dmg):
 					sfx.play("hurt", 1.0)
 				dead_bullets.append(b)
 	for b in dead_bullets:
 		bullets.erase(b)
-		b.queue_free()
 	# portails de fin de salle : Jo choisit sa route en entrant dans l'un d'eux
 	if not doors.is_empty():
 		for d in doors:
@@ -343,25 +395,9 @@ func _process(dt: float) -> void:
 	for sh in landed:
 		shells.erase(sh)
 		explode(sh["to"], sh["r"], sh["dmg"], 0.0, Color("#9BE15D"))
-	# tourelles et drones
-	for tr in turrets:
-		tr["cd"] -= dt
-		var e: Node2D = nearest_enemy(tr["pos"], 440.0)
-		if e != null:
-			tr["ang"] = (e.position - tr["pos"]).angle()
-			if tr["cd"] <= 0.0:
-				tr["cd"] = 0.36
-				var d: Vector2 = (e.position - tr["pos"]).normalized()
-				spawn_bullet(tr["pos"] + d * 22.0, d * 700.0, hero.dmg * 0.55, true, 0, 0, GOLD, 4.0)
-	for al in allies:
-		al["ang"] += dt * 2.2
-		al["cd"] -= dt
-		var p: Vector2 = hero.position + Vector2.RIGHT.rotated(al["ang"]) * 74.0
-		var e: Node2D = nearest_enemy(p, 420.0)
-		if e != null and al["cd"] <= 0.0:
-			al["cd"] = 0.5
-			var d: Vector2 = (e.position - p).normalized()
-			spawn_bullet(p + d * 14.0, d * 700.0, hero.dmg * 0.6, true, 0, 0, CYAN, 4.0)
+	# machines et pouvoirs
+	_tick_machines(dt)
+	_tick_powers(dt)
 	# ramassages
 	var attract: float = 90.0 * hero.magnet * hero.pickup_mult
 	if cleared:
@@ -537,15 +573,16 @@ func on_enemy_died(e: Node2D, rewarded: bool = true) -> void:
 		pickups.append({"pos": e.position, "kind": "hp", "vel": Vector2.RIGHT.rotated(randf() * TAU) * 120.0, "t": 0.0})
 	if e.elite:
 		pickups.append({"pos": e.position, "kind": "item", "vel": Vector2.ZERO, "t": 0.0, "item": Data.roll_item(1)})
+		bonus_choice.emit()
 	if hero.vamp > 0:
 		hero.heal(float(hero.vamp))
-	if hero.boom > 0:
-		var bd: float = 14.0 * hero.boom
-		for o in enemies:
-			if o != e and not o.dead and (o.position - e.position).length() < 100.0:
-				o.hit(bd)
-		_burst(e.position, ORANGE, 16, 300.0, 5.0)
-		sfx.play("boom", 1.2, -6.0)
+	if hero.lv("impulse") > 0:
+		hero.dash_stock = minf(float(hero.dash_max), hero.dash_stock + [0.0, 0.25, 0.4][hero.lv("impulse")] / hero.dash_cd)
+	# effets de mort des pouvoirs (détonation, venin, contagion, éclats de glace, nuée) : une image plus tard,
+	# pour que les chaînes d'explosions se lisent en cascade
+	if not is_boss:
+		_later.append({"t": 0.06, "kind": "death", "pos": e.position, "r": e.radius, "burn": e.burn_t > 0.0,
+			"poison": e.poison_t > 0.0, "frozen": e.freeze_t > 0.0, "bomber": e.kind == "bomber"})
 	if is_boss:
 		boss = null
 	enemy_killed.emit(e)
@@ -554,7 +591,7 @@ func on_enemy_died(e: Node2D, rewarded: bool = true) -> void:
 	if energy >= energy_need and not cleared:
 		energy_full.emit()
 
-func spawn_bullet(pos: Vector2, vel: Vector2, dmg: float, hero_shot: bool, pierce: int, bounce: int, color: Color, radius: float) -> void:
+func spawn_bullet(pos: Vector2, vel: Vector2, dmg: float, hero_shot: bool, pierce: int, bounce: int, color: Color, radius: float, elem: int = 0, src: int = 0, hop: int = 0, crit: bool = false) -> RefCounted:
 	var b := Bullet.new()
 	b.position = pos
 	b.vel = vel
@@ -564,12 +601,16 @@ func spawn_bullet(pos: Vector2, vel: Vector2, dmg: float, hero_shot: bool, pierc
 	b.bounce = bounce
 	b.color = color
 	b.radius = radius
+	b.elem = elem
+	b.src = src
+	b.hop = hop
+	b.crit = crit
 	b.life = 1.4 if hero_shot else 3.2
-	shots.add_child(b)
 	bullets.append(b)
 	fired.emit(pos, vel, hero_shot, color, radius)
 	if not hero_shot:
 		sfx.play("eshoot", randf_range(0.9, 1.1), -14.0)
+	return b
 
 ## Direction corrigée pour contourner les caisses : si le point devant est bloqué, on tourne.
 func steer(pos: Vector2, dir: Vector2, r: float) -> Vector2:
@@ -604,6 +645,600 @@ func nearest_enemy(pos: Vector2, max_d: float) -> Node2D:
 			best = e
 	return best
 
+# ---------------------------------------------------------------- pouvoirs
+## Grille des ennemis (cases de GRID_CELL px) : les tirs et les zones ne testent que les ennemis proches.
+func _grid_build() -> void:
+	_grid.clear()
+	for e in enemies:
+		var k := _cell(e.position)
+		if _grid.has(k):
+			(_grid[k] as Array).append(e)
+		else:
+			_grid[k] = [e]
+
+func _cell(p: Vector2) -> int:
+	return int(floorf(p.x / GRID_CELL)) * 1000 + int(floorf(p.y / GRID_CELL))
+
+## Ennemis rangés dans les cases qui touchent le disque (`pos`, `reach`) : à affiner par la vraie distance.
+func _near(pos: Vector2, reach: float) -> Array:
+	var x0 := int(floorf((pos.x - reach) / GRID_CELL))
+	var x1 := int(floorf((pos.x + reach) / GRID_CELL))
+	var y0 := int(floorf((pos.y - reach) / GRID_CELL))
+	var y1 := int(floorf((pos.y + reach) / GRID_CELL))
+	var out := []
+	for cx in range(x0, x1 + 1):
+		for cy in range(y0, y1 + 1):
+			var k := cx * 1000 + cy
+			if _grid.has(k):
+				out.append_array(_grid[k])
+	return out
+
+## Dégâts d'un pouvoir sur un ennemi ; `show` : chiffre et étincelles comme un tir.
+func hurt(e: Node2D, d: float, show: bool = false, crit: bool = false) -> void:
+	if e == null or e.dead:
+		return
+	if e.freeze_t > 0.0 and hero.has_evo("blizzard"):
+		d *= 2.0
+	if show:
+		enemy_hit.emit(e, e.position, d, crit)
+	e.hit(d)
+
+## Un tir de Jo (ou d'une machine) touche `e`. Vrai si le tir s'arrête là.
+func _bullet_hit(b, e: Node2D) -> bool:
+	var d: float = b.dmg
+	if e.freeze_t > 0.0 and hero.has_evo("blizzard"):
+		d *= 2.0
+	enemy_hit.emit(e, b.position, d, b.crit)
+	e.hit(d)
+	sfx.play("hit", randf_range(0.8, 1.2), -10.0)
+	_burst(b.position, b.color, 4, 140.0, 2.0)
+	if b.elem != 0 and not e.dead:
+		if b.elem & 1:
+			ignite(e, hero.dmg * (0.35 + 0.25 * (hero.lv("fire") - 1)), 3.0)
+		if b.elem & 2:
+			frostbite(e)
+	if b.elem & 4 and randf() < 0.25:
+		chain(e, b.dmg * 0.7, 1 + hero.lv("shock"), SHOCK)
+	if b.src == 2:
+		chain(e, b.dmg * 0.8, 2, SHOCK)
+	if b.src == 0 and hero.lv("giant") > 0 and not e.dead and not e.kind.begins_with("boss"):
+		e.push += b.vel.normalized() * 110.0 * hero.lv("giant")
+	if b.pierce > 0:
+		b.pierce -= 1
+		b.hits.append(e)
+		return false
+	if b.hop > 0:
+		# ricochet vers l'ennemi suivant
+		b.hits.append(e)
+		var best: Node2D = null
+		var bd := 340.0
+		for o in _near(b.position, 340.0):
+			if o.dead or o in b.hits:
+				continue
+			var dd: float = (o.position - b.position).length()
+			if dd < bd:
+				bd = dd
+				best = o
+		if best != null:
+			b.hop -= 1
+			b.vel = (best.position - b.position).normalized() * b.vel.length()
+			b.life = maxf(b.life, 0.6)
+			return false
+	return true
+
+## Tir ennemi renvoyé par le Déflecteur : il repart vers l'ennemi le plus proche, aux couleurs de Jo.
+func _deflect(b) -> void:
+	var e: Node2D = nearest_enemy(hero.position, 700.0)
+	var d: Vector2 = (e.position - hero.position).normalized() if e != null else -b.vel.normalized()
+	b.hero_shot = true
+	b.vel = d * 760.0
+	b.position = hero.position + d * 26.0
+	b.dmg = hero.dmg * 2.0
+	b.color = Color("#7FD8FF")
+	b.radius = 6.0
+	b.life = 1.4
+	b.src = 1
+	b.hits = []
+	bullet_blocked.emit(hero.position + d * 24.0, Color("#5AA8FF"))
+	sfx.play("hit", 1.6, -6.0)
+
+func ignite(e: Node2D, dps: float, t: float) -> void:
+	if e.dead:
+		return
+	e.burn_dps = maxf(e.burn_dps if e.burn_t > 0.0 else 0.0, dps)
+	e.burn_t = maxf(e.burn_t, t)
+
+## Balle givrante : ralenti, et gel au bout de quelques touches.
+func frostbite(e: Node2D) -> void:
+	var f := maxi(1, hero.lv("frost"))
+	e.chill_t = maxf(e.chill_t, 1.6)
+	e.frost += 1
+	if e.frost >= 7 - f:
+		e.frost = 0
+		freeze(e, 0.7 + 0.3 * f)
+
+func freeze(e: Node2D, t: float) -> void:
+	if e.dead:
+		return
+	if e.kind.begins_with("boss"):
+		t *= 0.25
+	elif e.elite:
+		t *= 0.55
+	if e.freeze_t <= 0.0:
+		power_event.emit("freeze", {"pos": e.position, "r": e.radius})
+	e.freeze_t = maxf(e.freeze_t, t)
+	e.chill_t = maxf(e.chill_t, t + 1.0)
+
+## Arc de foudre : saute d'ennemi en ennemi depuis `from_e` (déjà touché), `jumps` fois.
+func chain(from_e: Node2D, d: float, jumps: int, col: Color) -> void:
+	var pts := PackedVector2Array([from_e.position])
+	var cur: Vector2 = from_e.position
+	var seen := [from_e]
+	for j in range(jumps):
+		var best: Node2D = null
+		var bd := 270.0
+		for o in _near(cur, 270.0):
+			if o.dead or o in seen:
+				continue
+			var dd: float = (o.position - cur).length()
+			if dd < bd:
+				bd = dd
+				best = o
+		if best == null:
+			break
+		seen.append(best)
+		pts.append(best.position)
+		cur = best.position
+		hurt(best, d, true)
+	if pts.size() > 1:
+		power_event.emit("arc", {"pts": pts, "col": col})
+
+## Explosion d'un pouvoir : ne blesse que les ennemis. `burn` > 0 : enflamme (dégâts par seconde).
+func blast(pos: Vector2, r: float, d: float, col: Color, kind: String = "blast", burn: float = 0.0) -> void:
+	for o in _near(pos, r + 80.0):
+		if not o.dead and (o.position - pos).length() < r + o.radius:
+			hurt(o, d)
+			if burn > 0.0:
+				ignite(o, burn, 3.0)
+	power_event.emit("blast", {"pos": pos, "r": r, "col": col, "kind": kind})
+	if elapsed - _boom_sfx > 0.07:
+		_boom_sfx = elapsed
+		sfx.play("boom", randf_range(1.1, 1.4) if r < 120.0 else 0.9, -8.0 if r < 120.0 else -4.0)
+	if r >= 140.0:
+		shake_t = maxf(shake_t, 0.1)
+
+## Onde de choc de Jo : repousse, blesse, efface les tirs ennemis dans le rayon.
+func pulse(pos: Vector2, r: float, d: float, col: Color) -> void:
+	for o in _near(pos, r + 80.0):
+		if o.dead:
+			continue
+		var v: Vector2 = o.position - pos
+		if v.length() < r + o.radius:
+			hurt(o, d, true)
+			if not o.kind.begins_with("boss"):
+				o.push += v.normalized() * (700.0 if not o.elite else 380.0)
+	var gone := []
+	for b in bullets:
+		if not b.hero_shot and (b.position - pos).length() < r:
+			gone.append(b)
+	for b in gone:
+		bullets.erase(b)
+	power_event.emit("pulse", {"pos": pos, "r": r, "col": col})
+	sfx.play("boom", 0.75, -5.0)
+	shake_t = maxf(shake_t, 0.12)
+
+## Contact d'un ennemi au corps à corps (Épines).
+func on_contact(e: Node2D) -> void:
+	var th: int = hero.lv("thorns")
+	if th <= 0 or e.dead:
+		return
+	hurt(e, hero.dmg * (4.0 + 3.0 * (th - 1)), true)
+	if not e.dead and not e.kind.begins_with("boss"):
+		e.push += (e.position - hero.position).normalized() * 520.0
+	power_event.emit("blast", {"pos": hero.position + (e.position - hero.position) * 0.5, "r": 40.0, "col": Color("#5AA8FF"), "kind": "thorns"})
+
+## États des ennemis : brûlure, nuages, flaques de feu, aura glaciale.
+func _tick_status(dt: float) -> void:
+	for e in enemies.duplicate():
+		if e.dead:
+			continue
+		if e.burn_t > 0.0:
+			e.burn_t -= dt
+			e.hit(e.burn_dps * dt)
+	var i := 0
+	while i < clouds.size():
+		var c: Dictionary = clouds[i]
+		c["t"] += dt
+		if c["t"] >= c["life"]:
+			clouds.remove_at(i)
+			continue
+		for e in _near(c["pos"], c["r"] + 80.0):
+			if not e.dead and (e.position - c["pos"]).length() < c["r"] + e.radius:
+				e.poison_t = 0.3
+				e.hit(c["dps"] * dt)
+		i += 1
+	i = 0
+	while i < fires.size():
+		var f: Dictionary = fires[i]
+		f["t"] += dt
+		if f["t"] >= f["life"]:
+			fires.remove_at(i)
+			continue
+		for e in _near(f["pos"], f["r"] + 80.0):
+			if not e.dead and (e.position - f["pos"]).length() < f["r"] + e.radius:
+				ignite(e, f["dps"], 1.5)
+		i += 1
+	var au: int = hero.lv("aura")
+	if au > 0:
+		var ar := aura_radius()
+		var tick := false
+		_pt["aura"] = float(_pt.get("aura", 0.0)) + dt
+		if _pt["aura"] >= 0.5:
+			_pt["aura"] = 0.0
+			tick = au >= 2
+		var bliz := false
+		if hero.has_evo("blizzard"):
+			_pt["bliz"] = float(_pt.get("bliz", 0.0)) + dt
+			if _pt["bliz"] >= 3.0:
+				_pt["bliz"] = 0.0
+				bliz = true
+				power_event.emit("pulse", {"pos": hero.position, "r": ar, "col": ICE})
+		for e in _near(hero.position, ar + 80.0):
+			if e.dead or (e.position - hero.position).length() > ar + e.radius:
+				continue
+			e.chill_t = maxf(e.chill_t, 0.35)
+			if tick:
+				frostbite(e)
+			if bliz:
+				freeze(e, 1.4)
+
+func aura_radius() -> float:
+	return 150.0 + 45.0 * hero.lv("aura")
+
+## Tourelles, drones, lames orbitales, missiles, mines, scies, mini-drones.
+func _tick_machines(dt: float) -> void:
+	var mr: float = hero.mach_rate
+	var md: float = hero.mach_dmg
+	for tr in turrets:
+		tr["cd"] -= dt
+		var e: Node2D = nearest_enemy(tr["pos"], 440.0)
+		if e != null:
+			tr["ang"] = (e.position - tr["pos"]).angle()
+			if tr["cd"] <= 0.0:
+				tr["cd"] = 0.36 / mr
+				var d: Vector2 = (e.position - tr["pos"]).normalized()
+				spawn_bullet(tr["pos"] + d * 22.0, d * 700.0, hero.dmg * 0.55 * md, true, 0, 0, GOLD, 4.0, 0, 1)
+			if hero.has_evo("artillerie"):
+				tr["mcd"] = float(tr.get("mcd", 1.0)) - dt
+				if tr["mcd"] <= 0.0:
+					tr["mcd"] = 1.3 / mr
+					_launch_missile(tr["pos"], Vector2.RIGHT.rotated(tr["ang"]))
+	var essaim: bool = hero.has_evo("essaim")
+	for al in allies:
+		al["ang"] += dt * 2.2
+		al["cd"] -= dt
+		var p: Vector2 = hero.position + Vector2.RIGHT.rotated(al["ang"]) * 74.0
+		var e: Node2D = nearest_enemy(p, 420.0)
+		if e != null and al["cd"] <= 0.0:
+			al["cd"] = 0.5 / mr
+			var d: Vector2 = (e.position - p).normalized()
+			spawn_bullet(p + d * 14.0, d * 700.0, hero.dmg * 0.6 * md, true, 0, 0, SHOCK if essaim else CYAN, 4.5 if essaim else 4.0, 0, 2 if essaim else 1)
+	# lames orbitales
+	blade_pos.clear()
+	var nb: int = blade_count()
+	if nb > 0:
+		var storm: bool = hero.has_evo("moulinette")
+		blade_ang += dt * (5.2 if storm else 4.2)
+		var rr := blade_radius()
+		for k in range(nb):
+			var p: Vector2 = hero.position + Vector2.RIGHT.rotated(blade_ang + TAU * k / nb) * rr
+			blade_pos.append(p)
+			for e in _near(p, 100.0):
+				if e.dead or e.touch_cd > 0.0 or (e.position - p).length() > e.radius + 20.0:
+					continue
+				hurt(e, hero.dmg * 1.1 * md, true)
+				e.touch_cd = 0.3 / mr
+				if not e.dead and not e.kind.begins_with("boss"):
+					e.push += (e.position - hero.position).normalized() * 160.0
+			if storm:
+				var cut := []
+				for b in bullets:
+					if not b.hero_shot and (b.position - p).length() < 26.0:
+						cut.append(b)
+				for b in cut:
+					bullets.erase(b)
+					bullet_blocked.emit(b.position, b.color)
+	# missiles
+	var ml: int = hero.lv("missile")
+	if ml > 0:
+		_pt["missile"] = float(_pt.get("missile", 0.0)) + dt * mr
+		if _pt["missile"] >= 2.0 and nearest_enemy(hero.position, 900.0) != null:
+			_pt["missile"] = 0.0
+			var n := (1 + ml) * (2 if hero.has_evo("artillerie") else 1)
+			for k in range(n):
+				_launch_missile(hero.position, Vector2.RIGHT.rotated(TAU * k / n + randf() * 0.5))
+	var i := 0
+	while i < missiles.size():
+		var m: Dictionary = missiles[i]
+		m["t"] += dt
+		var tg = m["target"]
+		if tg == null or not is_instance_valid(tg) or tg.dead:
+			tg = nearest_enemy(m["pos"], 900.0)
+			m["target"] = tg
+		var spd := minf(640.0, 240.0 + m["t"] * 900.0)
+		if tg != null:
+			var want: Vector2 = (tg.position - m["pos"]).normalized()
+			m["vel"] = (m["vel"] as Vector2).normalized().slerp(want, clampf(dt * 5.0, 0.0, 1.0)) * spd
+		else:
+			m["vel"] = (m["vel"] as Vector2).normalized() * spd
+		m["pos"] += m["vel"] * dt
+		var boom: bool = m["t"] > 3.0 or _blocked(m["pos"], 4.0)
+		if tg != null and (tg.position - m["pos"]).length() < tg.radius + 12.0:
+			boom = true
+		if boom:
+			blast(m["pos"], 72.0, m["dmg"], Color("#FFB347"), "missile")
+			missiles.remove_at(i)
+			continue
+		i += 1
+	# mines : semées en marchant
+	var mi: int = hero.lv("mine")
+	if mi > 0 and hero.moving:
+		_pt["mine"] = float(_pt.get("mine", 0.0)) + dt
+		if _pt["mine"] >= [0.0, 1.6, 1.3, 1.0][mi]:
+			_pt["mine"] = 0.0
+			mines.append({"pos": hero.position, "t": 0.0, "dmg": hero.dmg * 3.0 * md})
+			if mines.size() > 10:
+				mines.remove_at(0)
+	i = 0
+	while i < mines.size():
+		var mn: Dictionary = mines[i]
+		mn["t"] += dt
+		var go: bool = mn["t"] > 25.0
+		if mn["t"] > 0.4 and not go:
+			for e in _near(mn["pos"], 120.0):
+				if not e.dead and (e.position - mn["pos"]).length() < e.radius + 30.0:
+					go = true
+					break
+		if go:
+			blast(mn["pos"], 100.0, mn["dmg"], ORANGE, "mine")
+			mines.remove_at(i)
+			continue
+		i += 1
+	# scies volantes
+	var sl: int = hero.lv("saw")
+	if sl > 0:
+		_pt["saw"] = float(_pt.get("saw", 0.0)) + dt * mr
+		if _pt["saw"] >= 3.0:
+			var first: Node2D = nearest_enemy(hero.position, 700.0)
+			if first != null:
+				_pt["saw"] = 0.0
+				for k in range(sl):
+					var d: Vector2 = (first.position - hero.position).normalized().rotated((k - (sl - 1) * 0.5) * 0.6)
+					saws.append({"pos": hero.position + d * 30.0, "vel": d * 760.0, "t": 0.0, "left": 6, "hit": [], "target": first if k == 0 else null, "dmg": hero.dmg * 2.5 * md})
+	i = 0
+	while i < saws.size():
+		var sw: Dictionary = saws[i]
+		sw["t"] += dt
+		var tg = sw["target"]
+		if tg != null and (not is_instance_valid(tg) or tg.dead):
+			tg = null
+		if tg != null:
+			sw["vel"] = (tg.position - sw["pos"]).normalized() * 760.0
+		sw["pos"] += sw["vel"] * dt
+		# rebond sur les murs
+		var sp: Vector2 = sw["pos"]
+		var sv: Vector2 = sw["vel"]
+		if sp.x < WALL + 10.0 or sp.x > W - WALL - 10.0:
+			sv.x = -sv.x
+		if sp.y < TOP + 10.0 or sp.y > H - WALL - 10.0:
+			sv.y = -sv.y
+		sw["vel"] = sv
+		sw["pos"] = Vector2(clampf(sp.x, WALL + 10.0, W - WALL - 10.0), clampf(sp.y, TOP + 10.0, H - WALL - 10.0))
+		for e in _near(sw["pos"], 100.0):
+			if e.dead or e in sw["hit"] or (e.position - sw["pos"]).length() > e.radius + 18.0:
+				continue
+			hurt(e, sw["dmg"], true)
+			sw["hit"].append(e)
+			sw["left"] -= 1
+			var nx: Node2D = null
+			var bd := 460.0
+			for o in enemies:
+				if o.dead or o in sw["hit"]:
+					continue
+				var dd: float = (o.position - sw["pos"]).length()
+				if dd < bd:
+					bd = dd
+					nx = o
+			tg = nx
+			break
+		sw["target"] = tg
+		if sw["left"] <= 0 or sw["t"] > 3.5:
+			saws.remove_at(i)
+			continue
+		i += 1
+	# mini-drones kamikazes
+	i = 0
+	while i < minis.size():
+		var mm: Dictionary = minis[i]
+		mm["t"] += dt
+		var tg = mm["target"]
+		if tg == null or not is_instance_valid(tg) or tg.dead:
+			tg = nearest_enemy(mm["pos"], 700.0)
+			mm["target"] = tg
+		if tg != null:
+			mm["vel"] = (mm["vel"] as Vector2).lerp((tg.position - mm["pos"]).normalized() * 430.0, clampf(dt * 4.0, 0.0, 1.0))
+		mm["pos"] += mm["vel"] * dt
+		if (tg != null and (tg.position - mm["pos"]).length() < tg.radius + 10.0) or mm["t"] > 4.0:
+			blast(mm["pos"], 64.0, hero.dmg * 2.2 * md, VENOM, "mini")
+			minis.remove_at(i)
+			continue
+		i += 1
+
+func blade_count() -> int:
+	var bl: int = hero.lv("blades")
+	if bl <= 0:
+		return 0
+	return (1 + bl) * (2 if hero.has_evo("moulinette") else 1)
+
+func blade_radius() -> float:
+	if hero.has_evo("moulinette"):
+		return 120.0 + 34.0 * sin(elapsed * 2.4)
+	return 92.0
+
+func _launch_missile(from: Vector2, dir: Vector2) -> void:
+	if missiles.size() >= 40:
+		return
+	missiles.append({"pos": from + dir * 20.0, "vel": dir * 240.0, "t": 0.0, "dmg": hero.dmg * 2.2 * hero.mach_dmg, "target": null})
+
+## Pouvoirs à minuterie (météores, orage, onde de choc), effets différés, ruée en cours.
+func _tick_powers(dt: float) -> void:
+	# effets différés
+	var i := 0
+	while i < _later.size():
+		var ev: Dictionary = _later[i]
+		ev["t"] -= dt
+		if ev["t"] > 0.0:
+			i += 1
+			continue
+		_later.remove_at(i)
+		match String(ev["kind"]):
+			"death":
+				_death_fx(ev)
+			"meteor":
+				blast(ev["pos"], 125.0, hero.dmg * 6.0, FIRE, "meteor", hero.dmg * 0.6)
+				_add_fire(ev["pos"], 80.0, 3.0, hero.dmg * 0.6)
+				shake_t = maxf(shake_t, 0.18)
+	if cleared:
+		return
+	# météores
+	var me: int = hero.lv("meteor")
+	if me > 0:
+		_pt["meteor"] = float(_pt.get("meteor", 0.0)) + dt
+		if _pt["meteor"] >= 5.0 and not enemies.is_empty():
+			_pt["meteor"] = 0.0
+			for k in range(me):
+				var p := _crowd_spot()
+				var delay := 0.75 + 0.25 * k
+				_later.append({"t": delay, "kind": "meteor", "pos": p})
+				power_event.emit("meteor_call", {"pos": p, "delay": delay})
+	# orage
+	var st: int = hero.lv("storm")
+	if st > 0:
+		_pt["storm"] = float(_pt.get("storm", 0.0)) + dt
+		if _pt["storm"] >= [0.0, 2.5, 1.5][st]:
+			var cands := []
+			for e in enemies:
+				if not e.dead and (e.position - hero.position).length() < 700.0:
+					cands.append(e)
+			if not cands.is_empty():
+				_pt["storm"] = 0.0
+				var tg: Node2D = cands.pick_random()
+				power_event.emit("strike", {"pos": tg.position})
+				hurt(tg, hero.dmg * 3.0, true)
+				if not tg.dead:
+					chain(tg, hero.dmg * 1.5, 3, SHOCK)
+				sfx.play("boom", 1.6, -8.0)
+	# onde de choc
+	var rp: int = hero.lv("repulse")
+	if rp > 0:
+		_pt["repulse"] = float(_pt.get("repulse", 0.0)) + dt
+		if _pt["repulse"] >= [0.0, 6.0, 4.0][rp] and nearest_enemy(hero.position, 260.0) != null:
+			_pt["repulse"] = 0.0
+			pulse(hero.position, 210.0 + 40.0 * rp, hero.dmg * 2.0, Color("#5AA8FF"))
+	# ruée en cours : Fantôme (traverse et blesse), Traînée ardente
+	if hero.dash_t > 0.0:
+		var ph: int = hero.lv("phantom")
+		if ph > 0:
+			for e in _near(hero.position, 120.0):
+				if e.dead or e in _dash_hits or (e.position - hero.position).length() > e.radius + hero.radius + 12.0:
+					continue
+				_dash_hits.append(e)
+				hurt(e, hero.dmg * (2.5 + 1.5 * (ph - 1)), true)
+	var tl: int = hero.lv("trail")
+	if tl > 0 and (hero.dash_t > 0.0 or (tl >= 2 and hero.moving)):
+		var step := 42.0 if hero.dash_t > 0.0 else 70.0
+		if (hero.position - _trail_last).length() >= step:
+			_trail_last = hero.position
+			_add_fire(hero.position, 48.0 if hero.dash_t > 0.0 else 38.0, 2.6 if hero.dash_t > 0.0 else 1.6, hero.dmg * 0.9 * tl)
+	else:
+		_trail_last = hero.position
+
+func _add_fire(pos: Vector2, r: float, life: float, dps: float) -> void:
+	fires.append({"pos": pos, "r": r, "t": 0.0, "life": life, "dps": dps})
+	if fires.size() > 40:
+		fires.remove_at(0)
+	power_event.emit("fire", {"pos": pos, "r": r, "life": life})
+
+## Point le plus peuplé (météores) : parmi quelques ennemis, celui qui a le plus de voisins.
+func _crowd_spot() -> Vector2:
+	var best := hero.position
+	var bn := -1
+	var pool := enemies.duplicate()
+	pool.shuffle()
+	for e in pool.slice(0, 14):
+		if e.dead:
+			continue
+		var n := 0
+		for o in _near(e.position, 140.0):
+			if (o.position - e.position).length() < 140.0:
+				n += 1
+		if n > bn:
+			bn = n
+			best = e.position
+	return best
+
+## Effets de mort des pouvoirs, une image après la mort.
+func _death_fx(ev: Dictionary) -> void:
+	var pos: Vector2 = ev["pos"]
+	var bo: int = hero.lv("boom")
+	if bo > 0 and not ev["bomber"]:
+		var r := 80.0 + 15.0 * bo
+		var d: float = hero.dmg * (1.0 + 0.6 * bo)
+		if hero.has_evo("pyro"):
+			blast(pos, r * 1.8, d * 1.5, FIRE, "pyro", hero.dmg * 0.7)
+		else:
+			blast(pos, r, d, ORANGE, "boom")
+	var ve: int = hero.lv("venom")
+	if ve > 0:
+		var cr := 55.0 + 18.0 * ve
+		clouds.append({"pos": pos, "r": cr, "t": 0.0, "life": 3.0, "dps": hero.dmg * (0.5 + 0.35 * ve)})
+		if clouds.size() > 14:
+			clouds.remove_at(0)
+		power_event.emit("cloud", {"pos": pos, "r": cr, "life": 3.0})
+	if hero.lv("spread") > 0 and (ev["burn"] or ev["poison"]):
+		for o in _near(pos, 220.0):
+			if o.dead or (o.position - pos).length() > 140.0 + o.radius:
+				continue
+			if ev["burn"]:
+				ignite(o, hero.dmg * 0.6, 3.0)
+			if ev["poison"]:
+				o.poison_t = 0.5
+				o.hit(hero.dmg * 0.8)
+		power_event.emit("pulse", {"pos": pos, "r": 140.0, "col": FIRE if ev["burn"] else VENOM})
+	if hero.lv("shatter") > 0 and ev["frozen"]:
+		blast(pos, 115.0, hero.dmg * 3.0, ICE, "shatter")
+		for o in _near(pos, 200.0):
+			if not o.dead and (o.position - pos).length() < 115.0 + o.radius:
+				freeze(o, 1.0)
+	var sw: int = hero.lv("swarm")
+	if sw > 0 and randf() < [0.0, 0.25, 0.45][sw] and minis.size() < 16:
+		minis.append({"pos": pos, "vel": Vector2.RIGHT.rotated(randf() * TAU) * 180.0, "t": 0.0, "target": null})
+
+func _on_dash(from: Vector2, dir: Vector2) -> void:
+	_dash_hits.clear()
+	_trail_last = from
+	power_event.emit("dash", {"from": from, "dir": dir})
+	sfx.play("shoot", 0.55, -4.0)
+
+func _on_dash_end(pos: Vector2) -> void:
+	power_event.emit("dash_end", {"pos": pos})
+	var db: int = hero.lv("dashboom")
+	if hero.has_evo("comete"):
+		blast(pos, 190.0, hero.dmg * 7.0, FIRE, "comete", hero.dmg * 0.8)
+		_add_fire(pos, 90.0, 3.0, hero.dmg * 0.8)
+	elif db > 0:
+		blast(pos, 100.0 + 30.0 * db, hero.dmg * (2.5 + 2.0 * db), ORANGE, "dashboom")
+
 # ---------------------------------------------------------------- collisions
 func _clamp_circle(n: Node2D, r: float) -> void:
 	n.position.x = clampf(n.position.x, WALL + r, W - WALL - r)
@@ -620,7 +1255,7 @@ func _clamp_circle(n: Node2D, r: float) -> void:
 			n.position += d / l * (r - l)
 
 ## Vrai si le projectile doit disparaître.
-func _bullet_walls(b: Node2D) -> bool:
+func _bullet_walls(b) -> bool:
 	var p: Vector2 = b.position
 	var hit := false
 	if p.x < WALL or p.x > W - WALL:

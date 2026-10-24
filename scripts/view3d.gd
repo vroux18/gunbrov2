@@ -386,6 +386,8 @@ func _billboard_mm(max_count: int, energy: float) -> MultiMeshInstance3D:
 
 const Fx3D = preload("res://scripts/fx/fx3d.gd")
 var fxs: Fx3D  # réserves d'effets (scripts/fx/fx3d.gd)
+const PowerFx = preload("res://scripts/fx/power_fx.gd")
+var pfx: PowerFx  # rendu des pouvoirs de Jo (scripts/fx/power_fx.gd)
 var _last_hit := {}  # id d'instance de l'ennemi -> [direction du dernier coup (Vector3), heure]
 var _shells: Array = []  # obus du mortier en vol : [point d'arrivée (Vector2), heure d'arrivée]
 var _fx_room := -1
@@ -397,6 +399,9 @@ func _build_pools() -> void:
 	fxs = Fx3D.new()
 	add_child(fxs)
 	fxs.setup(self)
+	pfx = PowerFx.new()
+	add_child(pfx)
+	pfx.setup(self, arena, hero2d)
 	arena.shield_blocked.connect(_on_shield_blocked)
 	arena.wave_changed.connect(_on_wave)
 	arena.energy_full.connect(_on_energy_full)
@@ -499,6 +504,7 @@ func _process(dt: float) -> void:
 	_sync_pickups(dt)
 	_sync_chest(dt)
 	_sync_turrets(dt)
+	pfx.tick(dt)
 	_tick_fx(dt)
 	_tick_labels(dt)
 	_tick_pads(dt)
@@ -643,7 +649,7 @@ func _sync_bullets() -> void:
 	var n := mini(arena.bullets.size(), mm.instance_count)
 	fxs.trail_begin()
 	for i in range(n):
-		var b: Node2D = arena.bullets[i]
+		var b = arena.bullets[i]  # objet léger (scripts/bullet.gd), pas un nœud
 		var v: Vector2 = b.vel
 		var yaw := atan2(v.x, v.y)
 		var r: float = b.radius * K
@@ -1150,9 +1156,7 @@ func _on_enemy_killed(e: Node2D) -> void:
 			add_shake(0.5 if e.elite else 0.2)
 			if e.elite:
 				hit_stop(0.07, 0.25)
-	# pouvoir « Détonation » : les ennemis tués explosent
-	if hero2d.boom > 0 and not e.kind.begins_with("boss") and e.kind != "bomber":
-		fxs.explosion(pos, 0.85, ORANGE, false, 0.04, false)
+	# pouvoirs (Détonation, etc.) : rendus par pfx (scripts/fx/power_fx.gd)
 
 ## Explosion (pétard, obus du mortier) : boule de feu dodue, onde au sol de la taille du rayon de dégâts,
 ## fumée, brûlure ; l'obus du mortier laisse un cratère qui fume.

@@ -53,6 +53,15 @@ var charge_cd := 3.0
 var aim_dir := Vector2.DOWN  # vigie : laser de visée (figé juste avant le tir) ; gyro : axe du projecteur
 var lock := 0.0  # gyro : temps passé par Jo dans le faisceau
 var shots_left := 0  # gyro, boss : tirs restants de la rafale en cours
+# états infligés par les pouvoirs de Jo (appliqués par l'arène)
+var burn_t := 0.0  # brûle : dégâts par seconde burn_dps
+var burn_dps := 0.0
+var chill_t := 0.0  # givré : ralenti
+var freeze_t := 0.0  # gelé : immobile, ne tire plus
+var frost := 0  # touches givrantes accumulées (gel au seuil)
+var poison_t := 0.0  # dans un nuage toxique
+var touch_cd := 0.0  # lames orbitales : délai avant la prochaine entaille
+var push := Vector2.ZERO  # recul (onde de choc, obus géants, épines)
 var _spr: Sprite2D
 var _glow: Sprite2D
 
@@ -93,7 +102,17 @@ func tick(dt: float) -> void:
 	t += dt
 	flash = maxf(0.0, flash - dt)
 	contact_cd = maxf(0.0, contact_cd - dt)
-	var slow := 1.0 - float(hero.slow)
+	touch_cd = maxf(0.0, touch_cd - dt)
+	chill_t = maxf(0.0, chill_t - dt)
+	poison_t = maxf(0.0, poison_t - dt)
+	if push.length_squared() > 1.0:
+		position += push * dt
+		push *= maxf(0.0, 1.0 - dt * 8.0)
+	if freeze_t > 0.0:
+		# gelé : ni pas ni tir, l'état en cours reprend au dégel
+		freeze_t -= dt
+		return
+	var slow := (1.0 - float(hero.slow)) * (0.6 if chill_t > 0.0 else 1.0)
 	var to_hero: Vector2 = hero.position - position
 	var dist := to_hero.length()
 	var dir := to_hero.normalized() if dist > 1.0 else Vector2.DOWN
@@ -190,6 +209,7 @@ func _contact(dist: float) -> void:
 		if hero.take_damage(dmg):
 			arena.sfx.play("hurt", 1.0)
 		contact_cd = 0.7
+		arena.on_contact(self)
 		if kind == "drone":
 			# la sentinelle rebondit après contact
 			position -= (hero.position - position).normalized() * 18.0

@@ -1,6 +1,9 @@
 extends Node
-## Robot testeur (--autoplay) : lance une partie depuis le Relais, bouge en fuyant l'ennemi le plus proche,
-## va chercher le coffre, clique sur un bouton de chaque écran. Sert au CI à détecter les erreurs de script.
+## Robot testeur (--autoplay) : lance une partie depuis le Relais, bouge en fuyant l'ennemi le plus proche
+## (et va le chercher quand plus rien n'est à portée), esquive d'une ruée les tirs et les contacts de temps en
+## temps, va chercher le coffre, clique sur un bouton de chaque écran. Sert au CI à détecter les erreurs de script
+## et à mesurer l'équilibrage (« BOT : fin de partie, salle N »).
+## `--powers=id,id:2,…` donne des pouvoirs dès le début (captures en partie dense) ; `--allpowers` les donne tous.
 
 var main: Node
 var t := 0.0
@@ -9,6 +12,9 @@ var dir := Vector2.RIGHT
 var click_t := 0.0
 
 var _room_jump_done := false
+var _dash_t := 0.0  # délai entre deux ruées du robot
+var _look_t := 0.0
+var _orbit := 1.0
 var _chest_done := false
 var _door_pick := randi() % 3
 var touch_test := false  # --touchtest : simule de vrais doigts sur les sticks au lieu de piloter le joystick
@@ -150,6 +156,7 @@ func _process(dt: float) -> void:
 	# options de capture : --room=N démarre à la salle N, --god rend Jo invulnérable
 	if not _room_jump_done:
 		_room_jump_done = true
+		_give_powers()
 		for a in OS.get_cmdline_user_args():
 			if a.begins_with("--room="):
 				var n := int(a.trim_prefix("--room="))
@@ -195,13 +202,27 @@ func _process(dt: float) -> void:
 		if e != null:
 			away = (hero.position - e.position).normalized() * 1.3
 		var pull := (Vector2(arena.W * 0.5, (arena.TOP + arena.H) * 0.5) - hero.position).normalized() * 0.4
+		# rien à portée : va chercher l'ennemi le plus proche (sinon la salle ne finit jamais)
+		if arena.nearest_enemy(hero.position, hero.rng * 0.85) == null:
+			var far: Node2D = arena.nearest_enemy(hero.position, 99999.0)
+			if far != null:
+				pull = (far.position - hero.position).normalized() * 1.2
+		# peu d'ennemis : tourner autour du plus proche (un Rempart se contourne, il ne se perce pas de face)
+		var tgt: Node2D = arena.nearest_enemy(hero.position, 99999.0)
+		if tgt != null and (arena.enemies.size() <= 3 or tgt.kind == "shield"):
+			var to: Vector2 = tgt.position - hero.position
+			pull = to.normalized().orthogonal() * 1.4 * _orbit + to.normalized() * clampf((to.length() - 260.0) / 200.0, -1.0, 1.0)
+			if randf() < 0.05:
+				_orbit = -_orbit
 		dir = (away + pull + Vector2(randf_range(-1, 1), randf_range(-1, 1))).normalized()
+		dir = arena.steer(hero.position, dir, hero.radius)
 		if arena.cleared and not arena.chest.is_empty() and not arena.chest["open"]:
-			dir = (arena.chest["pos"] - hero.position).normalized()
+			dir = arena.steer(hero.position, (arena.chest["pos"] - hero.position).normalized(), hero.radius)
 		if not arena.doors.is_empty():
 			dir = (arena.doors[_door_pick % arena.doors.size()]["pos"] - hero.position).normalized()
 			dir = arena.steer(hero.position, dir, hero.radius)
 	main.joy.bot_move = dir
+	_bot_dash(dt, arena, hero)
 	var target: Node2D = arena.nearest_enemy(hero.position, hero.rng)
 	if target != null:
 		main.joy.bot_aim = (target.position - hero.position).normalized()
@@ -210,7 +231,52 @@ func _process(dt: float) -> void:
 		main.joy.bot_aim_active = false
 	if int(t) % 10 == 0 and fmod(t, 1.0) < dt:
 		print("PERF : appels de dessin %d, objets %d, primitives %d, nœuds %d" % [Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME), Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME), Performance.get_monitor(Performance.OBJECT_NODE_COUNT)])
-		print("BOT : salle %d, vague %d, PV %d, kills %d, ennemis %d" % [arena.room, arena.wave_i + 1, int(hero.hp), arena.kills, arena.enemies.size()])
+		print("BOT : salle %d, vague %d, PV %d, kills %d, ennemis %d, pouvoirs %d, ruées %d" % [arena.room, arena.wave_i + 1, int(hero.hp), arena.kills, arena.enemies.size(), arena.energy_level, _dashes])
+
+## Ruée du robot : un tir ennemi qui arrive droit sur Jo, un ennemi au contact, ou de temps en temps.
+func _bot_dash(dt: float, arena: Node, hero: Node2D) -> void:
+	_dash_t -= dt
+	_look_t -= dt
+	if _dash_t > 0.0 or _look_t > 0.0 or hero.dash_stock < 1.0:
+		return
+	_look_t = 0.1
+	var why := ""
+	for b in arena.bullets:
+		if b.hero_shot:
+			continue
+		var to: Vector2 = hero.position - b.position
+		if to.length() < 140.0 and b.vel.normalized().dot(to.normalized()) > 0.85:
+			why = "tir"
+			break
+	if why == "" and arena.nearest_enemy(hero.position, 26.0) != null:
+		why = "contact"
+	if why == "" and randf() < 0.02:
+		why = "envie"
+	if why != "":
+		main.joy.bot_dash = true
+		_dash_t = 0.6
+		_dashes += 1
+
+var _dashes := 0
+
+## --powers=id,id:2 (niveau) : pouvoirs donnés au départ ; --allpowers : tous, au maximum, et les évolutions.
+func _give_powers() -> void:
+	var Data = load("res://scripts/data.gd")
+	var hero: Node2D = main.hero
+	for a in OS.get_cmdline_user_args():
+		if a == "--allpowers":
+			for p in Data.POWERS:
+				for k in range(int(p["max"])):
+					hero.add_power(String(p["id"]))
+			for ev in Data.EVOLUTIONS:
+				hero.add_power(String(ev["id"]))
+		elif a.begins_with("--powers="):
+			for tok in a.trim_prefix("--powers=").split(","):
+				var parts := tok.split(":")
+				var n := int(parts[1]) if parts.size() > 1 else 1
+				for k in range(n):
+					hero.add_power(String(parts[0]))
+	main.arena.sync_machines()
 
 func _click_something() -> void:
 	var root: Control = main.overlay if main.overlay != null else main.screen
@@ -229,5 +295,12 @@ func _click_something() -> void:
 		if String(b.text).begins_with("PARTIR") or String(b.text).begins_with("RETOUR") or String(b.text).begins_with("REPRENDRE") or String(b.text).begins_with("REJOUER"):
 			pick = b
 			break
+	if String(pick.text).begins_with("REJOUER"):
+		var build := []
+		for id in main.hero.powers:
+			build.append("%s%d" % [id, main.hero.powers[id]])
+		for id in main.hero.evo:
+			build.append("*" + String(id))
+		print("BOT : fin de partie, salle %d, kills %d, t=%.0f s, build %s" % [main.arena.room, main.arena.kills, main.arena.elapsed, " ".join(build)])
 	print("BOT : clic « %s »" % pick.text)
 	pick.pressed.emit()
