@@ -312,7 +312,7 @@ static func waves_for(room: int, modifier: String) -> Array:
 	var w := _weights(room)
 	var out := []
 	for wi in range(n_waves):
-		var count := 6 + int(room * 1.9) + wi * 2
+		var count := 4 + int(room * 1.2) + int(wi * 1.5)
 		if modifier == "tresor":
 			count = maxi(3, int(count * 0.6))
 		var wave := []

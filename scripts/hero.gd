@@ -13,9 +13,11 @@ signal dash_ended(pos: Vector2)
 signal revived  # Seconde chance
 signal shield_broke  # bouclier qui cède (Forteresse : onde de choc)
 
-const BASE := {"hp": 100.0, "speed": 265.0, "dmg": 10.0, "rate": 5.5, "range": 540.0, "bspeed": 780.0}
+const BASE := {"hp": 100.0, "speed": 215.0, "dmg": 10.0, "rate": 5.5, "range": 540.0, "bspeed": 780.0}
 const DASH_TIME := 0.16
 const DASH_SPEED := 1650.0
+const AIM_TURN := 11.0  # rad/s au plus : un demi-tour de visée prend environ 0,3 s
+const AIM_EASE := 22.0  # rattrapage des petits écarts (par seconde)
 const DASH_CD := 2.4
 ## Couleur des tirs par élément (bit) : feu, givre, foudre.
 const ELEM_COLS := {1: Color("#FF8A3C"), 2: Color("#9FDCFF"), 4: Color("#FFE45C")}
@@ -38,7 +40,7 @@ var profile: Dictionary = {}  # profil du joueur (talents), posé par main
 # stats effectives
 var hp_max := 100.0
 var hp := 100.0
-var speed := 265.0
+var speed := 215.0
 var dmg := 10.0
 var rate := 5.5
 var rng := 540.0
@@ -294,13 +296,19 @@ func update(dt: float, mv: Vector2, am: Vector2, aim_active: bool) -> void:
 		elif invuln > 0.0 and int(invuln * 20.0) % 2 == 0 and not preview:
 			m = Color(1.0, 1.0, 1.0, 0.5)
 		_spr.modulate = m
-	# le tir ne part que quand le stick droit est poussé ; sinon Jo regarde où elle va
+	# le tir ne part que quand le stick droit est poussé ; sinon Jo regarde où elle va.
+	# La visée tourne vers le stick (rapide pour un petit écart, vitesse bornée pour un grand) : un grand
+	# changement de direction balaie au lieu de sauter, la rafale reste continue.
 	var fire := false
+	var want := Vector2.ZERO
 	if aim_active:
-		aim_dir = am.normalized()
+		want = am.normalized()
 		fire = true
 	elif moving and dash_t <= 0.0:
-		aim_dir = mv.normalized()
+		want = mv.normalized()
+	if want != Vector2.ZERO:
+		var ang := aim_dir.angle_to(want)
+		aim_dir = aim_dir.rotated(clampf(ang * clampf(dt * AIM_EASE, 0.0, 1.0), -AIM_TURN * dt, AIM_TURN * dt)).normalized()
 	rotation = aim_dir.angle() + PI * 0.5
 	if fire and fire_cd <= 0.0 and arena != null:
 		var r := rate

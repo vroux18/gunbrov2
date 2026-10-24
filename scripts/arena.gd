@@ -119,6 +119,7 @@ var cleared := false
 var kills := 0
 var tickets := 0
 var energy := 0.0
+const ENERGY_SCALE := 1.45  # vagues moins nombreuses : chaque kill vaut plus, le rythme des pouvoirs reste le même
 var energy_need := 10.0
 var energy_level := 0
 var boss: Node2D = null
@@ -292,6 +293,10 @@ func _start_wave(i: int) -> void:
 	spawn_t = 0.3
 	wave_changed.emit()
 
+## Ennemis en même temps au plus : le reste de la vague attend son tour (moins de fouillis à l'écran).
+func max_alive() -> int:
+	return 7 + room + (4 if partner != null else 0)
+
 func consume_energy() -> void:
 	energy -= energy_need
 	energy = maxf(0.0, energy)
@@ -327,7 +332,7 @@ func _process(dt: float) -> void:
 					wave_gap = 1.0
 				else:
 					_room_done()
-		elif not spawn_queue.is_empty():
+		elif not spawn_queue.is_empty() and enemies.size() < max_alive():
 			spawn_t -= dt
 			if spawn_t <= 0.0:
 				spawn_t = 0.22 if room < Data.ROOMS else 0.1
@@ -672,7 +677,7 @@ func on_enemy_died(e: Node2D, rewarded: bool = true) -> void:
 		e.queue_free()
 		return
 	kills += 1
-	energy += float(e.energy) * hero.energy_mult
+	energy += float(e.energy) * hero.energy_mult * ENERGY_SCALE
 	sfx.play("kill", randf_range(0.9, 1.2), -4.0)
 	var is_boss: bool = e.kind.begins_with("boss")
 	for i in range(e.tickets):
