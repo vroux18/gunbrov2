@@ -217,6 +217,8 @@ func tap() -> void:
 			main.sfx.play("click", 0.8 + 0.2 * taps, -6.0)
 			_burst(_mouth(), _col().lightened(0.3), 8 + 6 * taps, 340.0, true, 0.5)
 			_ring(_mouth(), Color(_col(), 0.5), 0.35, 0.6)
+			rays_k = maxf(rays_k, 0.18 + 0.3 * float(taps) / need)
+			bg_halo.modulate = Color(_col(), 0.32 + 0.25 * float(taps) / need)
 			pips.queue_redraw()
 			if taps >= need:
 				_open()
@@ -277,6 +279,8 @@ func _next_card() -> void:
 	var cs := Vector2(250, 330) if vs.y >= 700.0 else Vector2(226, 300)
 	var c: Card = Card.new()
 	c.setup(r, cs)
+	if not fast:
+		c.add_back()
 	content.add_child(c)
 	cur_card = c
 	var to := Vector2(vs.x * 0.5, vs.y * 0.52) - cs * 0.5
@@ -294,6 +298,12 @@ func _next_card() -> void:
 	_card_tw.tween_property(c, "position", to, dur).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_card_tw.tween_property(c, "scale", Vector2.ONE, dur).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_card_tw.tween_property(c, "rotation", 0.0, dur).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	if not fast:
+		# retournement : le dos (lueur de la rareté) puis la face
+		_card_tw.chain().tween_interval(0.1 + 0.05 * c.tier)
+		_card_tw.chain().tween_property(c, "scale:x", 0.0, 0.08).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		_card_tw.chain().tween_callback(c.show_face)
+		_card_tw.chain().tween_property(c, "scale:x", 1.0, 0.14).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_card_tw.chain().tween_callback(func(): _card_landed(c))
 
 ## La carte est posée : éclat à la couleur de la rareté, son selon la rareté.

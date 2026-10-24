@@ -41,11 +41,11 @@ const SKINS := [
 	{"id": "agrume", "name": "Agrume", "tier": 1, "suit": Color("#FFF5D2"), "accent": Color("#FFBE0B"), "light": Color("#7CFF4D")},
 	{"id": "lavande", "name": "Lavande", "tier": 1, "suit": Color("#EEE6FF"), "accent": Color("#8A5CFF"), "light": Color("#5CF0FF")},
 	{"id": "nebuleuse", "name": "Nébuleuse", "tier": 2, "suit": Color("#3A2A78"), "accent": Color("#FF3CAC"), "light": Color("#7AE7FF")},
-	{"id": "neon", "name": "Cité Néon", "tier": 2, "suit": Color("#222840"), "accent": Color("#FF3CAC"), "light": Color("#3CF2FF")},
+	{"id": "neon", "name": "Cité Néon", "tier": 2, "suit": Color("#222840"), "accent": Color("#2EE6FF"), "light": Color("#FF3CAC")},
 	{"id": "braise", "name": "Braise", "tier": 2, "suit": Color("#3C2C2C"), "accent": Color("#FF5A1F"), "light": Color("#FFD34D")},
 	{"id": "aurore", "name": "Aurore", "tier": 2, "suit": Color("#FFF0F8"), "accent": Color("#FF7AD0"), "light": Color("#8AF0FF")},
-	{"id": "eclat", "name": "Éclat d'or", "tier": 3, "suit": Color("#FFF1C4"), "accent": Color("#E09A12"), "light": Color("#FFF7B0")},
-	{"id": "prisme", "name": "Prisme", "tier": 3, "suit": Color("#F4F1EA"), "accent": Color("#262B44"), "light": Color("#FFFFFF"), "rainbow": true},
+	{"id": "eclat", "name": "Éclat d'or", "tier": 3, "suit": Color("#F2BE3A"), "accent": Color("#FFF4DC"), "light": Color("#FFFFFF")},
+	{"id": "prisme", "name": "Prisme", "tier": 3, "suit": Color("#1E2234"), "accent": Color("#F4F1EA"), "light": Color("#FFFFFF"), "rainbow": true},
 ]
 
 ## Traînées de tir : couleur des projectiles de Jo. « alt » alterne les couleurs d'un tir à l'autre,

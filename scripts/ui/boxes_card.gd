@@ -18,6 +18,7 @@ var _halo: TextureRect
 var _rays: Control
 var _art: Control
 var mini := false  # récapitulatif : sans halo ni rayons
+var back: Control = null  # dos de la carte (avant le retournement)
 
 func setup(r: Dictionary, sz: Vector2, small: bool = false) -> void:
 	reward = r
@@ -103,6 +104,36 @@ func setup(r: Dictionary, sz: Vector2, small: bool = false) -> void:
 		if not dup and not mini:
 			Fx.breathe(nt, 0.08, 0.8)
 
+## Dos de la carte : liseré et lueur à la couleur de la rareté (on devine avant de voir), gros « ? ».
+func add_back() -> void:
+	back = Control.new()
+	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	back.size = size
+	back.draw.connect(func():
+		var r := Rect2(Vector2.ZERO, back.size)
+		var st := StyleBoxFlat.new()
+		st.bg_color = Color("#101C3C")
+		st.set_corner_radius_all(22)
+		st.border_color = col
+		st.set_border_width_all(6)
+		st.anti_aliasing = true
+		back.draw_style_box(st, r)
+		var c := back.size * 0.5
+		for k in range(6):
+			back.draw_circle(c, back.size.x * (0.42 - k * 0.06), Color(col, 0.05 + 0.04 * k))
+		var f: Font = UI.TITLE
+		var fs := int(back.size.y * 0.32)
+		var tw := f.get_string_size("?", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		back.draw_string_outline(f, c + Vector2(-tw * 0.5, fs * 0.36), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 12, UI.INK)
+		back.draw_string(f, c + Vector2(-tw * 0.5, fs * 0.36), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col.lightened(0.4)))
+	add_child(back)
+
+## Retournement terminé : la face apparaît.
+func show_face() -> void:
+	if back != null:
+		back.queue_free()
+		back = null
+
 func _process(dt: float) -> void:
 	t += dt
 	if _art != null:
@@ -137,7 +168,7 @@ func _draw() -> void:
 	draw_rect(Rect2(14, 8, sz.x - 28, 3), Color(1, 1, 1, 0.25))
 
 func _draw_rays() -> void:
-	if tier < 2:
+	if tier < 2 or back != null:
 		return
 	var c := size * 0.5
 	var n := 12
