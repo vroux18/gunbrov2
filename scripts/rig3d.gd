@@ -227,7 +227,7 @@ func _veil(dt: float) -> void:
 	if not _veiled:
 		_overlay(_veil_mat)
 		_veiled = true
-	_veil_mat.albedo_color = Color(0.9, 0.85, 0.8, 0.32 if int(invuln * 16.0) % 2 == 0 else 0.04)
+	_veil_mat.albedo_color = Color(0.9, 0.85, 0.8, 0.14 if int(invuln * 12.0) % 2 == 0 else 0.03)
 
 
 # ---------------------------------------------------------------- Jo : locomotion, coup reçu, victoire, repos
