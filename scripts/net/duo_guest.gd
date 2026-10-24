@@ -111,6 +111,12 @@ func on_snap(s: Dictionary) -> void:
 	late_ms.append(offset - sample)
 	if late_ms.size() > 200:
 		late_ms.pop_front()
+	# tampon adaptatif : couvre 90 % de la gigue mesurée (Wi-Fi de téléphone : rafales), entre 80 et 250 ms
+	if late_ms.size() >= 20 and int(s["seq"]) % 20 == 0:
+		var lm := late_ms.duplicate()
+		lm.sort()
+		var want := clampf(float(lm[int(lm.size() * 0.9)]) + 40.0, 80.0, 250.0)
+		delay_ms = lerpf(delay_ms, want, 0.5)
 	# rangé à sa place (non fiable : l'ordre d'arrivée n'est pas garanti)
 	var i := buf.size()
 	while i > 0 and int(buf[i - 1]["ms"]) > int(s["ms"]):

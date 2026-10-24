@@ -610,7 +610,13 @@ func _tick_bandwidth(_dt: float) -> void:
 	var ko_i := i / 1024.0 / span
 	if in_run():
 		bw_log.append([ko_o, ko_i])
-		print("NET : %s %s, montant %.1f ko/s, descendant %.1f ko/s, paquets %.0f/%.0f par s, ennemis %d" % [role, link.kind, ko_o, ko_i, po / span, pi / span, main.arena.enemies.size()])
+		var jit := ""
+		if is_guest() and sync != null and not sync.late_ms.is_empty():
+			# gigue : retard de chaque instantané sur le plus rapide (le tampon d'interpolation doit la couvrir)
+			var lm: Array = sync.late_ms.duplicate()
+			lm.sort()
+			jit = ", gigue médiane %.0f ms, 95 %% %.0f ms (tampon %.0f ms)" % [lm[lm.size() / 2], lm[int(lm.size() * 0.95)], sync.delay_ms]
+		print("NET : %s %s, montant %.1f ko/s, descendant %.1f ko/s, paquets %.0f/%.0f par s, ennemis %d%s" % [role, link.kind, ko_o, ko_i, po / span, pi / span, main.arena.enemies.size(), jit])
 	_bw_t = now
 
 func _tick_tests(dt: float) -> void:
@@ -621,12 +627,13 @@ func _tick_tests(dt: float) -> void:
 		print("DUO : essai de coupure, fin brutale du processus")
 		get_tree().quit()
 	if _shots_dir != "" and DisplayServer.get_name() != "headless":
-		_shot_t -= dt
-		if _shot_t <= 0.0:
-			_shot_t = 3.0
+		# toutes les 3 s d'horloge murale, nommées par l'heure : les captures des deux instances s'apparient
+		var now := Time.get_unix_time_from_system()
+		if now - _shot_t >= 3.0:
+			_shot_t = now
 			var img := get_viewport().get_texture().get_image()
 			if img != null:
-				img.save_png("%s/%s_%03d.png" % [_shots_dir, role if role != "" else "solo", int(Time.get_ticks_msec() / 1000.0)])
+				img.save_png("%s/%s_%d.png" % [_shots_dir, role if role != "" else "solo", int(now)])
 
 ## Robot (--autoplay) : où aller en duo (relever le partenaire, ne pas trop s'éloigner). Vector2.INF : libre.
 func bot_goal(me: Node2D) -> Vector2:
