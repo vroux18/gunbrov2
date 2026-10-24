@@ -41,6 +41,7 @@ var status := ""  # état lisible pour le salon
 var my_name := ""
 var partner_name := ""
 var partner_items: Array = []
+var partner_talents := {}  # talents permanents de l'invité (talents.gd), appliqués à sa Jo chez l'hôte
 var world_override := -1
 var run_id := 0
 var relay_url := ""  # ws(s)://… ; vide : inconnu ; "-" : serveur non déployé
@@ -451,7 +452,7 @@ func _process(dt: float) -> void:
 	if link.state == "open" and link.peer_on and not was_on:
 		_last_rx = now
 		if is_guest():
-			send_raw(Proto.dict_msg(Proto.HELLO, {"v": Proto.VERSION, "game": main.version, "name": my_name, "items": main.hero.items}), true)
+			send_raw(Proto.dict_msg(Proto.HELLO, {"v": Proto.VERSION, "game": main.version, "name": my_name, "items": main.hero.items, "talents": main.profile.get("talents", {})}), true)
 			status = "Connecté, poignée de main…"
 		else:
 			status = "Partenaire en approche…"
@@ -503,6 +504,7 @@ func _receive(pk: PackedByteArray) -> void:
 					return
 				partner_name = String(d.get("name", "J2"))
 				partner_items = d.get("items", [])
+				partner_talents = d.get("talents", {})
 				handshake = true
 				send_raw(Proto.dict_msg(Proto.WELCOME, {"ok": true, "name": my_name, "items": main.hero.items}), true)
 				status = "%s est connecté" % partner_name

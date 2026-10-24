@@ -468,6 +468,7 @@ func _sync_loadout() -> void:
 	if ik != _items_sig:
 		_items_sig = ik
 		duo.send_ev({"t": "items", "items": me.items})
+		Partner3D.recolor(main.view.hero)  # le nouvel équipement prend la palette de J2
 
 func local_down() -> void:
 	pass  # la mort de la Jo locale est décidée chez l'hôte (instantanés)

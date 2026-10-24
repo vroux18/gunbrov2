@@ -47,6 +47,7 @@ func begin() -> void:
 	partner = HeroScript.new()
 	partner.arena = arena
 	partner.items = duo.partner_items
+	partner.set_meta("profile", {"talents": duo.partner_talents})  # talents de l'invité (talents.gd)
 	partner.recalc()
 	partner.hp = partner.hp_max
 	arena.add_child(partner)
