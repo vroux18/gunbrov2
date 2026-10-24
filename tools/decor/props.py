@@ -1,6 +1,7 @@
 """Objets de fret de Nébuleuse 7 (obstacles et accessoires du hangar), sculptés en SDF avec tools/sculpt.py.
 
-Compagnie de fret fictive : VEKTA (logo : anneau orbital ouvert traversé d'un chevron, pochoirs crème).
+Compagnie de fret : HÉLIX FRET (HXF ; logo : hexagone contenant une double hélice à barreaux, le même que
+sur le sol de l'arène et le quai ; sous-titre « TRANSIT NÉBULEUSE 7 »), pochoirs crème.
 Les marquages (logo, pochoirs, étiquettes, bandes de danger) sont des quads collés aux faces planes, texturés
 par la planche tools/decor/atlas.py (assets/decor/props/decals.png) : part « <nom>_decal » de chaque GLB.
 Repère commun : sol à y = 0, emprise centrée sur l'origine, face avant (marquages) vers +Z, X = largeur.
@@ -334,9 +335,9 @@ def M(name, parts, dc=None):
 
 # ------------------------------------------------------------------ caisse de fret renforcée
 def crate(name, Wd, H, D, hull, seed=0, straps=2, code="N7", word=True, handles=True, tag="tag", latches=False,
-          logo_key="logo", tris=300):
+          logo_key="logo", tris=270):
     """Caisse renforcée : coque à panneaux en creux, couvercle à joint et panneau central, cornières d'angle
-    en acier, patins, sangles et boucles, poignées encastrées ; marquages VEKTA (logo et code sur le couvercle,
+    en acier, patins, sangles et boucles, poignées encastrées ; marquages HÉLIX FRET (logo et code sur le couvercle,
     la face la plus vue par la caméra de jeu ; pochoir et étiquette de fret devant, flèches sur les flancs)."""
     wx, dz = Wd * 0.5, D * 0.5
     y0 = 0.05                  # dessous de la coque (patins dessous)
@@ -346,7 +347,7 @@ def crate(name, Wd, H, D, hull, seed=0, straps=2, code="N7", word=True, handles=
     rd = 0.016                      # profondeur des panneaux en creux
     a = P(name, seed=seed, tol=0.008)  # tolérance serrée : les marquages collent aux panneaux
     dc = Decals(name)
-    body = a.piece(hull, tris=tris, wear=0.9)
+    body = a.piece(hull, tris=tris, res=0.015 if Wd * D > 0.8 else None, wear=0.9)
     body.add(box((0, yc, 0), (bx, hh, bz), 0.03))
     m = 0.085  # cadre autour des panneaux
     ph = hh - m
@@ -366,7 +367,7 @@ def crate(name, Wd, H, D, hull, seed=0, straps=2, code="N7", word=True, handles=
     zp = bz - rd                     # surface des panneaux avant / arrière
     xp = bx - rd                     # surface des panneaux de flanc
     # cornières d'angle (acier sombre)
-    st = a.piece(STEEL, tris=int(tris * 0.22), res=0.01, wear=0.45)
+    st = a.piece(STEEL, tris=int(tris * 0.18), res=0.01, wear=0.45)
     for sx in (-1, 1):
         for sz in (-1, 1):
             st.add(box((sx * (wx - 0.035), yc + 0.006, sz * (dz - 0.035)), (0.05, hh + 0.012, 0.05), 0.02))
@@ -412,7 +413,7 @@ def crate(name, Wd, H, D, hull, seed=0, straps=2, code="N7", word=True, handles=
     if ph > 0.05:
         inner = bx - m
         half = (Wd * 0.3 - 0.06) if straps == 2 else (inner if straps == 0 else inner)
-        # avant : pochoir VEKTA, étiquette de fret, usure
+        # avant : pochoir HÉLIX FRET, étiquette de fret, usure
         if word:
             ww = min(0.36, 2 * half * 0.86)
             dc.quad("word", (0, py + ph - ww / 8 - 0.025, zp), ww, ww / 4, FRONT)
@@ -722,8 +723,8 @@ def robot(name, seed=15):
         ea.add(cyl(tuple(hc + np.array([sx * 0.175, 0.0, 0.0])), 0.04, 0.02, 0.01, rot=(0, 0, 90)))
     an = a.piece("#30343F", tris=50, res=0.005)
     an.add(capsule(tuple(hc + np.array([0.08, 0.1, -0.05])), tuple(hc + np.array([0.11, 0.2, -0.08])), 0.007))
-    dc.quad("VK-3", (0.24, 0.3, -0.04), 0.14, 0.05, RIGHT)
-    dc.quad("VK-3", (-0.24, 0.3, -0.04), 0.14, 0.05, LEFT)
+    dc.quad("HX-3", (0.24, 0.3, -0.04), 0.14, 0.05, RIGHT)
+    dc.quad("HX-3", (-0.24, 0.3, -0.04), 0.14, 0.05, LEFT)
     dc.quad("haz", (0, 0.2, 0.22), 0.3, 0.0375, FRONT, crop=(0, 0, 0.75, 1))
     g = P(name + "_glow", res=0.004)
     g.piece("#FF5A4A", tris=40).add(sphere(tuple(hc + np.array([0.11, 0.21, -0.08])), 0.014))
@@ -799,10 +800,10 @@ def catalog():
         "caisse_m_a": lambda: crate("caisse_m_a", 1.0, 0.6, 0.75, H["ardoise"], 4, code="N7"),
         "caisse_m_b": lambda: crate("caisse_m_b", 1.0, 0.6, 0.75, H["olive"], 5, code="07", tag="tag2"),
         "caisse_m_c": lambda: crate("caisse_m_c", 1.0, 0.6, 0.75, H["petrole"], 6, code="A3", logo_key="logo_o"),
-        "caisse_l_a": lambda: crate("caisse_l_a", 1.35, 0.7, 0.9, H["sable"], 7, code="N7-4", tris=330),
-        "caisse_l_b": lambda: crate("caisse_l_b", 1.35, 0.7, 0.9, H["petrole"], 8, code="R-12", tag="tag2", tris=330),
-        "caisse_t_a": lambda: crate("caisse_t_a", 1.0, 0.8, 1.0, H["ardoise"], 9, code="F-9", tag="tag2", tris=330),
-        "caisse_t_b": lambda: crate("caisse_t_b", 1.0, 0.8, 1.0, H["brique"], 10, code="73", logo_key="logo_o", tris=330),
+        "caisse_l_a": lambda: crate("caisse_l_a", 1.35, 0.7, 0.9, H["sable"], 7, code="N7-4", tris=280),
+        "caisse_l_b": lambda: crate("caisse_l_b", 1.35, 0.7, 0.9, H["petrole"], 8, code="R-12", tag="tag2", tris=280),
+        "caisse_t_a": lambda: crate("caisse_t_a", 1.0, 0.8, 1.0, H["ardoise"], 9, code="F-9", tag="tag2", tris=280),
+        "caisse_t_b": lambda: crate("caisse_t_b", 1.0, 0.8, 1.0, H["brique"], 10, code="73", logo_key="logo_o", tris=280),
         "caisse_longue_a": lambda: crate("caisse_longue_a", 1.35, 0.5, 0.55, H["olive"], 11, straps=0, code="", latches=True, handles=False, tris=340),
         "caisse_longue_b": lambda: crate("caisse_longue_b", 1.35, 0.5, 0.55, H["ardoise"], 12, straps=0, code="", latches=True, handles=False, tag="tag2", tris=340),
         "bachee_a": lambda: tarp("bachee_a", "#66756E", 13),
