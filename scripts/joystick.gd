@@ -1,7 +1,8 @@
 extends Control
-## Deux sticks fixes, toujours visibles : gauche = déplacement, droit = visée et tir.
-## Chaque stick a sa zone (moitié d'écran sous le HUD). Un pouce posé près de la base prend la base
-## comme origine ; posé plus loin, l'origine est le point de contact (le stick glisse sous le pouce).
+## Deux sticks, toujours visibles : gauche = déplacement, droit = visée et tir.
+## Chaque stick a sa zone (moitié d'écran sous le HUD). Sticks libres (réglage par défaut, Dev « sticks_free ») :
+## le stick naît sous le pouce, où qu'il se pose, et suit le pouce s'il dépasse son rayon. Sticks fixes : un pouce
+## posé près de la base la prend comme origine ; posé plus loin, l'origine est le point de contact.
 ## Le tir ne part que quand le stick droit est poussé. Clavier en secours (ZQSD / WASD / flèches,
 ## espace ou clic droit pour tirer vers la souris) sur la version web.
 ## Un robot (bot.gd) peut piloter les deux sticks en posant bot = true.
@@ -33,6 +34,7 @@ const DEAD := 0.16
 const TOP_RESERVED := 100.0  # bandeau du HUD : un appui là-haut n'ouvre pas de stick
 const GRAB := 1.7  # un pouce posé à moins de GRAB × RADIUS de la base prend la base comme origine
 const DASH_R := 50.0
+const FOLLOW := 1.1  # stick libre : au-delà de FOLLOW × RADIUS, la base suit le pouce
 
 var _l_id := -1
 var _r_id := -1
@@ -98,13 +100,11 @@ func _input(event: InputEvent) -> void:
 				return
 			if event.position.x < half and _l_id == -1:
 				_l_id = event.index
-				var base := left_base()
-				_l_org = base if (event.position - base).length() < RADIUS * GRAB else event.position
+				_l_org = _origin(left_base(), event.position)
 				_l_pos = event.position
 			elif event.position.x >= half and _r_id == -1:
 				_r_id = event.index
-				var base := right_base()
-				_r_org = base if (event.position - base).length() < RADIUS * GRAB else event.position
+				_r_org = _origin(right_base(), event.position)
 				_r_pos = event.position
 		else:
 			if event.index == _l_id:
@@ -116,8 +116,26 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventScreenDrag:
 		if event.index == _l_id:
 			_l_pos = event.position
+			_l_org = _follow(_l_org, _l_pos)
 		elif event.index == _r_id:
 			_r_pos = event.position
+			_r_org = _follow(_r_org, _r_pos)
+
+func _free() -> bool:
+	return bool(Dev.v.get("sticks_free", true))
+
+## Origine du stick au toucher : sous le pouce (libre), ou la base si le pouce est posé près d'elle (fixe).
+func _origin(base: Vector2, at: Vector2) -> Vector2:
+	if _free():
+		return at
+	return base if (at - base).length() < RADIUS * GRAB else at
+
+## Stick libre : le pouce qui dépasse le rayon entraîne la base avec lui (pas besoin de revenir en arrière).
+func _follow(org: Vector2, pos: Vector2) -> Vector2:
+	var d := pos - org
+	if not _free() or d.length() <= RADIUS * FOLLOW:
+		return org
+	return pos - d.normalized() * RADIUS * FOLLOW
 
 func _dash_press() -> void:
 	_dash_req = true
@@ -203,7 +221,7 @@ func _draw() -> void:
 		_base(lo, lcol, 0.35)
 		_knob(lo, lcol, 0.5)
 	else:
-		if _l_org != lo:
+		if _l_org != lo and not _free():
 			_base(lo, lcol, 0.15)
 		_base(_l_org, lcol, 0.7)
 		_knob(_l_org + _clamped(_l_org, _l_pos), lcol, 1.0)
@@ -214,7 +232,7 @@ func _draw() -> void:
 		_base(ro, rcol, 0.35)
 		_knob(ro, rcol, 0.5)
 	else:
-		if _r_org != ro:
+		if _r_org != ro and not _free():
 			_base(ro, rcol, 0.15)
 		_base(_r_org, rcol, 0.7 if not aim_active else 1.0)
 		_knob(_r_org + _clamped(_r_org, _r_pos), rcol, 1.0)

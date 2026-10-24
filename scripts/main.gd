@@ -1247,12 +1247,22 @@ func _show_pause() -> void:
 	r.custom_minimum_size = Vector2(400, 88)
 	r.pressed.connect(_resume)
 	box.add_child(r)
-	var mu := UI.button("MUSIQUE : " + ("OUI" if Music.enabled else "NON"), 24, UI.ACCENT, 400)
-	mu.custom_minimum_size = Vector2(400, 72)
+	# musique et sticks (libres : ils naissent sous le pouce ; fixes : base toujours au même endroit)
+	var opts := UI.hbox(12)
+	opts.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_child(opts)
+	var mu := UI.button("MUSIQUE : " + ("OUI" if Music.enabled else "NON"), 22, UI.ACCENT, 194)
+	mu.custom_minimum_size = Vector2(194, 72)
 	mu.pressed.connect(func():
 		Music.set_enabled(not Music.enabled)
 		mu.text = "MUSIQUE : " + ("OUI" if Music.enabled else "NON"))
-	box.add_child(mu)
+	opts.add_child(mu)
+	var st := UI.button("STICKS : " + ("LIBRES" if bool(Dev.v["sticks_free"]) else "FIXES"), 22, UI.ACCENT, 194)
+	st.custom_minimum_size = Vector2(194, 72)
+	st.pressed.connect(func():
+		Dev.set_value("sticks_free", not bool(Dev.v["sticks_free"]))
+		st.text = "STICKS : " + ("LIBRES" if bool(Dev.v["sticks_free"]) else "FIXES"))
+	opts.add_child(st)
 	# qualité : ÉCO chauffe moins (3D plus basse, sans ombres, 30 i/s), MAX pour les téléphones costauds
 	var qb := UI.button("QUALITÉ : " + String(Dev.quality()[0]), 24, UI.ACCENT, 400)
 	qb.custom_minimum_size = Vector2(400, 72)
