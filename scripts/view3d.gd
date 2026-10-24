@@ -1068,103 +1068,7 @@ func show_relais(items: Array) -> void:
 	launch_t = -1.0
 
 func _build_relais() -> void:
-	relais = Node3D.new()
-	relais.position = Vector3(0, 0, -80)
-	add_child(relais)
-	# plateforme ronde de dalles, anneau du portail derrière la héroïne
-	var plat := Models.cyl(4.2, 4.5, 0.35, Models.toon(Color("#182042"), 0.25), 48)
-	plat.position.y = -0.175
-	relais.add_child(plat)
-	var plat_top := Models.cyl(3.6, 3.6, 0.02, Models.toon(Color("#1F2A52"), 0.1), 48)
-	for k in range(3):
-		var tr := Models.torus(1.2 + k * 0.8, 1.24 + k * 0.8, Models.glow_mat(Color("#3CF2D8"), 0.6 + 0.3 * (2 - k)), 64)
-		tr.position.y = 0.025
-		relais.add_child(tr)
-	plat_top.position.y = 0.01
-	relais.add_child(plat_top)
-	var rim := Models.torus(4.15, 4.3, Models.glow_mat(CYAN, 1.6), 64)
-	rim.position.y = 0.02
-	relais.add_child(rim)
-	var portal := Node3D.new()
-	portal.position = Vector3(0, 2.6, -2.2)
-	relais.add_child(portal)
-	var ring := Models.torus(2.0, 2.35, Models.toon(Color("#C8D0DA"), 0.5), 64)
-	ring.rotation.x = PI * 0.5
-	portal.add_child(ring)
-	var ring_glow := Models.torus(1.92, 2.02, Models.glow_mat(CYAN, 2.5), 64)
-	ring_glow.rotation.x = PI * 0.5
-	portal.add_child(ring_glow)
-	for i in range(12):
-		var a := TAU * i / 12.0
-		var stud := Models.box(Vector3(0.22, 0.42, 0.3), Models.toon(Color("#2C3350"), 0.3))
-		stud.position = Vector3(cos(a), sin(a), 0) * 2.18
-		stud.rotation.z = a
-		portal.add_child(stud)
-		var led := Models.box(Vector3(0.08, 0.16, 0.32), Models.glow_mat(ORANGE if i % 3 == 0 else CYAN, 2.4))
-		led.position = Vector3(cos(a), sin(a), 0) * 2.18
-		led.rotation.z = a
-		portal.add_child(led)
-	var disk := MeshInstance3D.new()
-	var q := QuadMesh.new()
-	q.size = Vector2(4.0, 4.0)
-	disk.mesh = q
-	var pm := ShaderMaterial.new()
-	pm.shader = load("res://shaders/portal.gdshader")
-	disk.material_override = pm
-	portal.add_child(disk)
-	relais.set_meta("portal", portal)
-	var plight := OmniLight3D.new()
-	plight.position = Vector3(0, 2.4, -1.4)
-	plight.light_color = CYAN
-	plight.omni_range = 7.0
-	plight.light_energy = 1.8
-	relais.add_child(plight)
-	var warm := OmniLight3D.new()
-	warm.position = Vector3(3.5, 2.0, 2.5)
-	warm.light_color = ORANGE
-	warm.omni_range = 7.0
-	warm.light_energy = 0.9
-	relais.add_child(warm)
-	# consoles autour
-	for c in [[Vector3(-3.0, 0, -0.6), 0.6], [Vector3(3.0, 0, -0.6), -0.6], [Vector3(-3.4, 0, 1.4), 1.2]]:
-		_put(ST + "computer-wide.glb", c[0], c[1], Vector3.ONE * 1.5, relais)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 5
-	var keep := level
-	level = relais
-	_crate(Vector3(3.4, 0, 1.2), Vector3(1.1, 0.9, 1.1), -0.4, rng)
-	_crate(Vector3(3.6, 0.9, 1.2), Vector3(0.8, 0.6, 0.8), -0.2, rng)
-	_crate(Vector3(-3.6, 0, -1.6), Vector3(1.2, 1.0, 1.0), 0.3, rng)
-	_flush_batch()
-	level = keep
-	# dix socles d'éclats en arc derrière la plateforme : allumés selon la progression
-	var shards := []
-	for i in range(10):
-		var a := lerpf(-1.25, 1.25, i / 9.0)
-		var pos := Vector3(sin(a) * 5.6, 0, -cos(a) * 5.6 + 1.0)
-		var ped := Models.cyl(0.32, 0.4, 0.5, Models.toon(Color("#1F2A52"), 0.35), 8)
-		ped.position = pos + Vector3(0, 0.25, 0)
-		relais.add_child(ped)
-		var gem := MeshInstance3D.new()
-		var sm := SphereMesh.new()
-		sm.radius = 0.2
-		sm.height = 0.62
-		sm.radial_segments = 6
-		sm.rings = 2
-		gem.mesh = sm
-		gem.position = pos + Vector3(0, 0.95, 0)
-		relais.add_child(gem)
-		shards.append(gem)
-	relais.set_meta("shards", shards)
-	# Jo
-	var rh := Rig3D.new()
-	relais.add_child(rh)
-	rh.setup(JO_MODEL, Color(1, 1, 1), 1.7)
-	rh.scale = Vector3.ONE * 2.4
-	rh.position = Vector3(0, 0, 0.6)
-	rh.rotation.y = 0.35
-	relais.set_meta("hero", rh)
-	relais.add_child(Models.shadow_blob(1.6))
+	relais = preload("res://scripts/decor/relais.gd").build(self)
 
 var relais_focus := 0.0  # 0 : vue large du Relais, 1 : gros plan sur Jo (Loge)
 var _focus := 0.0
@@ -1173,10 +1077,7 @@ var _focus := 0.0
 func set_shards(n: int) -> void:
 	if relais == null:
 		_build_relais()
-	var gems: Array = relais.get_meta("shards")
-	for i in range(gems.size()):
-		var g: MeshInstance3D = gems[i]
-		g.material_override = Models.glow_mat(CYAN, 2.6) if i < n else Models.toon(Color("#2A3558"), 0.2)
+	preload("res://scripts/decor/relais.gd").set_shards(relais, n)
 
 var launch_t := -1.0  # >= 0 : départ en cours (Jo court dans le portail)
 
@@ -1191,12 +1092,8 @@ var _launch_done: Callable
 func _tick_relais(dt: float) -> void:
 	if relais == null or not relais.visible:
 		return
-	var portal: Node3D = relais.get_meta("portal")
-	portal.rotation.z += dt * (0.15 if launch_t < 0.0 else 2.5)
+	preload("res://scripts/decor/relais.gd").tick(relais, dt, launch_t >= 0.0, _focus)
 	var rh: Rig3D = relais.get_meta("hero")
-	var gems: Array = relais.get_meta("shards")
-	for i in range(gems.size()):
-		(gems[i] as Node3D).rotation.y = t * 1.2 + i
 	if launch_t >= 0.0:
 		launch_t += dt
 		rh.rotation.y = lerp_angle(rh.rotation.y, PI, clampf(dt * 10.0, 0.0, 1.0))
@@ -1220,7 +1117,7 @@ func _tick_relais(dt: float) -> void:
 	_focus = lerpf(_focus, relais_focus, clampf(dt * 4.0, 0.0, 1.0))
 	rh.rotation.y = lerpf(0.35, 0.35 + sin(t * 0.6) * 0.5, _focus)
 	var base := relais.position
-	var a := sin(t * 0.25) * 0.25 * (1.0 - _focus)
+	var a := sin(t * 0.25) * 0.08 * (1.0 - _focus)
 	var wide_pos := base + Vector3(sin(a) * 9.5 + 3.2, 3.4, cos(a) * 9.5)
 	var wide_look := base + Vector3(3.4, 1.6, 0)
 	var close_pos := base + Vector3(1.5, 2.7, 7.8)
