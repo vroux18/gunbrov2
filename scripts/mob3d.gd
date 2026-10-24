@@ -9,7 +9,7 @@ const Rig3D = preload("res://scripts/rig3d.gd")
 ## Échelle des modèles sculptés (conçus à l'échelle de Jo, qui est affichée à 1,75).
 const RIG_SCALE := {"drone": 1.75, "trooper": 1.75, "brute": 1.3, "boss": 1.05, "bomber": 1.75, "sniper": 1.75, "shield": 1.75, "mortar": 1.75}
 ## Durée de l'animation de mort avant suppression du nœud.
-const DEATH_T := {"drone": 0.35, "trooper": 1.3, "brute": 1.0, "boss": 1.6, "bomber": 0.2, "sniper": 0.9, "shield": 1.0, "mortar": 0.7}
+const DEATH_T := {"drone": 0.85, "trooper": 1.3, "brute": 1.0, "boss": 1.6, "bomber": 0.2, "sniper": 0.9, "shield": 1.0, "mortar": 0.7}
 ## Durée du télégraphe (état « tell ») par genre, pour remplir l'anneau au sol.
 const TELL_T := {"brute": 0.7, "boss": 0.8, "bomber": 0.55, "shield": 0.5, "mortar": 0.9}
 const VIOLET := Color("#B36BFF")
@@ -45,6 +45,7 @@ var _laser: MeshInstance3D = null  # vigie : laser de visée
 var _laser_mat: StandardMaterial3D = null
 var yaw := 0.0
 var dying := 0.0  # > 0 : animation de mort en cours
+var death_dir := Vector3.ZERO  # sens du coup fatal (posé par view3d) : la Sentinelle part en vrille par là
 var ground_y := 0.0
 
 static var _ring_shader: Shader = null
@@ -513,11 +514,22 @@ func start_death() -> void:
 	if rig != null:
 		rig.die()
 
+## Sentinelle abattue : petit sursaut, puis chute en vrille (spirale qui se resserre) jusqu'au sol vers 0,5 s.
+func _drone_fall(dt: float) -> void:
+	var k := clampf(dying / 0.5, 0.0, 1.0)
+	var d := death_dir if death_dir.length() > 0.01 else Vector3(0, 0, 1)
+	var sw := Vector3(sin(dying * 16.0), 0.0, cos(dying * 16.0) - 1.0) * 0.22 * (1.0 - k)
+	body.position = d * 0.9 * (1.0 - (1.0 - k) * (1.0 - k)) + sw + Vector3(0, 0.45 * sin(PI * k), 0)
+	body.rotation.y += dt * 20.0 * (1.0 - k * 0.8)
+	body.rotation.z = lerpf(body.rotation.z, 0.7, clampf(dt * 8.0, 0.0, 1.0))
+
 ## Renvoie vrai quand l'animation de mort est terminée.
 func tick_death(dt: float) -> bool:
 	dying += dt
 	if rig != null:
 		var dt_end: float = DEATH_T.get(kind, 1.0)
+		if kind == "drone":
+			_drone_fall(dt)
 		if dying > dt_end - 0.35:
 			body.scale = Vector3.ONE * maxf(0.01, (dt_end - dying) / 0.35)
 		return dying > dt_end
