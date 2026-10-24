@@ -7,7 +7,7 @@ const Models = preload("res://scripts/models.gd")
 const Actor3D = preload("res://scripts/actor3d.gd")
 const Rig3D = preload("res://scripts/rig3d.gd")
 ## Échelle des modèles sculptés (conçus à l'échelle de Jo, qui est affichée à 1,75).
-const RIG_SCALE := {"drone": 1.75, "trooper": 1.75, "brute": 1.75, "boss": 1.05}
+const RIG_SCALE := {"drone": 1.75, "trooper": 1.75, "brute": 1.3, "boss": 1.05}
 ## Durée de l'animation de mort avant suppression du nœud.
 const DEATH_T := {"drone": 0.35, "trooper": 1.3, "brute": 1.0, "boss": 1.6}
 
