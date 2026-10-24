@@ -114,6 +114,7 @@ var spawn_queue: Array = []
 var spawn_t := 0.0
 var wave_gap := 0.0
 var running := false
+var frozen := false  # duo : un des deux choisit un pouvoir (ou est en pause), tout se fige (duo_host.gd)
 var cleared := false
 var kills := 0
 var tickets := 0
@@ -245,6 +246,7 @@ func _clear_entities() -> void:
 
 func start_room(r: int, mod: String) -> void:
 	room = r
+	frozen = false
 	Music.play(("boss" if r >= Data.ROOMS else "combat") + String(Data.WORLDS[Data.world]["music"]))
 	Music.ambience(Data.world_id())
 	modifier = mod
@@ -306,7 +308,7 @@ func enemies_left() -> int:
 
 # ---------------------------------------------------------------- boucle
 func _process(dt: float) -> void:
-	if not running:
+	if not running or frozen:
 		return
 	_grid_fresh = false  # jusqu'au rangement de cette image, la grille peut dater (ennemis déplacés entre-temps)
 	elapsed += dt

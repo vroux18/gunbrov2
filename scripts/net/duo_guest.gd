@@ -45,6 +45,10 @@ var late_ms: Array = []  # retards mesurés (réception - émission estimée), p
 var _pos_err := 0.0
 var _room_miss := 0
 
+var frozen := false  # l'hôte a figé la partie (un des deux choisit un pouvoir)
+
+var _wait_msg := false
+
 func begin() -> void:
 	arena = main.arena
 	me = main.hero
@@ -151,6 +155,8 @@ func on_ev(d: Dictionary) -> void:
 		"item":
 			main._show_item(d.get("item", {}))
 		"energy":
+			# montée de niveau commune : un choix pour l'invité aussi, même si l'hôte a déjà vidé la barre
+			main._duo_levels += 1
 			if main.overlay != null:
 				duo.energy_wait = true  # choisi dès que l'écran en cours se ferme
 			else:
@@ -195,6 +201,7 @@ func remote_over(d: Dictionary) -> void:
 func _apply_latest(s: Dictionary) -> void:
 	arena.kills = int(s["kills"])
 	arena.energy = float(s["energy"])
+	frozen = bool(s.get("frozen", false))
 	arena.energy_need = maxf(1.0, float(s["need"]))
 	arena.tickets = int(s["ptk"])
 	var nw := int(s["waves"])
@@ -266,11 +273,16 @@ func _process(dt: float) -> void:
 	if partner == null or main.state != "arena":
 		return
 	arena.elapsed += dt
-	# sa propre Jo : pilotée ici, sans attendre le réseau
-	if not me.dead:
+	var wait := frozen and main.overlay == null  # on attend le choix de l'autre : on le dit
+	if wait != _wait_msg:
+		_wait_msg = wait
+		main.hud.flash("PAUSE · TON PARTENAIRE CHOISIT" if wait else "", 3600.0 if wait else 0.0, UI.GOLD)
+	# sa propre Jo : pilotée ici, sans attendre le réseau (immobile quand la partie est figée chez l'hôte)
+	if not me.dead and not frozen:
 		me.update(dt, main.joy.move, main.joy.aim, main.joy.aim_active)
 		arena._clamp_circle(me, me.radius)
-	_tick_bullets(dt)
+	if not frozen:
+		_tick_bullets(dt)
 	var rt := float(Time.get_ticks_msec()) + offset - delay_ms
 	_interpolate(rt, dt)
 	_play_events(rt)

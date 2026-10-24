@@ -832,6 +832,7 @@ func start_run() -> void:
 	hero.reset_run()
 	arena.reset_run()
 	_pending_bonus = 0
+	_duo_levels = 0
 	_rerolls = int(Data.talent(profile, "reroll"))
 	# talent « départ » : un ou plusieurs pouvoirs du palier I au hasard
 	var starts: Array = []
@@ -942,6 +943,15 @@ func _card_overlay(title: String, subtitle: String) -> VBoxContainer:
 ## évolution prête prend la carte du milieu. Talents du Relais : carte de plus, relances.
 var _pending_bonus := 0
 var _rerolls := 0
+## Duo, invité : montées de niveau accordées par l'hôte (barre d'énergie commune). L'invité ne lit pas sa
+## barre, que l'hôte vide dès son propre choix : chaque montée de niveau donne un choix aux deux.
+var _duo_levels := 0
+
+func _duo_guest() -> bool:
+	return duo != null and duo.in_run() and not duo.is_host()
+
+func _energy_choice_ready() -> bool:
+	return _duo_levels > 0 if _duo_guest() else arena.energy >= arena.energy_need
 
 func _on_bonus_choice() -> void:
 	_pending_bonus += 1
@@ -951,7 +961,7 @@ func _on_bonus_choice() -> void:
 func _maybe_more_choices() -> void:
 	if state != "arena" or get_tree().paused or overlay != null or hero.dead:
 		return
-	if _pending_bonus > 0 or arena.energy >= arena.energy_need:
+	if _pending_bonus > 0 or _energy_choice_ready():
 		_show_power_choice()
 
 ## Pouvoirs proposables : pas encore au maximum, palier ouvert dans leur branche.
@@ -1015,13 +1025,15 @@ func _show_power_choice() -> void:
 	if get_tree().paused or state != "arena" or hero.dead or (duo != null and duo.in_run() and overlay != null):
 		return
 	var bonus := _pending_bonus > 0
-	if not bonus and arena.energy < arena.energy_need:
+	if not bonus and not _energy_choice_ready():
 		return
 	var n := clampi(3 + int(Data.talent(profile, "extra_card")), 1, 5)
 	var deal := _deal_powers(n)
 	if deal.is_empty():
 		if bonus:
 			_pending_bonus -= 1
+		elif _duo_guest():
+			_duo_levels -= 1
 		else:
 			arena.consume_energy()
 		return
@@ -1072,6 +1084,8 @@ func _power_cards(deal: Array, bonus: bool, n: int) -> void:
 			hero.add_power(id)
 			if bonus:
 				_pending_bonus = maxi(0, _pending_bonus - 1)
+			elif _duo_guest():
+				_duo_levels = maxi(0, _duo_levels - 1)
 			else:
 				arena.consume_energy()
 			arena.sync_machines()

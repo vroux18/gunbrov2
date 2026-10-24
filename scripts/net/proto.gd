@@ -142,7 +142,7 @@ static func encode_snap(s: Dictionary) -> PackedByteArray:
 	b.put_u32(int(s["ms"]) & 0xFFFFFFFF)
 	b.put_u8(int(s["run"]) & 0xFF)
 	b.put_u8(int(s["room"]))
-	b.put_u8((1 if s["cleared"] else 0) | (2 if s["boss_room"] else 0))
+	b.put_u8((1 if s["cleared"] else 0) | (2 if s["boss_room"] else 0) | (4 if s.get("frozen", false) else 0))
 	b.put_u8(_u8(s["wave"]))
 	b.put_u8(_u8(s["waves"]))
 	b.put_u8(_u8(s["queue"]))
@@ -202,6 +202,7 @@ static func decode_snap(pk: PackedByteArray) -> Dictionary:
 	var f := b.get_u8()
 	s["cleared"] = f & 1 != 0
 	s["boss_room"] = f & 2 != 0
+	s["frozen"] = f & 4 != 0  # partie figée : un des deux choisit
 	s["wave"] = b.get_u8()
 	s["waves"] = b.get_u8()
 	s["queue"] = b.get_u8()

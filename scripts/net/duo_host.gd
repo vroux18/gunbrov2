@@ -40,6 +40,8 @@ var _god := false
 var _t := 0.0
 var _wait_guest := 8.0  # la partie attend que l'invité soit prêt (au plus 8 s)
 
+var _wait_msg := false
+
 func begin() -> void:
 	process_priority = -10  # avant arena.gd : les ennemis visent la bonne Jo dès cette image
 	arena = main.arena
@@ -135,9 +137,17 @@ func _process(dt: float) -> void:
 			_go_now()
 		return
 	if not arena.running:
+		arena.frozen = false
 		return
-	# la Jo de l'invité : ses sticks, sa position (lissée), invulnérable pendant son choix de pouvoir
-	if not partner.dead:
+	# montée de niveau, objet ou pause chez l'un des deux : la partie se fige pour les deux jusqu'à la fin du choix
+	var frozen: bool = main.overlay != null or bool(inp["choosing"])
+	arena.frozen = frozen
+	var wait := frozen and main.overlay == null  # on attend le choix de l'autre : on le dit
+	if wait != _wait_msg:
+		_wait_msg = wait
+		main.hud.flash("PAUSE · TON PARTENAIRE CHOISIT" if wait else "", 3600.0 if wait else 0.0, UI.GOLD)
+	# la Jo de l'invité : ses sticks, sa position (lissée)
+	if not partner.dead and not frozen:
 		var before: Vector2 = partner.position
 		_firing_partner = true
 		partner.update(dt, inp["mv"], inp["aim"], inp["aim_on"])
@@ -156,7 +166,8 @@ func _process(dt: float) -> void:
 	if _god and _down_test < 0.0 and _wipe_test < 0.0:
 		partner.hp = partner.hp_max
 	_tick_tests()
-	_tick_revive(dt)
+	if not frozen:
+		_tick_revive(dt)
 	if arena.room != _last_room:
 		_on_new_room()
 	var now := Time.get_ticks_msec()
@@ -349,7 +360,7 @@ func _snapshot(now: int) -> Dictionary:
 	events = events.slice(255)
 	return {"seq": _seq, "ms": now, "run": duo.run_id, "room": arena.room, "cleared": arena.cleared, "boss_room": arena.room >= Data.ROOMS,
 		"wave": arena.wave_i + 1, "waves": arena.waves.size(), "queue": arena.spawn_queue.size(), "kills": arena.kills,
-		"energy": arena.energy, "need": arena.energy_need, "ptk": arena.partner_tickets,
+		"energy": arena.energy, "need": arena.energy_need, "ptk": arena.partner_tickets, "frozen": arena.frozen,
 		"heroes": [_hero_state(hero, 0), _hero_state(partner, 1)], "enemies": en, "pickups": pks, "chest": ch,
 		"turrets": arena.turrets, "events": evs}
 
