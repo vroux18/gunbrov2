@@ -1,8 +1,10 @@
 extends Control
-## Écran COFFRES du Relais, deux onglets. Jo reste visible à gauche (gros plan du Relais 3D).
-## COFFRES : la box choisie en 3D qui se balance, ses quatre raretés avec leur nombre, OUVRIR, TOUT OUVRIR.
-## COLLECTION : apparences de Jo et traînées de tir, obtenues ou verrouillées (silhouette, rareté),
-## compteur « 12 / 30 » ; toucher une apparence obtenue l'équipe (Jo change aussitôt au Relais et en jeu).
+## Écrans COFFRES et APPARENCES du Relais (identifiants internes : « coffres », « collection »), sous le bandeau
+## commun (UI.screen_header). Jo reste visible à gauche (gros plan du Relais 3D).
+## COFFRES : le coffre choisi en 3D qui se balance, ce qu'il contient en clair, OUVRIR, TOUT ; à droite les
+## quatre raretés avec leur nombre.
+## APPARENCES : apparences de Jo et traînées de tir, obtenues ou verrouillées (silhouette, rareté), en grandes
+## tuiles qui défilent ; toucher une apparence obtenue l'équipe (Jo change aussitôt au Relais et en jeu).
 
 const UI = preload("res://scripts/ui.gd")
 const Fx = preload("res://scripts/ui/fx.gd")
@@ -36,7 +38,16 @@ func build(m: Node, which: String, fresh: bool) -> void:
 	_refresh(fresh)
 
 func _left() -> float:
-	return 0.33
+	return 0.335
+
+## Ce que contient chaque coffre, en clair (tirage : scripts/loot.gd, Loot.roll).
+const CONTENTS := {
+	"bronze": ["25 à 75 tickets", "1 objet, le plus souvent", "Parfois une apparence"],
+	"argent": ["60 à 100 tickets", "1 ou 2 objets", "Souvent une apparence"],
+	"or": ["140 à 220 tickets", "1 ou 2 objets, dont un rare", "1 apparence garantie"],
+	"legendaire": ["350 à 500 tickets", "2 objets rares ou mieux", "2 apparences, dont une épique"],
+}
+const LOOT_SIZE := {"bronze": "Petit butin", "argent": "Butin moyen", "or": "Gros butin", "legendaire": "Énorme butin"}
 
 func _refresh(anim: bool = false) -> void:
 	if body != null:
@@ -49,62 +60,28 @@ func _refresh(anim: bool = false) -> void:
 	add_child(body)
 	var ins := UI.safe_insets(get_viewport())
 	var x0 := vs.x * _left()
-	var x1 := vs.x - 24.0 - float(ins["right"])
-	# ---------------- en-tête : onglets, RETOUR
-	var head := UI.hbox(12)
-	head.position = Vector2(x0, clampf(vs.y * 0.04, 14.0, 36.0))
-	head.size = Vector2(x1 - x0, 78)
+	var x1 := vs.x - 16.0 - float(ins["right"])
+	# ---------------- bandeau commun : RETOUR, titre et phrase, monnaies
+	var m := UI.header_money(main.profile)
+	var head: Control
+	if tab == "coffres":
+		head = UI.screen_header(get_viewport(), "COFFRES", "Ouvre tes coffres pour gagner tickets, objets et apparences.", UI.GOLD, main.show_base, m[0], m[1])
+	else:
+		head = UI.screen_header(get_viewport(), "APPARENCES", "Touche une apparence pour l'équiper. Les autres sortent des coffres.", UI.ACCENT, main.show_base, m[0], m[1])
 	body.add_child(head)
-	var nb := (main.profile["boxes"] as Array).size()
-	var tb1 := _tab_button("COFFRES", "coffres", str(nb) if nb > 0 else "", UI.GOLD)
-	head.add_child(tb1)
-	var tb2 := _tab_button("COLLECTION", "collection", "%d/%d" % [Loot.owned_count(main.profile), Loot.total_count()], UI.ACCENT)
-	head.add_child(tb2)
-	var sp := Control.new()
-	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(sp)
-	var back := UI.primary("RETOUR", 24)
-	back.custom_minimum_size = Vector2(150, 74)
-	back.pressed.connect(main.show_base)
-	head.add_child(back)
-	var area := Rect2(x0, head.position.y + 96.0, x1 - x0, vs.y - head.position.y - 96.0 - 18.0 - float(ins["bottom"]))
+	var top := UI.header_height(get_viewport()) + 14.0
+	var area := Rect2(x0, top, x1 - x0, vs.y - top - 10.0 - float(ins["bottom"]))
 	if tab == "coffres":
 		_build_coffres(area, anim)
 	else:
 		_build_collection(area, anim)
-	toast = UI.label("", 22, UI.TEXT, HORIZONTAL_ALIGNMENT_CENTER)
-	toast.position = Vector2(x0, vs.y - 54.0)
-	toast.size = Vector2(x1 - x0, 30)
+	toast = UI.label("", UI.FS_BODY, UI.TEXT, HORIZONTAL_ALIGNMENT_CENTER)
+	toast.position = Vector2(x0, vs.y - 58.0)
+	toast.size = Vector2(x1 - x0, 34)
 	toast.add_theme_color_override("font_outline_color", UI.INK)
 	toast.add_theme_constant_override("outline_size", 6)
 	toast.modulate.a = 0.0
 	body.add_child(toast)
-	if anim:
-		Fx.slide_in(head, Vector2(120, 0), 0.0, 0.35)
-
-func _tab_button(text: String, which: String, badge: String, col: Color) -> Button:
-	var on := tab == which
-	var b := UI.button(text, 26, col if on else UI.MUTED, 0.0)
-	b.custom_minimum_size = Vector2(0, 74)
-	b.add_theme_font_override("font", UI.TITLE)
-	if on:
-		b.add_theme_stylebox_override("normal", UI.chunky(col.darkened(0.55), col.darkened(0.2)))
-		b.add_theme_stylebox_override("hover", UI.chunky(col.darkened(0.55), col.darkened(0.2)))
-		b.add_theme_color_override("font_color", UI.TEXT)
-	if badge != "":
-		# pastille en haut à droite, comme LOGE et ARSENAL
-		var tg := UI.tag(badge, col, UI.INK, 18)
-		tg.anchor_left = 1.0
-		tg.anchor_right = 1.0
-		tg.offset_left = -20.0 - 11.0 * badge.length()
-		tg.offset_top = -14
-		b.add_child(tg)
-	b.pressed.connect(func():
-		if tab != which:
-			tab = which
-			main.sfx.play("click", 1.0, -6.0)
-			_refresh(true))
-	return b
 
 # ---------------------------------------------------------------- COFFRES
 func _build_coffres(area: Rect2, anim: bool) -> void:
@@ -112,29 +89,29 @@ func _build_coffres(area: Rect2, anim: bool) -> void:
 	var total := (p["boxes"] as Array).size()
 	if sel == "" or Loot.count(p, sel) == 0:
 		sel = ""
-		# la plus belle box disponible d'abord
+		# le plus beau coffre disponible d'abord
 		for r in ["legendaire", "or", "argent", "bronze"]:
 			if Loot.count(p, r) > 0:
 				sel = r
 				break
 	var shown := sel if sel != "" else "or"
 	var col: Color = Loot.BOX_COLORS[shown]
-	# ---- à gauche : la box en 3D, son nom, OUVRIR
-	var lw := area.size.x * 0.52
-	var s := minf(lw, area.size.y - 190.0)
-	# vitrine : panneau sombre, halo de la rareté, socle lumineux sous la box
+	# ---- à gauche : le coffre en 3D, son nom, ce qu'il contient, OUVRIR
+	var lw := area.size.x * 0.5
+	var s := clampf(area.size.y - 330.0, 150.0, minf(lw * 0.62, 260.0))
+	# vitrine : panneau sombre, halo de la rareté, socle lumineux sous le coffre
 	var pane := Panel.new()
 	pane.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pane.position = area.position + Vector2(0, -6)
-	pane.size = Vector2(lw, area.size.y + 6)
-	pane.add_theme_stylebox_override("panel", UI.flat(Color("#0A1430", 0.82), Color(col, 0.3), 22, 2))
+	pane.position = area.position
+	pane.size = Vector2(lw, area.size.y)
+	pane.add_theme_stylebox_override("panel", UI.flat(Color("#0A1430", 0.9), Color(col, 0.35), 22, 2))
 	body.add_child(pane)
-	var halo := Fx.halo(Color(col, 0.4 if sel != "" else 0.12), Vector2(s * 1.2, s * 1.0))
-	halo.position = area.position + Vector2((lw - s * 1.2) * 0.5, s * -0.05)
+	var halo := Fx.halo(Color(col, 0.4 if sel != "" else 0.12), Vector2(s * 1.5, s * 1.2))
+	halo.position = area.position + Vector2((lw - s * 1.5) * 0.5, -s * 0.05)
 	body.add_child(halo)
 	var base := Control.new()
 	base.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	base.position = area.position + Vector2(lw * 0.5, s * 0.66)
+	base.position = area.position + Vector2(lw * 0.5, s * 0.7)
 	base.draw.connect(func():
 		base.draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.25))
 		for k in range(5):
@@ -143,36 +120,39 @@ func _build_coffres(area: Rect2, anim: bool) -> void:
 	Fx.pulse(halo, 0.6, 1.0, 1.6)
 	stage = Stage.new()
 	stage.setup(shown, Vector2(s, s))
-	stage.position = area.position + Vector2((lw - s) * 0.5, -s * 0.06)
+	stage.position = area.position + Vector2((lw - s) * 0.5, -s * 0.02)
 	stage.yaw = -0.45
 	body.add_child(stage)
 	if sel == "":
 		stage.modulate = Color(0.45, 0.5, 0.6, 0.8)
-	var name_y := stage.position.y + s * 0.86
-	var nm := UI.title(("BOX " + String(Loot.BOX_NAMES[shown]).to_upper()) if sel != "" else "AUCUNE BOX", 34, col.lightened(0.3) if sel != "" else UI.MUTED, col.darkened(0.5), HORIZONTAL_ALIGNMENT_CENTER)
-	nm.position = Vector2(area.position.x, name_y)
-	nm.size = Vector2(lw, 44)
-	body.add_child(nm)
-	var hint := UI.label(Loot.BOX_HINT[shown] if sel != "" else "Bats le boss d'un monde : une box Or, et une Légendaire la première fois. Les élites et la route Trésor en donnent aussi.", 18, UI.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	hint.position = Vector2(area.position.x + 10, name_y + 44)
-	hint.size = Vector2(lw - 20, 48)
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.add_theme_color_override("font_outline_color", UI.INK)
-	hint.add_theme_constant_override("outline_size", 4)
-	body.add_child(hint)
+	var info := UI.vbox(2)
+	info.position = Vector2(area.position.x + 16.0, stage.position.y + s * 0.84)
+	info.size = Vector2(lw - 32.0, 0)
+	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_child(info)
+	var nm := UI.title(("COFFRE " + String(Loot.BOX_NAMES[shown]).to_upper()) if sel != "" else "AUCUN COFFRE", 34, col.lightened(0.3) if sel != "" else UI.TEXT, col.darkened(0.5), HORIZONTAL_ALIGNMENT_CENTER)
+	info.add_child(nm)
+	if sel != "":
+		# contenu, une ligne par récompense
+		for line in CONTENTS[shown]:
+			info.add_child(UI.label("•  " + String(line), UI.FS_BODY, UI.TEXT, HORIZONTAL_ALIGNMENT_CENTER))
+	else:
+		var hint := UI.label("Bats le boss d'un monde pour gagner un coffre Or, et un Légendaire la première fois. Les élites et la route Trésor en donnent aussi.", UI.FS_BODY, UI.TEXT, HORIZONTAL_ALIGNMENT_CENTER)
+		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		info.add_child(hint)
 	if sel != "":
 		var row := UI.hbox(12)
 		row.alignment = BoxContainer.ALIGNMENT_CENTER
-		row.position = Vector2(area.position.x, minf(name_y + 96.0, area.end.y - 84.0))
+		row.position = Vector2(area.position.x, area.end.y - 98.0)
 		row.size = Vector2(lw, 84)
 		body.add_child(row)
-		var ob := UI.primary("OUVRIR", 34, 210)
-		ob.custom_minimum_size = Vector2(210, 84)
+		var ob := UI.primary("OUVRIR", 34, 200)
+		ob.custom_minimum_size = Vector2(200, 84)
 		ob.pressed.connect(func(): open([sel], false))
 		row.add_child(ob)
 		Fx.shine(ob, 260.0, 2.2, 0.5)
 		if total > 1:
-			var ab := UI.button("TOUT  ×%d" % total, 24, UI.ORANGE, 170)
+			var ab := UI.button("TOUT  ×%d" % total, 26, UI.ORANGE, 170)
 			ab.custom_minimum_size = Vector2(170, 84)
 			ab.pressed.connect(func(): open((p["boxes"] as Array).duplicate(), true))
 			row.add_child(ab)
@@ -181,11 +161,11 @@ func _build_coffres(area: Rect2, anim: bool) -> void:
 	# ---- à droite : les quatre raretés
 	var rx := area.position.x + lw + 16.0
 	var rw := area.end.x - rx
-	var th := minf(112.0, (area.size.y - 30.0) / 4.0 - 10.0)
+	var th := minf(118.0, (area.size.y - 30.0) / 4.0)
 	var i := 0
 	for r in ["legendaire", "or", "argent", "bronze"]:
 		var b := _box_tile(r, Vector2(rw, th))
-		b.position = Vector2(rx, area.position.y + 4.0 + i * (th + 10.0))
+		b.position = Vector2(rx, area.position.y + i * (th + 10.0))
 		body.add_child(b)
 		if anim:
 			Fx.slide_in(b, Vector2(90, 0), 0.06 + 0.05 * i, 0.32)
@@ -198,27 +178,31 @@ func _box_tile(r: String, sz: Vector2) -> Button:
 	var b := Button.new()
 	b.size = sz
 	b.focus_mode = Control.FOCUS_NONE
-	var st := UI.flat(Color("#15234A", 0.94) if not on else Color("#1E2F5E", 0.97), col if on else Color(col, 0.35), 18, 4 if on else 2)
+	var st := UI.flat(Color("#15234A", 0.96) if not on else Color("#1E2F5E", 0.98), col if on else Color(col, 0.35), 18, 4 if on else 2)
 	st.border_width_left = 8
 	for k in ["normal", "hover", "pressed", "disabled", "hover_pressed"]:
 		b.add_theme_stylebox_override(k, st)
 	var art := Control.new()
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	art.size = sz
+	var aw := minf(sz.y * 0.62, 66.0)
 	art.draw.connect(func():
-		Art.draw_box(art, Vector2(20 + sz.y * 0.5, sz.y * 0.52), sz.y * 0.7, r, n == 0))
+		Art.draw_box(art, Vector2(16 + aw * 0.55, sz.y * 0.52), aw, r, n == 0))
 	b.add_child(art)
-	var nm := UI.title(String(Loot.BOX_NAMES[r]).to_upper(), 24, UI.TEXT if n > 0 else UI.MUTED, col.darkened(0.55))
-	nm.position = Vector2(30 + sz.y, sz.y * 0.5 - 30)
-	nm.size = Vector2(sz.x - sz.y - 120, 34)
+	var tx := 28.0 + aw * 1.1
+	var nm := UI.title(String(Loot.BOX_NAMES[r]).to_upper(), 26, UI.TEXT if n > 0 else UI.SOFT, col.darkened(0.55))
+	nm.position = Vector2(tx, sz.y * 0.5 - 34)
+	nm.size = Vector2(sz.x - tx - 72, 36)
+	nm.clip_text = true
 	b.add_child(nm)
-	var tp := UI.label("%d coup%s pour l'ouvrir" % [Loot.BOX_TAPS[r], "s" if int(Loot.BOX_TAPS[r]) > 1 else ""], 16, UI.MUTED)
-	tp.position = Vector2(30 + sz.y, sz.y * 0.5 + 4)
-	tp.size = Vector2(sz.x - sz.y - 120, 24)
+	var tp := UI.label(String(LOOT_SIZE[r]), UI.FS_SMALL, UI.SOFT)
+	tp.position = Vector2(tx, sz.y * 0.5 + 4)
+	tp.size = Vector2(sz.x - tx - 72, 28)
+	tp.clip_text = true
 	b.add_child(tp)
-	var cnt := UI.title("×%d" % n, 34, col.lightened(0.25) if n > 0 else UI.LINE, UI.INK, HORIZONTAL_ALIGNMENT_RIGHT)
-	cnt.position = Vector2(sz.x - 110, 0)
-	cnt.size = Vector2(92, sz.y)
+	var cnt := UI.title("×%d" % n, 34, col.lightened(0.25) if n > 0 else UI.MUTED, UI.INK, HORIZONTAL_ALIGNMENT_RIGHT)
+	cnt.position = Vector2(sz.x - 84, 0)
+	cnt.size = Vector2(70, sz.y)
 	cnt.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	b.add_child(cnt)
 	b.pressed.connect(func():
@@ -227,7 +211,7 @@ func _box_tile(r: String, sz: Vector2) -> Button:
 			main.sfx.play("click", 1.1, -6.0)
 			_refresh()
 		elif n == 0:
-			_toast("Aucune box %s pour l'instant" % String(Loot.BOX_NAMES[r]), col))
+			_toast("Aucun coffre %s pour l'instant" % String(Loot.BOX_NAMES[r]), col))
 	return b
 
 ## Ouvre une série de box (plein écran) ; à la fin, retour à l'écran à jour.
@@ -248,40 +232,35 @@ func open(boxes: Array, serial: bool) -> void:
 # ---------------------------------------------------------------- COLLECTION
 func _build_collection(area: Rect2, anim: bool) -> void:
 	var p: Dictionary = main.profile
-	var head := UI.hbox(14)
-	head.position = area.position
-	head.size = Vector2(area.size.x, 46)
-	body.add_child(head)
-	var big := UI.title("%d / %d" % [Loot.owned_count(p), Loot.total_count()], 36, UI.ACCENT, UI.INK)
-	head.add_child(big)
-	var sub := UI.label("Touche un cosmétique obtenu pour l'équiper. Les autres sortent des box.", 19, UI.MUTED)
-	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	head.add_child(sub)
-	var scroll := ScrollContainer.new()
-	scroll.position = area.position + Vector2(0, 54)
-	scroll.size = area.size - Vector2(0, 54)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	# fond sombre derrière la grille (le Relais 3D ne gêne pas la lecture)
+	var pane := Panel.new()
+	pane.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pane.position = area.position - Vector2(10, 4)
+	pane.size = area.size + Vector2(20, 8)
+	pane.add_theme_stylebox_override("panel", UI.flat(Color("#0A1430", 0.88), Color(UI.ACCENT, 0.25), 20, 2))
+	body.add_child(pane)
+	var scroll := UI.scroll()
+	scroll.position = area.position + Vector2(6, 8)
+	scroll.size = area.size - Vector2(12, 12)
 	body.add_child(scroll)
-	var list := UI.vbox(10)
-	list.custom_minimum_size = Vector2(area.size.x - 14.0, 0)
+	var list := UI.vbox(12)
+	list.custom_minimum_size = Vector2(scroll.size.x - 14.0, 0)
 	scroll.add_child(list)
-	var cols := clampi(int((area.size.x - 14.0 + 10.0) / 150.0), 3, 8)
-	var tw := (area.size.x - 14.0 - (cols - 1) * 10.0) / cols
+	var cols := clampi(int((scroll.size.x - 14.0 + 12.0) / 172.0), 3, 8)
+	var tw := (scroll.size.x - 14.0 - (cols - 1) * 12.0) / cols
 	for sec in [["skin", "APPARENCES DE JO", Loot.SKINS, "skins", "skin"], ["trail", "TRAÎNÉES DE TIR", Loot.TRAILS, "trails", "trail"]]:
 		var owned: Array = p[sec[3]]
-		var h := UI.hbox(10)
+		var h := UI.hbox(14)
 		list.add_child(h)
-		h.add_child(UI.title(String(sec[1]), 24, UI.TEXT, UI.INK))
-		h.add_child(UI.title("%d / %d" % [owned.size(), (sec[2] as Array).size()], 24, UI.MUTED, UI.INK))
+		h.add_child(UI.title(String(sec[1]), 28, UI.TEXT, UI.ACCENT))
+		h.add_child(UI.title("%d / %d obtenues" % [owned.size(), (sec[2] as Array).size()], 24, UI.SOFT, UI.INK))
 		var grid := GridContainer.new()
 		grid.columns = cols
-		grid.add_theme_constant_override("h_separation", 10)
-		grid.add_theme_constant_override("v_separation", 10)
+		grid.add_theme_constant_override("h_separation", 12)
+		grid.add_theme_constant_override("v_separation", 12)
 		list.add_child(grid)
 		for c in sec[2]:
-			var b := _cosmetic_tile(String(sec[0]), c, owned.has(c["id"]), String(p[sec[4]]) == String(c["id"]), Vector2(tw, tw * 1.12))
+			var b := _cosmetic_tile(String(sec[0]), c, owned.has(c["id"]), String(p[sec[4]]) == String(c["id"]), Vector2(tw, tw * 1.18))
 			grid.add_child(b)
 			if anim:
 				Fx.rise_in(b, 0.04 + 0.012 * grid.get_child_count(), 0.26, 0.8)
@@ -309,22 +288,23 @@ func _cosmetic_tile(kind: String, c: Dictionary, owned: bool, equipped: bool, sz
 	b.add_child(art)
 	if animated and owned:
 		_anim.append(art)
-	var nm := UI.label(String(c["name"]) if owned else "???", 19, UI.TEXT if owned else UI.MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	nm.position = Vector2(4, sz.y * 0.64)
-	nm.size = Vector2(sz.x - 8, 24)
+	var nm := UI.label(String(c["name"]) if owned else "À gagner", 24, UI.TEXT if owned else UI.SOFT, HORIZONTAL_ALIGNMENT_CENTER)
+	nm.position = Vector2(4, sz.y * 0.62)
+	nm.size = Vector2(sz.x - 8, 30)
 	nm.clip_text = true
+	nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	b.add_child(nm)
-	var tl := UI.label(Loot.TIER_NAMES[tier], 14, col if owned else Color(col, 0.6), HORIZONTAL_ALIGNMENT_CENTER)
-	tl.position = Vector2(4, sz.y * 0.64 + 22)
-	tl.size = Vector2(sz.x - 8, 20)
+	var tl := UI.label(Loot.TIER_NAMES[tier], UI.FS_SMALL, col if owned else col.darkened(0.1), HORIZONTAL_ALIGNMENT_CENTER)
+	tl.position = Vector2(4, sz.y * 0.62 + 28)
+	tl.size = Vector2(sz.x - 8, 26)
 	b.add_child(tl)
 	if equipped:
-		var tg := UI.tag("ÉQUIPÉ", col, UI.INK, 14)
+		var tg := UI.tag("PORTÉE", col, UI.INK, 20)
 		tg.position = Vector2(6, 6)
 		b.add_child(tg)
 	b.pressed.connect(func():
 		if not owned:
-			_toast("%s %s : à gagner dans les box" % ["Apparence" if kind == "skin" else "Traînée", Loot.TIER_NAMES[tier].to_lower()], col)
+			_toast("%s %s : à gagner dans les coffres" % ["Apparence" if kind == "skin" else "Traînée de tir", Loot.TIER_NAMES[tier].to_lower()], col)
 			main.sfx.play("click", 0.7, -8.0)
 			return
 		if equipped:
@@ -336,7 +316,7 @@ func _cosmetic_tile(kind: String, c: Dictionary, owned: bool, equipped: bool, sz
 		var keep := _scroll_pos()
 		_refresh()
 		_set_scroll(keep)
-		_toast("%s équipée : %s" % ["Apparence" if kind == "skin" else "Traînée", String(c["name"])], col))
+		_toast("%s : %s" % ["Apparence de Jo" if kind == "skin" else "Traînée de tir", String(c["name"])], col))
 	return b
 
 func _scroll_pos() -> int:

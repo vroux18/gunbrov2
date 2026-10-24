@@ -1,9 +1,44 @@
 extends RefCounted
 ## Fabrique d'interface : boutons en relief, cartes, panneaux, étiquettes, tous construits en code, un seul style.
 ## Polices : Russo One pour les titres et les chiffres, Rajdhani pour le texte (SIL OFL).
+##
+## ---------------------------------------------------------------- écrans du Relais : règles communes
+## Vue de base 1280 × 720 (largeur 1280 à 1600 selon le téléphone). Sur un écran de 6,5 pouces, 720 px font
+## environ 6,5 cm : un texte de 20 px fait à peine 2 mm. D'où les tailles minimales ci-dessous (en px de la vue) :
+##   FS_SCREEN_TITLE (44) titre d'écran · FS_BODY (24) texte courant · FS_SMALL (20) texte secondaire, le plus
+##   petit autorisé, chiffres compris · TOUCH_H (72) hauteur minimale d'une cible tactile.
+## Texte important en TEXT (jamais en MUTED) sur fond sombre opaque.
+##
+## Bandeau commun : UI.screen_header(vp, titre, phrase, accent, on_back, tickets, éclats) -> Control
+##   Même bandeau en haut de tous les écrans du Relais (ÉQUIPEMENT, POUVOIRS, TALENTS, COFFRES, APPARENCES) :
+##   - fond sombre presque opaque sur toute la largeur, filet de la couleur `accent` en bas ;
+##   - à gauche, RETOUR (bouton orange, 30 px, 200 × 76, flèche) : appelle `on_back` (en général main.show_base) ;
+##     le texte reste exactement « RETOUR » (le robot de test, scripts/bot.gd, le cherche par son texte) ;
+##   - au milieu, le titre (44 px, Russo One) et dessous une phrase de 24 px qui dit ce qu'on fait ici ;
+##   - à droite, les monnaies : tickets (pièce dorée) et éclats du Cœur à dépenser (cristal turquoise), 26 px.
+##   Conventions des valeurs : tickets = profile["tickets"] ; éclats = Talents.shards_free(profile)
+##   (UI.header_money(profile) les calcule). Le nœud rendu est ancré en haut, pleine largeur ; il tient compte
+##   des marges de sécurité (encoche). Sa hauteur : UI.header_height(vp) ; le contenu de l'écran commence dessous.
+##   Exemple :
+##       var m := UI.header_money(main.profile)
+##       add_child(UI.screen_header(get_viewport(), "TALENTS", "Améliorations permanentes…", UI.GOLD,
+##           main.show_base, m[0], m[1]))
+##       var top := UI.header_height(get_viewport()) + 12.0
+##   Les étiquettes des monnaies sont en meta "tickets_label" et "shards_label" (pour les mettre à jour après un
+##   achat sans reconstruire le bandeau : UI.header_set_money(header, tickets, éclats)).
+## Listes qui défilent : UI.scroll() (défilement au doigt branché, scripts/ui/touch_scroll.gd).
 
 const Icon = preload("res://scripts/icon.gd")
 const Fx = preload("res://scripts/ui/fx.gd")
+const TouchScroll = preload("res://scripts/ui/touch_scroll.gd")
+
+const FS_SCREEN_TITLE := 44
+const FS_BODY := 24
+const FS_SMALL := 20
+const TOUCH_H := 72.0
+const GOOD := Color("#5DFF9B")  # gain (comparaison d'objets)
+const BAD := Color("#FF5C6E")  # perte
+const SOFT := Color("#C9D6E8")  # texte secondaire lisible (plus clair que MUTED)
 
 const BG := Color("#0E1B33")
 const PANEL := Color("#16254A")
@@ -346,3 +381,176 @@ static func tag(text: String, bg: Color, fg: Color = INK, size: int = 18) -> Pan
 	p.add_child(l)
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return p
+
+# ---------------------------------------------------------------- écrans du Relais (voir l'en-tête du fichier)
+## Hauteur du bandeau commun (marge de sécurité du haut comprise).
+static func header_height(vp: Viewport) -> float:
+	return float(safe_insets(vp)["top"]) + 100.0
+
+## Monnaies affichées dans le bandeau : [tickets, éclats du Cœur à dépenser].
+static func header_money(profile: Dictionary) -> Array:
+	var talents = load("res://scripts/talents.gd")
+	return [int(profile.get("tickets", 0)), int(talents.shards_free(profile))]
+
+## Bandeau commun des écrans du Relais : RETOUR, titre et phrase d'explication, monnaies.
+static func screen_header(vp: Viewport, title_text: String, sentence: String, accent: Color, on_back: Callable, tickets: int, shards: int) -> Control:
+	load_fonts()
+	var ins := safe_insets(vp)
+	var hh := header_height(vp)
+	var root := Control.new()
+	root.anchor_left = 0.0
+	root.anchor_right = 1.0
+	root.offset_bottom = hh
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bg := Panel.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var st := StyleBoxFlat.new()
+	st.bg_color = Color(PANEL_DARK, 0.95)
+	st.border_color = Color(accent, 0.7)
+	st.border_width_bottom = 3
+	st.shadow_color = Color(0, 0, 0, 0.45)
+	st.shadow_size = 14
+	st.shadow_offset = Vector2(0, 4)
+	bg.add_theme_stylebox_override("panel", st)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(bg)
+	var row := hbox(22)
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = float(ins["left"]) + 8.0
+	row.offset_right = -float(ins["right"]) - 8.0
+	row.offset_top = float(ins["top"]) + 2.0
+	row.offset_bottom = -10.0
+	root.add_child(row)
+	# RETOUR : gros, orange, flèche vers la gauche
+	var back := primary("RETOUR", 30)
+	back.custom_minimum_size = Vector2(206, 76)
+	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	for stn in ["normal", "hover", "pressed", "hover_pressed"]:
+		var bs: StyleBoxFlat = back.get_theme_stylebox(stn)
+		bs.content_margin_left = 58
+		bs.content_margin_right = 22
+	var arrow := Icon.new("play", INK, 30.0)
+	arrow.anchor_top = 0.5
+	arrow.anchor_bottom = 0.5
+	arrow.offset_left = 20
+	arrow.offset_top = -19
+	arrow.offset_right = 50
+	arrow.offset_bottom = 11
+	arrow.pivot_offset = Vector2(15, 15)
+	arrow.scale = Vector2(-1, 1)
+	back.add_child(arrow)
+	back.pressed.connect(on_back)
+	row.add_child(back)
+	root.set_meta("back", back)
+	# titre et phrase
+	var tv := vbox(0)
+	tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tv.alignment = BoxContainer.ALIGNMENT_CENTER
+	tv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(tv)
+	var t := title(title_text, FS_SCREEN_TITLE, TEXT, accent)
+	t.add_theme_constant_override("shadow_offset_y", 3)
+	t.clip_text = true
+	tv.add_child(t)
+	var s := label(sentence, FS_BODY, TEXT)
+	s.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	s.clip_text = true
+	tv.add_child(s)
+	root.set_meta("sentence", s)
+	# monnaies
+	var mon := hbox(10)
+	mon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(mon)
+	for m in [["coin", tickets, GOLD, "tickets_label"], ["shard", shards, ACCENT, "shards_label"]]:
+		var c := chip(String(m[0]), str(int(m[1])), m[2])
+		var cl: Label = c.get_meta("label")
+		cl.add_theme_font_override("font", TITLE)
+		cl.add_theme_font_size_override("font_size", 26)
+		var cs: StyleBoxFlat = c.get_theme_stylebox("panel")
+		cs.content_margin_top = 8
+		cs.content_margin_bottom = 8
+		mon.add_child(c)
+		root.set_meta(String(m[3]), cl)
+		root.set_meta(String(m[3]) + "_chip", c)
+	return root
+
+## Met à jour les monnaies du bandeau (après un achat).
+static func header_set_money(header: Control, tickets: int, shards: int) -> void:
+	if header.has_meta("tickets_label"):
+		(header.get_meta("tickets_label") as Label).text = str(tickets)
+	if header.has_meta("shards_label"):
+		(header.get_meta("shards_label") as Label).text = str(shards)
+
+## Liste qui défile verticalement, au doigt comme à la souris (scripts/ui/touch_scroll.gd branché).
+static func scroll() -> ScrollContainer:
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	TouchScroll.attach(sc)
+	return sc
+
+## Grande ligne cliquable des écrans du Relais : pictogramme dans un disque, nom (26 px), ligne d'effet (22 px)
+## colorée, et à droite une zone libre (meta "right", HBox) pour un badge ou une comparaison.
+static func big_tile(icon_kind: String, title_text: String, body_text: String, accent: Color, body_col: Color, selected: bool = false, h: float = 92.0) -> Button:
+	load_fonts()
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(0, h)
+	var face := Color("#1E2F5E") if selected else Color(PANEL, 0.97)
+	var normal := chunky(face, INK, false, 16)
+	normal.border_width_left = 6
+	normal.border_color = accent if selected else Color(accent, 0.55)
+	if selected:
+		normal.set_border_width_all(3)
+		normal.border_width_left = 8
+		normal.border_width_bottom = 7
+	b.add_theme_stylebox_override("normal", normal)
+	var hover := normal.duplicate()
+	hover.bg_color = face.lightened(0.06)
+	b.add_theme_stylebox_override("hover", hover)
+	var pressed := normal.duplicate()
+	pressed.bg_color = face.darkened(0.12)
+	b.add_theme_stylebox_override("pressed", pressed)
+	b.add_theme_stylebox_override("hover_pressed", pressed)
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	b.add_theme_stylebox_override("disabled", normal)
+	Fx.press(b, 0.97)
+	var hb := hbox(14)
+	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hb.offset_left = 18
+	hb.offset_right = -14
+	hb.offset_top = 6
+	hb.offset_bottom = -12
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(hb)
+	var rs := minf(64.0, h * 0.66)
+	var ring := Panel.new()
+	ring.custom_minimum_size = Vector2(rs, rs)
+	ring.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	ring.add_theme_stylebox_override("panel", flat(Color(accent, 0.18), Color(accent, 0.9), int(rs * 0.5), 3))
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(ring)
+	var ic := Icon.new(icon_kind, accent, rs * 0.62)
+	ic.position = Vector2(rs * 0.19, rs * 0.19)
+	ring.add_child(ic)
+	var v := vbox(0)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(v)
+	var t := label(title_text, 26, TEXT)
+	t.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	t.clip_text = true
+	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(t)
+	if body_text != "":
+		var d := label(body_text, 22, body_col)
+		d.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		d.clip_text = true
+		d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		v.add_child(d)
+	var right := hbox(8)
+	right.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	right.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(right)
+	b.set_meta("right", right)
+	return b

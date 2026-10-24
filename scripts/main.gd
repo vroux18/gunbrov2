@@ -229,16 +229,17 @@ func show_base() -> void:
 	_build_relais_panel()
 
 ## Panneau du Relais (droite) : titre PASSEURS en relief qui brille, compteurs qui défilent depuis la dernière
-## visite, PARTIR énorme (halo qui pulse, reflet, chevrons qui filent), LOGE et ARSENAL avec leurs pastilles.
+## visite, PARTIR énorme (halo qui pulse, reflet, chevrons qui filent), puis les six écrans du Relais (ÉQUIPEMENT,
+## POUVOIRS, TALENTS, DUO, COFFRES, APPARENCES), chacun avec une ligne qui dit ce qu'on y trouve.
 func _build_relais_panel() -> void:
 	var ins := UI.safe_insets(get_viewport())
 	screen.add_child(_side_shade(0.4))
-	var right := UI.vbox(14)
+	var right := UI.vbox(10)
 	right.anchor_left = 0.53
 	right.anchor_right = 1.0
 	right.offset_right = -float(ins["right"]) - 24.0
-	right.anchor_top = 0.07
-	right.anchor_bottom = 0.95
+	right.anchor_top = 0.045
+	right.anchor_bottom = 0.98
 	var vs := get_viewport().get_visible_rect().size
 	if vs.x / vs.y < 1.6:
 		right.alignment = BoxContainer.ALIGNMENT_CENTER  # tablette : panneau centré en hauteur
@@ -286,7 +287,7 @@ func _build_relais_panel() -> void:
 	for c in [c1, c2, c3]:
 		var cl: Label = c.get_meta("label")
 		cl.add_theme_font_override("font", UI.TITLE)
-		cl.add_theme_font_size_override("font_size", 21)
+		cl.add_theme_font_size_override("font_size", 24)
 		chips.add_child(c)
 	Fx.count(c1.get_meta("label"), int(_shown.get("shards", shards)), shards, 0.7, 0.35, "%d / 10")
 	Fx.count(c2.get_meta("label"), int(_shown.get("tickets", tk)), tk, 1.0, 0.35, "%d")
@@ -296,12 +297,9 @@ func _build_relais_panel() -> void:
 		tbump.tween_interval(1.35)
 		tbump.tween_callback(func(): Fx.bump(c2, 0.15))
 	_shown = {"shards": shards, "tickets": tk, "best": best}
-	var sp := Control.new()
-	sp.custom_minimum_size = Vector2(0, 12)
-	right.add_child(sp)
 	# PARTIR : le bouton qu'on a envie de toucher
 	var go := UI.primary("PARTIR", 54)
-	go.custom_minimum_size = Vector2(0, 112)
+	go.custom_minimum_size = Vector2(0, 104)
 	go.add_theme_stylebox_override("normal", _go_style(false))
 	go.add_theme_stylebox_override("hover", _go_style(false))
 	go.add_theme_stylebox_override("pressed", _go_style(true))
@@ -346,41 +344,32 @@ func _build_relais_panel() -> void:
 	picon.offset_left = 30
 	picon.offset_top = -24
 	go.add_child(picon)
-	# LOGE et ARSENAL : pictogramme, pastille de compte
-	var row := UI.hbox(14)
-	right.add_child(row)
+	# les six écrans du Relais, deux par ligne : nom en gros, et dessous ce qu'on y trouve
 	var inv_n: int = profile["inventory"].size()
-	var loge := _side_button("LOGE", "torse", UI.ACCENT, str(inv_n) if inv_n > 0 else "")
-	loge.pressed.connect(show_loge)
-	row.add_child(loge)
-	var ars := _side_button("ARSENAL", "bolt", UI.ORANGE, str(Data.POWERS.size()))
-	ars.pressed.connect(show_arsenal)
-	row.add_child(ars)
-	# TALENTS : pastille = nombre d'améliorations achetables tout de suite
 	var buyable := 0
 	for t in Talents.TALENTS:
 		if Talents.block_reason(profile, String(t["id"])) == "":
 			buyable += 1
-	var tal := _side_button("TALENTS", "tree", UI.GOLD, ("+%d" % buyable) if buyable > 0 else "")
+	var row1 := UI.hbox(12)
+	right.add_child(row1)
+	var equ := _side_button("ÉQUIPEMENT", "torse", UI.ACCENT, ("%d objets à porter" % inv_n) if inv_n > 1 else "Ce que porte Jo")
+	equ.pressed.connect(show_loge)
+	row1.add_child(equ)
+	var ars := _side_button("POUVOIRS", "bolt", UI.ORANGE, "Ce qui sort en partie")
+	ars.pressed.connect(show_arsenal)
+	row1.add_child(ars)
+	var row2 := UI.hbox(12)
+	right.add_child(row2)
+	# TALENTS : la ligne dit combien d'améliorations s'achètent tout de suite (en doré)
+	var tal := _side_button("TALENTS", "tree", UI.GOLD, ("%d achat%s possible%s" % [buyable, "s" if buyable > 1 else "", "s" if buyable > 1 else ""]) if buyable > 0 else "Bonus permanents", buyable > 0)
 	tal.pressed.connect(show_talents)
-	row.add_child(tal)
+	row2.add_child(tal)
 	# DUO : partie à deux téléphones (scripts/net/duo.gd)
-	var duo_b := _side_button("DUO", "portal", Color("#B36BFF"), "")
+	var duo_b := _side_button("DUO", "portal", Color("#B36BFF"), "Jouer à deux")
 	duo_b.pressed.connect(func(): duo.open_lobby())
-	row.add_child(duo_b)
-	for b in [loge, ars, tal, duo_b]:
-		_compact_side_button(b)
-	right.add_child(_boxes_row())
-	var equipped := Save.equipped_items(profile)
-	var eq_txt := "Rien d'équipé. Les objets trouvés en partie restent à toi."
-	if not equipped.is_empty():
-		var names := []
-		for it in equipped:
-			names.append(Data.item_label(it))
-		eq_txt = "Équipé : " + ", ".join(names)
-	var eq := UI.label(eq_txt, 20, UI.MUTED)
-	eq.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	right.add_child(eq)
+	row2.add_child(duo_b)
+	var row3 := _boxes_row()
+	right.add_child(row3)
 	var ver := UI.label("V0 · " + version, 14, UI.LINE)
 	ver.anchor_top = 1.0
 	ver.anchor_bottom = 1.0
@@ -392,7 +381,8 @@ func _build_relais_panel() -> void:
 	Fx.slam(tbox, 0.08, 1.5)
 	Fx.rise_in(chips, 0.22)
 	Fx.rise_in(go, 0.3, 0.42, 0.6)
-	Fx.rise_in(row, 0.42)
+	Fx.rise_in(row1, 0.42)
+	Fx.rise_in(row2, 0.47)
 	var tw_go := go.create_tween()
 	tw_go.tween_interval(0.8)
 	tw_go.tween_callback(func(): Fx.breathe(go, 0.03, 1.3))
@@ -407,52 +397,41 @@ func _go_style(pressed: bool) -> StyleBoxFlat:
 	s.shadow_offset = Vector2(0, 6)
 	return s
 
-func _side_button(text: String, icon: String, col: Color, badge: String) -> Button:
-	var b := UI.button(text, 30, col)
+## Bouton d'un écran du Relais : pictogramme à gauche, nom en gros (25 px), et dessous ce qu'on y trouve
+## (20 px ; en doré quand il y a quelque chose à faire tout de suite). Deux boutons par ligne.
+func _side_button(text: String, icon: String, col: Color, desc: String, hot: bool = false) -> Button:
+	var b := UI.button("", 26, col)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.custom_minimum_size = Vector2(0, 86)
-	b.add_theme_font_override("font", UI.TITLE)
-	b.add_theme_font_size_override("font_size", 28)
-	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var st: StyleBoxFlat = b.get_theme_stylebox("normal")
-	st.content_margin_left = 60
-	var ic := UI.Icon.new(icon, col, 36.0)
+	b.custom_minimum_size = Vector2(0, 84)
+	b.set_meta("name", text)
+	var ic := UI.Icon.new(icon, col, 40.0)
 	ic.anchor_top = 0.5
 	ic.anchor_bottom = 0.5
-	ic.offset_left = 18
-	ic.offset_top = -22
+	ic.offset_left = 14
+	ic.offset_top = -24
 	b.add_child(ic)
-	if badge != "":
-		var tg := UI.tag(badge, col, UI.INK, 18)
-		tg.anchor_left = 1.0
-		tg.anchor_right = 1.0
-		tg.offset_left = -64
-		tg.offset_top = -12
-		b.add_child(tg)
+	var v := UI.vbox(0)
+	v.anchor_right = 1.0
+	v.anchor_bottom = 1.0
+	v.offset_left = 64
+	v.offset_right = -8
+	v.offset_top = 4
+	v.offset_bottom = -8
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(v)
+	var nm := UI.label(text, 25, UI.TEXT)
+	nm.add_theme_font_override("font", UI.TITLE)
+	nm.clip_text = true
+	nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	v.add_child(nm)
+	if desc != "":
+		var d := UI.label(desc, UI.FS_SMALL, UI.GOLD if hot else UI.SOFT)
+		d.clip_text = true
+		d.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		v.add_child(d)
+		b.set_meta("desc", d)
 	return b
-
-## Trois boutons sur la ligne : pictogramme au-dessus du nom, pour tenir en 16:9.
-func _compact_side_button(b: Button) -> void:
-	b.add_theme_font_size_override("font_size", 23)
-	b.custom_minimum_size = Vector2(0, 92)
-	for stn in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
-		var st: StyleBoxFlat = b.get_theme_stylebox(stn)
-		st.content_margin_left = 8
-		st.content_margin_right = 8
-		st.content_margin_top = 44 if not stn.contains("pressed") else 49
-		st.content_margin_bottom = 8 if not stn.contains("pressed") else 3
-	for c in b.get_children():
-		if c is Control and c.get_script() == UI.Icon:
-			var ic := c as Control
-			ic.custom_minimum_size = Vector2(34, 34)
-			ic.anchor_left = 0.5
-			ic.anchor_right = 0.5
-			ic.anchor_top = 0.0
-			ic.anchor_bottom = 0.0
-			ic.offset_left = -17
-			ic.offset_right = 17
-			ic.offset_top = 9
-			ic.offset_bottom = 43
 
 func show_talents() -> void:
 	var fresh := state != "talents"
@@ -462,8 +441,18 @@ func show_talents() -> void:
 	ui_layer.add_child(screen)
 	screen.build(self, fresh)
 
+## ÉQUIPEMENT (identifiant interne : loge) : ce que Jo porte, et de quoi le changer. Après Jo, les six
+## emplacements ; en toucher un montre à côté les objets possibles pour cet emplacement, en grandes lignes, avec
+## ce que chacun change par rapport à l'objet porté (« +5 % » en vert, « −3 % » en rouge). Toucher un objet
+## ouvre sa fiche (ÉQUIPER, RETIRER). Les objets identiques (même modèle, même rareté) sont regroupés (« ×3 »).
+var _equip_slot := "arme"
+var _equip_list: ScrollContainer = null
+
 func show_loge() -> void:
 	var fresh := state != "loge"
+	var keep_scroll := 0
+	if not fresh and _equip_list != null and is_instance_valid(_equip_list):
+		keep_scroll = _equip_list.scroll_vertical
 	_clear_screen(fresh)
 	state = "loge"
 	screen = _full(false)
@@ -472,74 +461,263 @@ func show_loge() -> void:
 	view.relais_focus = 1.0
 	if fresh:
 		Fx.screen_in(screen)
+	var vp := get_viewport()
+	var vs := vp.get_visible_rect().size
+	var ins := UI.safe_insets(vp)
+	var m := UI.header_money(profile)
+	var head := UI.screen_header(vp, "ÉQUIPEMENT", "Choisis ce que Jo porte. Touche un objet pour voir ce qu'il change.", UI.ACCENT, show_base, m[0], m[1])
+	screen.add_child(head)
+	var top := UI.header_height(vp) + 14.0
+	var bottom := vs.y - float(ins["bottom"]) - 6.0
+	var x0 := vs.x * 0.335
+	var x2 := vs.x - float(ins["right"]) - 16.0
+	var gap := 20.0
+	var w1 := (x2 - x0 - gap) * 0.43
+	# ---- colonne 1 : les six emplacements (ce que Jo porte)
 	var left := UI.vbox(8)
-	left.anchor_left = 0.33
-	left.anchor_right = 0.62
-	left.anchor_top = 0.05
-	left.anchor_bottom = 0.96
+	left.position = Vector2(x0, top)
+	left.size = Vector2(w1, bottom - top)
 	screen.add_child(left)
-	var head := UI.hbox(14)
-	left.add_child(head)
-	head.add_child(UI.title("LOGE", 44, UI.TEXT, UI.ACCENT))
-	var back := UI.primary("RETOUR", 24)
-	back.custom_minimum_size = Vector2(150, 80)
-	back.pressed.connect(show_base)
-	head.add_child(back)
-	if fresh:
-		Fx.slide_in(left, Vector2(-120, 0), 0.0, 0.4)
-	left.add_child(UI.label("Touche un emplacement pour le vider.", 20, UI.MUTED))
+	left.add_child(UI.title("JO PORTE", 28, UI.TEXT, UI.ACCENT))
+	var th := floorf(minf(88.0, (bottom - top - 44.0 - 5.0 * 8.0) / 6.0))
 	for slot in Data.SLOTS:
 		var uid := String(profile["equipped"].get(slot, ""))
 		var it := Save.find_item(profile, uid) if uid != "" else {}
+		var on: bool = slot == _equip_slot
 		var b: Button
 		if it.is_empty():
-			b = UI.tile(slot, Data.SLOT_NAMES[slot].to_upper(), "vide", UI.LINE, false, 74)
-			b.disabled = true
+			var n := _slot_choices(slot).size()
+			b = UI.big_tile(slot, String(Data.SLOT_NAMES[slot]) + " : rien", ("%d objet%s possible%s" % [n, "s" if n > 1 else "", "s" if n > 1 else ""]) if n > 0 else "aucun objet", UI.MUTED, UI.SOFT, on, th)
 		else:
-			b = UI.tile(slot, Data.item_label(it), Data.item_stat_text(it), Data.RARITY_COLORS[int(it["rarity"])], true, 74)
+			var rc: Color = Data.RARITY_COLORS[int(it["rarity"])]
+			b = UI.big_tile(slot, Data.item_label(it), Data.item_stat_text(it), rc, rc.lightened(0.25), on, th)
+		var sl: String = slot
 		b.pressed.connect(func():
+			if _equip_slot == sl and not it.is_empty():
+				_equip_detail(it, 1, it)
+				return
+			_equip_slot = sl
+			sfx.play("click", 1.1, -6.0)
+			show_loge())
+		left.add_child(b)
+	if fresh:
+		Fx.slide_in(left, Vector2(-120, 0), 0.0, 0.4)
+	# ---- colonne 2 : les objets possibles pour l'emplacement choisi, comparés à celui porté
+	var rx := x0 + w1 + gap
+	var right := UI.vbox(8)
+	right.position = Vector2(rx, top)
+	right.size = Vector2(x2 - rx, bottom - top)
+	screen.add_child(right)
+	var worn := Save.find_item(profile, String(profile["equipped"].get(_equip_slot, "")))
+	var groups := _slot_choices(_equip_slot)
+	var total := 0
+	for g in groups:
+		total += int(g["n"])
+	right.add_child(UI.title("%s : %d OBJET%s" % [String(Data.SLOT_NAMES[_equip_slot]).to_upper(), total, "S" if total > 1 else ""], 28, UI.TEXT, UI.GOLD))
+	if fresh:
+		Fx.slide_in(right, Vector2(140, 0), 0.08, 0.42)
+	if groups.is_empty():
+		var e := UI.label("Aucun objet pour cet emplacement. Tu en trouves dans les coffres de fin de salle, sur les élites et dans les COFFRES du Relais.", UI.FS_BODY, UI.TEXT)
+		e.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		right.add_child(e)
+		return
+	# liste qui défile : rectangle fixe sous le titre (dans un conteneur, elle s'allongerait à son contenu)
+	var scroll := UI.scroll()
+	scroll.position = Vector2(rx, top + 46.0)
+	scroll.size = Vector2(x2 - rx, bottom - top - 46.0)
+	screen.add_child(scroll)
+	if fresh:
+		Fx.slide_in(scroll, Vector2(140, 0), 0.08, 0.42)
+	_equip_list = scroll
+	var list := UI.vbox(10)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(list)
+	for g in groups:
+		var it: Dictionary = g["item"]
+		var n: int = g["n"]
+		var is_worn: bool = g["worn"]
+		var rc: Color = Data.RARITY_COLORS[int(it["rarity"])]
+		var b := UI.big_tile(_equip_slot, Data.item_label(it) + ("  ×%d" % n if n > 1 else ""), Data.item_stat_text(it), rc, rc.lightened(0.25), is_worn, 96)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var rz: HBoxContainer = b.get_meta("right")
+		if is_worn:
+			rz.add_child(UI.tag("PORTÉ", UI.ACCENT, UI.INK, 20))
+		else:
+			rz.add_child(_delta_badge(it, worn))
+		b.pressed.connect(func(): _equip_detail(it, n, worn))
+		list.add_child(b)
+	if groups.size() == 1 and bool(groups[0]["worn"]):
+		var e2 := UI.label("Pas d'autre objet pour cet emplacement. Les coffres en donnent.", UI.FS_BODY, UI.SOFT)
+		e2.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		list.add_child(e2)
+	if keep_scroll > 0:
+		scroll.set_deferred("scroll_vertical", keep_scroll)
+
+## Objets de l'inventaire pour un emplacement, regroupés (même modèle, même rareté) :
+## [{item, n, worn}], l'objet porté d'abord, puis du plus rare au moins rare, puis du plus fort au moins fort.
+func _slot_choices(slot: String) -> Array:
+	var worn_uid := String(profile["equipped"].get(slot, ""))
+	var by_key := {}
+	var out := []
+	for it in profile["inventory"]:
+		if String(Data.item_template(String(it["id"]))["slot"]) != slot:
+			continue
+		var is_worn := String(it["uid"]) == worn_uid
+		var key := "%s_%d%s" % [String(it["id"]), int(it["rarity"]), "_w" if is_worn else ""]
+		if by_key.has(key):
+			by_key[key]["n"] += 1
+		else:
+			by_key[key] = {"item": it, "n": 1, "worn": is_worn}
+			out.append(by_key[key])
+	out.sort_custom(func(a, b):
+		if bool(a["worn"]) != bool(b["worn"]):
+			return bool(a["worn"])
+		if int(a["item"]["rarity"]) != int(b["item"]["rarity"]):
+			return int(a["item"]["rarity"]) > int(b["item"]["rarity"])
+		return Data.item_value(a["item"]) > Data.item_value(b["item"]))
+	return out
+
+const _STAT_NAMES := {"crit": "critique", "dmg": "dégâts", "rate": "cadence", "speed": "vitesse", "range": "portée", "energy": "énergie par kill", "pickup": "rayon de ramassage"}
+
+## « +12 % cadence », « −8 PV max » (signe affiché ; `short` : sans le nom de la stat, « +12 % »).
+func _stat_txt(stat: String, v: float, short: bool = false) -> String:
+	var sgn := "+" if v >= 0.0 else "−"
+	if stat == "hp":
+		return "%s%d PV%s" % [sgn, int(round(absf(v))), "" if short else " max"]
+	var pct := "%s%d %%" % [sgn, int(round(absf(v) * 100.0))]
+	return pct if short else pct + " " + String(_STAT_NAMES.get(stat, stat))
+
+## Ce que change `it` par rapport à l'objet porté `worn` (vide : emplacement libre) :
+## [[texte, couleur], ...] ; même stat : l'écart ; stat différente : ce qu'on gagne puis ce qu'on perd.
+func _item_delta(it: Dictionary, worn: Dictionary) -> Array:
+	var st := String(Data.item_template(String(it["id"]))["stat"])
+	var v := Data.item_value(it)
+	if worn.is_empty():
+		return [[_stat_txt(st, v), UI.GOOD]]
+	var ws := String(Data.item_template(String(worn["id"]))["stat"])
+	var wv := Data.item_value(worn)
+	if ws == st:
+		var d := v - wv
+		if _stat_txt(st, d, true) in ["+0 %", "−0 %", "+0 PV", "−0 PV"]:
+			return [["Pareil", UI.SOFT]]
+		return [[_stat_txt(st, d), UI.GOOD if d > 0.0 else UI.BAD]]
+	return [[_stat_txt(st, v), UI.GOOD], [_stat_txt(ws, -wv), UI.BAD]]
+
+## Comparaison à droite d'une ligne d'objet : « +5 % » en vert / « −3 % » en rouge (même stat), ou ce qu'on
+## perdrait en rouge (« à la place de +12 % cadence ») quand la stat change.
+func _delta_badge(it: Dictionary, worn: Dictionary) -> Control:
+	var st := String(Data.item_template(String(it["id"]))["stat"])
+	var ws := "" if worn.is_empty() else String(Data.item_template(String(worn["id"]))["stat"])
+	var v := UI.vbox(0)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if worn.is_empty() or ws == st:
+		var d := Data.item_value(it) - (0.0 if worn.is_empty() else Data.item_value(worn))
+		var dl: Array = _item_delta(it, worn)[0]
+		if String(dl[0]) == "Pareil":
+			v.add_child(UI.label("pareil", 24, UI.SOFT, HORIZONTAL_ALIGNMENT_RIGHT))
+		else:
+			var l := UI.title(_stat_txt(st, d, true), 28, dl[1], UI.INK, HORIZONTAL_ALIGNMENT_RIGHT)
+			l.add_theme_constant_override("shadow_offset_y", 0)
+			v.add_child(l)
+	else:
+		v.add_child(UI.label("à la place de", UI.FS_SMALL, UI.SOFT, HORIZONTAL_ALIGNMENT_RIGHT))
+		v.add_child(UI.label(Data.item_stat_text(worn), 22, UI.BAD, HORIZONTAL_ALIGNMENT_RIGHT))
+	return v
+
+## Fiche d'un objet (toucher une ligne) : ce qu'il donne, ce que Jo porte, ce qui change ; ÉQUIPER ou RETIRER.
+func _equip_detail(it: Dictionary, n: int, worn: Dictionary) -> void:
+	if screen == null:
+		return
+	sfx.play("click", 1.0, -6.0)
+	var tpl := Data.item_template(String(it["id"]))
+	var slot := String(tpl["slot"])
+	var rc: Color = Data.RARITY_COLORS[int(it["rarity"])]
+	var is_worn := not worn.is_empty() and String(worn["uid"]) == String(it["uid"])
+	var layer := Control.new()
+	layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	screen.add_child(layer)
+	var dim := UI.dim(0.78)
+	layer.add_child(dim)
+	dim.gui_input.connect(func(ev: InputEvent):
+		if (ev is InputEventMouseButton and ev.pressed) or (ev is InputEventScreenTouch and ev.pressed):
+			layer.queue_free())
+	var p := UI.panel(UI.PANEL, rc.darkened(0.2), 22)
+	p.custom_minimum_size = Vector2(660, 0)
+	var c := UI.center(p)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(c)
+	var v := UI.vbox(14)
+	p.add_child(v)
+	var top := UI.hbox(18)
+	v.add_child(top)
+	var ring := Panel.new()
+	ring.custom_minimum_size = Vector2(96, 96)
+	ring.add_theme_stylebox_override("panel", UI.flat(Color(rc, 0.18), rc, 48, 3))
+	top.add_child(ring)
+	var ic := UI.Icon.new(slot, rc, 60.0)
+	ic.position = Vector2(18, 18)
+	ring.add_child(ic)
+	var tv := UI.vbox(4)
+	tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tv.alignment = BoxContainer.ALIGNMENT_CENTER
+	top.add_child(tv)
+	var nm := UI.title(Data.item_label(it), 34, UI.TEXT, rc)
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tv.add_child(nm)
+	var tr := UI.hbox(10)
+	tv.add_child(tr)
+	tr.add_child(UI.tag(String(Data.RARITY_NAMES[int(it["rarity"])]).to_upper(), rc, UI.INK, 20))
+	tr.add_child(UI.label(String(Data.SLOT_NAMES[slot]) + (("  ·  ×%d" % n) if n > 1 else ""), 24, UI.SOFT))
+	var eff := UI.label("Effet : " + Data.item_stat_text(it), 30, rc.lightened(0.3))
+	eff.add_theme_font_override("font", UI.TITLE)
+	v.add_child(eff)
+	var box := PanelContainer.new()
+	box.add_theme_stylebox_override("panel", UI.flat(Color(UI.PANEL_DARK, 0.9), UI.LINE, 14, 2))
+	v.add_child(box)
+	var bv := UI.vbox(6)
+	box.add_child(bv)
+	if is_worn:
+		bv.add_child(UI.label("Jo le porte en ce moment.", UI.FS_BODY, UI.TEXT))
+		bv.add_child(UI.label("RETIRER libère l'emplacement.", UI.FS_BODY, UI.SOFT))
+	else:
+		if worn.is_empty():
+			bv.add_child(UI.label("Emplacement libre : rien à perdre.", UI.FS_BODY, UI.TEXT))
+		else:
+			var wl := UI.label("Jo porte : %s (%s)" % [Data.item_label(worn), Data.item_stat_text(worn)], UI.FS_BODY, UI.SOFT)
+			wl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			bv.add_child(wl)
+		bv.add_child(UI.label("Si tu l'équipes :", UI.FS_BODY, UI.TEXT))
+		for dl in _item_delta(it, worn):
+			var l := UI.label(String(dl[0]), 30, dl[1])
+			l.add_theme_font_override("font", UI.TITLE)
+			bv.add_child(l)
+	var row := UI.hbox(16)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(row)
+	var go: Button
+	if is_worn:
+		go = UI.button("RETIRER", 28, UI.DANGER, 240)
+		go.pressed.connect(func():
 			Save.unequip(profile, slot)
 			Save.save_profile(profile)
 			_apply_profile_to_hero()
+			sfx.play("click", 0.8, -4.0)
 			show_loge())
-		left.add_child(b)
-	var right := UI.vbox(8)
-	right.anchor_left = 0.645
-	right.anchor_right = 0.975
-	right.anchor_top = 0.05
-	right.anchor_bottom = 0.96
-	screen.add_child(right)
-	right.add_child(UI.title("INVENTAIRE  %d" % profile["inventory"].size(), 30, UI.TEXT, UI.GOLD))
-	if fresh:
-		Fx.slide_in(right, Vector2(140, 0), 0.08, 0.42)
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	right.add_child(scroll)
-	var list := UI.vbox(8)
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(list)
-	var inv: Array = profile["inventory"].duplicate()
-	inv.sort_custom(func(a, b): return int(a["rarity"]) > int(b["rarity"]))
-	if inv.is_empty():
-		var e := UI.label("Vide. Les coffres de fin de salle et les élites lâchent des objets.", 18, UI.MUTED)
-		e.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		list.add_child(e)
-	for it in inv:
-		var equipped_here := false
-		for sl in profile["equipped"].keys():
-			if String(profile["equipped"][sl]) == String(it["uid"]):
-				equipped_here = true
-		var tpl := Data.item_template(String(it["id"]))
-		var b := UI.tile(String(tpl["slot"]), ("✓ " if equipped_here else "") + Data.item_label(it), Data.SLOT_NAMES[tpl["slot"]] + "  ·  " + Data.item_stat_text(it), Data.RARITY_COLORS[int(it["rarity"])], equipped_here, 78)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.pressed.connect(func():
+	else:
+		go = UI.primary("ÉQUIPER", 32, 260)
+		go.pressed.connect(func():
 			Save.equip(profile, String(it["uid"]))
 			Save.save_profile(profile)
 			_apply_profile_to_hero()
-			sfx.play("pick", 1.0, -8.0)
+			sfx.play("pick", 1.0, -6.0)
 			show_loge())
-		list.add_child(b)
+	go.custom_minimum_size.y = 80
+	row.add_child(go)
+	var close := UI.button("FERMER", 26, UI.MUTED, 200)
+	close.custom_minimum_size.y = 80
+	close.pressed.connect(func(): layer.queue_free())
+	row.add_child(close)
+	Fx.rise_in(p, 0.0, 0.22, 0.9)
 
 ## Arsenal : l'arbre des pouvoirs de partie, à lire (rien à composer). Cinq colonnes, une par branche, rangées
 ## par palier ; un onglet pour les évolutions et leurs recettes. Toucher un pouvoir l'explique en bas.
@@ -780,20 +958,22 @@ func _world_selector() -> Control:
 	var box := UI.vbox(2)
 	var row := UI.hbox(10)
 	box.add_child(row)
-	var prev := UI.button("◀", 22, UI.MUTED, 56)
-	prev.custom_minimum_size = Vector2(56, 48)
+	var prev := UI.button("◀", 24, UI.MUTED, 72)
+	prev.custom_minimum_size = Vector2(72, 58)
 	prev.pressed.connect(func(): _shift_world(-1))
 	row.add_child(prev)
-	_world_title = UI.label("", 24, UI.TEXT)
+	_world_title = UI.label("", 26, UI.TEXT)
 	_world_title.add_theme_font_override("font", UI.TITLE)
 	_world_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_world_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(_world_title)
-	var nxt := UI.button("▶", 22, UI.MUTED, 56)
-	nxt.custom_minimum_size = Vector2(56, 48)
+	var nxt := UI.button("▶", 24, UI.MUTED, 72)
+	nxt.custom_minimum_size = Vector2(72, 58)
 	nxt.pressed.connect(func(): _shift_world(1))
 	row.add_child(nxt)
-	_world_sub = UI.label("", 19, UI.MUTED)
+	_world_sub = UI.label("", UI.FS_SMALL, UI.SOFT)
+	_world_sub.clip_text = true
+	_world_sub.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	box.add_child(_world_sub)
 	return box
 
@@ -1397,7 +1577,7 @@ func _on_hero_died() -> void:
 	if state != "arena":
 		return
 	_pause_for_overlay()
-	_show_end(false, "RAPPEL AU RELAIS", "Le butin reste, les pouvoirs partent.")
+	_show_end(false, "RAPPEL AU RELAIS", "Tes objets et tickets restent. Les pouvoirs de la partie partent.")
 
 func _victory() -> void:
 	_pause_for_overlay()
@@ -1460,7 +1640,7 @@ func _hook_boxes() -> void:
 	arena.elite_killed.connect(func(_e):
 		if state == "arena" and randf() < Loot.ELITE_BOX_CHANCE:
 			_gain_box("bronze")
-			hud.flash("BOX BRONZE !", 1.3, Loot.BOX_COLORS["bronze"]))
+			hud.flash("COFFRE BRONZE !", 1.3, Loot.BOX_COLORS["bronze"]))
 	arena.chest_opened.connect(func(_p):
 		if state == "arena" and arena.modifier == "tresor":
 			_gain_box("argent")
@@ -1473,10 +1653,10 @@ func _gain_box(b: String) -> void:
 	Save.save_profile(profile)
 	sfx.play("chest", 1.25, -4.0)
 
-## Bandeau « BOX ARGENT ! » après l'objet du coffre (l'overlay l'aurait caché).
+## Bandeau « COFFRE ARGENT ! » après l'objet du coffre (l'overlay l'aurait caché).
 func _flush_box_toast() -> void:
 	if _box_toast != "" and state == "arena":
-		hud.flash("BOX %s !" % String(Loot.BOX_NAMES[_box_toast]).to_upper(), 1.4, Loot.BOX_COLORS[_box_toast])
+		hud.flash("COFFRE %s !" % String(Loot.BOX_NAMES[_box_toast]).to_upper(), 1.4, Loot.BOX_COLORS[_box_toast])
 	_box_toast = ""
 
 ## Traînée de tir équipée : recolore le tir de Jo qui vient de partir (les tirs critiques gardent leur jaune).
@@ -1487,11 +1667,11 @@ func _tint_shot(_pos: Vector2, _vel: Vector2, hero_shot: bool, color: Color, _r:
 	_shot_i += 1
 	arena.bullets.back().color = Loot.trail_color(tid, _shot_i)
 
-## Relais : COFFRES (pastille du nombre de box, halo qui pulse) et COLLECTION (compteur).
+## Relais : COFFRES (nombre à ouvrir, halo qui pulse) et APPARENCES (combien sont obtenues).
 func _boxes_row() -> HBoxContainer:
-	var row := UI.hbox(14)
+	var row := UI.hbox(12)
 	var n: int = (profile["boxes"] as Array).size()
-	var cb := _side_button("COFFRES", "chest", UI.GOLD, str(n) if n > 0 else "")
+	var cb := _side_button("COFFRES", "chest", UI.GOLD, ("%d à ouvrir" % n) if n > 0 else "Aucun à ouvrir", n > 0)
 	cb.pressed.connect(func(): show_coffres("coffres"))
 	row.add_child(cb)
 	# pictogramme : la plus belle box en attente, qui se trémousse de temps en temps
@@ -1506,7 +1686,7 @@ func _boxes_row() -> HBoxContainer:
 	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	glyph.anchor_top = 0.5
 	glyph.anchor_bottom = 0.5
-	glyph.offset_left = 14
+	glyph.offset_left = 12
 	glyph.offset_top = -22
 	glyph.size = Vector2(44, 44)
 	var gt := {"t": 0.0}
@@ -1534,7 +1714,7 @@ func _boxes_row() -> HBoxContainer:
 			h.size = cb.size * Vector2(1.25, 2.2)
 			h.position = (cb.size - h.size) * 0.5)
 		Fx.pulse(h, 0.35, 1.0, 1.1)
-	var col := _side_button("COLLECTION", "shard", UI.ACCENT, "%d/%d" % [Loot.owned_count(profile), Loot.total_count()])
+	var col := _side_button("APPARENCES", "shard", UI.ACCENT, "%d sur %d obtenues" % [Loot.owned_count(profile), Loot.total_count()])
 	col.pressed.connect(func(): show_coffres("collection"))
 	row.add_child(col)
 	Fx.rise_in(row, 0.5)
