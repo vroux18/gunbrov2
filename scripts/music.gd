@@ -91,6 +91,9 @@ func _load_loop(path: String) -> AudioStream:
 
 ## Passe à la piste `name` (« relais », « combat », « boss ») en fondu enchaîné ; "" fait taire la musique.
 func play(name: String) -> void:
+	# piste propre à un monde (« combat_neon ») : à défaut, la piste générique
+	if not TRACKS.has(name) and "_" in name:
+		name = name.get_slice("_", 0)
 	if name == current:
 		return
 	current = name

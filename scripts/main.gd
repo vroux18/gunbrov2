@@ -81,7 +81,7 @@ func _ready() -> void:
 	arena.hero_died.connect(_on_hero_died)
 	arena.wave_changed.connect(func():
 		if arena.room >= Data.ROOMS:
-			hud.flash("LE PORTIQUE", 2.2, UI.DANGER)
+			hud.flash(_boss_title(), 2.2, UI.DANGER)
 		else:
 			hud.flash("VAGUE %d" % (arena.wave_i + 1), 1.3, UI.ACCENT))
 	_apply_profile_to_hero()
@@ -249,7 +249,7 @@ func _build_relais_panel() -> void:
 	tw_rule.tween_method(func(v: float):
 		rt["t"] = v
 		rule.queue_redraw(), 0.0, 4.0, 4.0)
-	right.add_child(UI.label("LE RELAIS  ·  MONDE 1 : " + Data.WORLD_NAME.to_upper(), 22, UI.MUTED))
+	right.add_child(_world_selector())
 	# compteurs : défilent depuis les valeurs vues à la dernière visite
 	var chips := UI.hbox(10)
 	right.add_child(chips)
@@ -283,6 +283,8 @@ func _build_relais_panel() -> void:
 	go.add_theme_stylebox_override("pressed", _go_style(true))
 	go.add_theme_stylebox_override("hover_pressed", _go_style(true))
 	go.pressed.connect(_depart)
+	_go_button = go
+	_refresh_world()
 	right.add_child(go)
 	var halo := Fx.halo(Color(UI.ORANGE, 0.5), Vector2(10, 10))
 	halo.show_behind_parent = true
@@ -520,6 +522,78 @@ func show_arsenal() -> void:
 			Fx.rise_in(b, 0.06 + 0.025 * grid.get_child_count(), 0.3, 0.85)
 
 # ---------------------------------------------------------------- partie
+# ---------------------------------------------------------------- mondes
+var _go_button: Button = null
+var _world_title: Label = null
+var _world_sub: Label = null
+
+func _boss_title() -> String:
+	return String(Data.ENEMIES[Data.boss_kind()]["name"]).to_upper()
+
+## Monde ouvert : le premier, ou le suivant d'un monde terminé.
+func _world_open(i: int) -> bool:
+	return i == 0 or (profile["worlds_done"] as Array).has(i - 1)
+
+## Monde de la prochaine partie : celui choisi au Relais s'il est ouvert et livré, sinon Nébuleuse 7.
+## `--world=N` (essais, captures) force un monde livré.
+func _chosen_world() -> int:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--world="):
+			# « --world=2! » force un monde même sans boss livré (essais pendant la construction)
+			var n := clampi(int(a.trim_prefix("--world=").trim_suffix("!")) - 1, 0, Data.WORLDS.size() - 1)
+			if Data.world_ready(n) or a.ends_with("!"):
+				return n
+	var w := clampi(int(profile.get("world", 0)), 0, Data.WORLDS.size() - 1)
+	return w if _world_open(w) and Data.world_ready(w) else 0
+
+## Ligne du Relais : ◀ MONDE n · NOM ▶ et l'univers ; un monde fermé ou en construction bloque PARTIR.
+func _world_selector() -> Control:
+	var box := UI.vbox(2)
+	var row := UI.hbox(10)
+	box.add_child(row)
+	var prev := UI.button("◀", 22, UI.MUTED, 56)
+	prev.custom_minimum_size = Vector2(56, 48)
+	prev.pressed.connect(func(): _shift_world(-1))
+	row.add_child(prev)
+	_world_title = UI.label("", 24, UI.TEXT)
+	_world_title.add_theme_font_override("font", UI.TITLE)
+	_world_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_world_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(_world_title)
+	var nxt := UI.button("▶", 22, UI.MUTED, 56)
+	nxt.custom_minimum_size = Vector2(56, 48)
+	nxt.pressed.connect(func(): _shift_world(1))
+	row.add_child(nxt)
+	_world_sub = UI.label("", 19, UI.MUTED)
+	box.add_child(_world_sub)
+	return box
+
+func _shift_world(d: int) -> void:
+	var w := clampi(int(profile.get("world", 0)) + d, 0, Data.WORLDS.size() - 1)
+	profile["world"] = w
+	Save.save_profile(profile)
+	sfx.play("click", 1.1 + 0.1 * d, -6.0)
+	_refresh_world()
+
+func _refresh_world() -> void:
+	if _world_title == null or not is_instance_valid(_world_title):
+		return
+	var w := clampi(int(profile.get("world", 0)), 0, Data.WORLDS.size() - 1)
+	var wd: Dictionary = Data.WORLDS[w]
+	var done := (profile["worlds_done"] as Array).has(w)
+	_world_title.text = "MONDE %d  ·  %s%s" % [w + 1, String(wd["name"]).to_upper(), "  ✓" if done else ""]
+	_world_title.add_theme_color_override("font_color", wd["accent"])
+	var ok := _world_open(w) and Data.world_ready(w)
+	if not Data.world_ready(w):
+		_world_sub.text = String(wd["genre"]) + "  ·  en construction"
+	elif not _world_open(w):
+		_world_sub.text = "Verrouillé : récupère d'abord l'éclat de " + String(Data.WORLDS[w - 1]["name"])
+	else:
+		_world_sub.text = String(wd["genre"]) + ("  ·  éclat récupéré" if done else "  ·  éclat à récupérer")
+	if _go_button != null and is_instance_valid(_go_button):
+		_go_button.disabled = not ok
+		_go_button.modulate = Color(1, 1, 1, 1.0 if ok else 0.45)
+
 ## PARTIR : l'interface s'efface, Jo court dans le portail, puis la partie commence.
 func _depart() -> void:
 	if state != "base":
@@ -543,13 +617,16 @@ func start_run() -> void:
 	arena.visible = false
 	arena.cam.enabled = false
 	hud.visible = true
-	hud.world = Data.WORLD_NAME
+	Data.world = _chosen_world()
+	arena.set_world()
+	view.set_world()
+	hud.world = Data.world_name()
 	joy.enabled = true
 	joy.reset()
 	arena.start_room(1, "combat")
 	view.start_room()
 	hud.fade = 1.0
-	hud.flash(Data.WORLD_NAME.to_upper(), 2.0, UI.ACCENT)
+	hud.flash(Data.world_name().to_upper(), 2.0, Data.WORLDS[Data.world]["accent"])
 	sfx.play("portal")
 	_start_run_ui()
 
@@ -770,7 +847,7 @@ func _show_doors() -> void:
 		{"kind": "tresor", "title": "TRÉSOR", "desc": "Moins d'ennemis · meilleur coffre", "col": UI.GOLD},
 	]
 	if next >= Data.ROOMS:
-		doors = [{"kind": "combat", "title": "LE PORTIQUE", "desc": "Le gardien de l'éclat du Cœur", "col": Color("#F23CB8")}]
+		doors = [{"kind": "combat", "title": _boss_title(), "desc": "Le gardien de l'éclat du Cœur", "col": Color("#F23CB8")}]
 	_next_room = next
 	arena.open_doors(doors)
 	hud.flash("CHOISIS TON PORTAIL", 1.1, UI.ACCENT)
@@ -790,7 +867,7 @@ func _on_door_taken(d: Dictionary) -> void:
 	arena.start_room(next, String(d["kind"]))
 	view.start_room()
 	hud.fade = 1.0
-	hud.flash(("SALLE %d · %s" % [next, String(d["title"])]) if next < Data.ROOMS else "LE PORTIQUE", 1.8, d["col"])
+	hud.flash(("SALLE %d · %s" % [next, String(d["title"])]) if next < Data.ROOMS else _boss_title(), 1.8, d["col"])
 
 func _show_pause() -> void:
 	if state != "arena" or get_tree().paused:
@@ -831,8 +908,19 @@ func _on_hero_died() -> void:
 
 func _victory() -> void:
 	_pause_for_overlay()
-	profile["shards"] = int(profile["shards"]) + 1
-	_show_end(true, "VICTOIRE", "Éclat du Cœur récupéré : le Relais se rallume.")
+	var done: Array = profile["worlds_done"]
+	var first := not done.has(Data.world)
+	if first:
+		done.append(Data.world)
+	profile["shards"] = done.size()
+	var nxt := Data.world + 1
+	var sub := "Éclat du Cœur récupéré : le Relais se rallume."
+	if not first:
+		sub = "Monde déjà rallumé : le butin reste à toi."
+	elif nxt < Data.WORLDS.size():
+		sub += "  Nouveau monde ouvert : " + String(Data.WORLDS[nxt]["name"]) + "."
+		profile["world"] = nxt if Data.world_ready(nxt) else Data.world
+	_show_end(true, "VICTOIRE", sub)
 
 ## Écran de fin : récapitulatif de la partie, REJOUER (repart aussitôt) ou RELAIS.
 func _show_end(won: bool, title: String, subtitle: String) -> void:

@@ -7,11 +7,13 @@ const Models = preload("res://scripts/models.gd")
 const Actor3D = preload("res://scripts/actor3d.gd")
 const Rig3D = preload("res://scripts/rig3d.gd")
 ## Échelle des modèles sculptés (conçus à l'échelle de Jo, qui est affichée à 1,75).
-const RIG_SCALE := {"drone": 1.75, "trooper": 1.75, "brute": 1.3, "boss": 1.05, "bomber": 1.75, "sniper": 1.75, "shield": 1.75, "mortar": 1.75}
+const RIG_SCALE := {"drone": 1.75, "trooper": 1.75, "brute": 1.3, "boss": 1.05, "bomber": 1.75, "sniper": 1.75, "shield": 1.75, "mortar": 1.75, "roller": 1.75, "hacker": 1.75, "copter": 1.75, "bouncer": 1.3, "boss2": 1.05}
 ## Durée de l'animation de mort avant suppression du nœud.
-const DEATH_T := {"drone": 0.85, "trooper": 1.3, "brute": 1.0, "boss": 1.6, "bomber": 0.2, "sniper": 0.9, "shield": 1.0, "mortar": 0.7}
+const DEATH_T := {"drone": 0.85, "trooper": 1.3, "brute": 1.0, "boss": 1.6, "bomber": 0.2, "sniper": 0.9, "shield": 1.0, "mortar": 0.7, "roller": 0.6, "hacker": 0.8, "copter": 0.6, "bouncer": 1.0, "boss2": 1.6}
 ## Durée du télégraphe (état « tell ») par genre, pour remplir l'anneau au sol.
-const TELL_T := {"brute": 0.7, "boss": 0.8, "bomber": 0.55, "shield": 0.5, "mortar": 0.9}
+const TELL_T := {"brute": 0.7, "boss": 0.8, "bomber": 0.55, "shield": 0.5, "mortar": 0.9, "roller": 0.35, "hacker": 0.55, "bouncer": 0.8, "boss2": 0.8}
+const NEON_PINK := Color("#FF3CAC")
+const NEON_BLUE := Color("#3C8CFF")
 const VIOLET := Color("#B36BFF")
 
 const METAL := Color("#2C3350")
@@ -43,6 +45,8 @@ var _tell: MeshInstance3D = null
 var _tell_mat: ShaderMaterial = null
 var _laser: MeshInstance3D = null  # vigie : laser de visée
 var _laser_mat: StandardMaterial3D = null
+var _beam: MeshInstance3D = null  # gyro : faisceau du projecteur au sol
+var _beam_mat: StandardMaterial3D = null
 var yaw := 0.0
 var dying := 0.0  # > 0 : animation de mort en cours
 var death_dir := Vector3.ZERO  # sens du coup fatal (posé par view3d) : la Sentinelle part en vrille par là
@@ -94,7 +98,7 @@ func _build_legacy(k: String, r: float) -> void:
 
 ## Silhouette provisoire d'un genre sans modèle sculpté (le jeu reste jouable en attendant le modèle).
 func _build_placeholder(k: String, r: float) -> void:
-	var col: Color = {"bomber": Color("#FFC93C"), "sniper": VIOLET, "shield": ORANGE, "mortar": Color("#9BE15D")}.get(k, PLATE)
+	var col: Color = {"bomber": Color("#FFC93C"), "sniper": VIOLET, "shield": ORANGE, "mortar": Color("#9BE15D"), "roller": NEON_PINK, "hacker": Color("#B6FF3C"), "copter": NEON_BLUE, "bouncer": Color("#FF8A3C"), "boss2": NEON_PINK}.get(k, PLATE)
 	var b := Models.sphere(r, Models.toon(col, 0.3))
 	b.position.y = r
 	body.add_child(b)
@@ -123,6 +127,11 @@ func _finish_setup(r: float) -> void:
 	if kind == "bomber":
 		# l'anneau du pétard montre le rayon réel de l'explosion (82 px)
 		_tell.scale = Vector3.ONE * (82.0 * 2.0 * K) / (r * 3.0)
+	if kind == "bouncer":
+		# l'anneau du videur montre la portée de son onde de choc (280 px)
+		_tell.scale = Vector3.ONE * (280.0 * 2.0 * K) / (r * 3.0)
+	if kind == "copter":
+		_build_beam()
 	if kind == "sniper":
 		_laser = MeshInstance3D.new()
 		var q := PlaneMesh.new()
@@ -402,7 +411,7 @@ func sync(e: Node2D, dt: float) -> void:
 	body.scale = Vector3(1.0 + _punch * 0.12, 1.0 - _punch * 0.08, 1.0 + _punch * 0.12)
 	var st: String = e.state
 	if st != _last_state:
-		if rig != null and (_last_state == "aim" or (_last_state == "tell" and kind == "mortar")):
+		if rig != null and (_last_state == "aim" or (_last_state == "tell" and kind in ["mortar", "hacker"])):
 			rig.fire()
 		_last_state = st
 		_state_el = 0.0
@@ -431,6 +440,19 @@ func sync(e: Node2D, dt: float) -> void:
 				spd = 1.0 if st == "charge" else (0.0 if st == "tell" else 0.5)
 			"mortar":
 				spd = 0.0 if st == "tell" else 0.5
+			"roller":
+				spd = 1.0 if st == "charge" else (0.0 if st == "tell" else 0.9)
+			"hacker":
+				spd = 0.0 if st == "tell" or st == "blink" else 0.5
+				sh = 1.0 if st == "tell" else 0.0
+			"copter":
+				spd = 0.7
+				sh = 1.0 if st == "aim" else 0.0
+			"bouncer":
+				spd = 0.0 if st == "tell" or st == "ring" else 0.55
+			"boss2":
+				spd = 0.0 if st == "tell" or st == "spiral" else 0.55
+				sh = 1.0 if st == "spiral" else 0.0
 		rig.set_motion(spd, sh)
 	match kind if rig == null else "":
 		"drone":
@@ -463,7 +485,7 @@ func sync(e: Node2D, dt: float) -> void:
 			var band: MeshInstance3D = parts["band"]
 			band.scale = Vector3.ONE * (1.0 + (0.06 * sin(t * 30.0) if st == "ring" else 0.0))
 	# télégraphe d'attaque au sol
-	var telling := st == "tell" or st == "ring" or st == "charge"
+	var telling := st == "tell" or st == "ring" or st == "charge" or st == "spiral"
 	_tell.visible = telling
 	if telling:
 		var p := 1.0
@@ -473,6 +495,19 @@ func sync(e: Node2D, dt: float) -> void:
 		_tell_mat.set_shader_parameter("color", MAGENTA if (kind == "boss" and st == "ring") else RED)
 	if _laser != null:
 		_sync_laser(e, st)
+	if _beam != null:
+		var ad: Vector2 = e.aim_dir
+		_beam.rotation.y = atan2(ad.x, ad.y)
+		# rouge quand Jo est prise dans le faisceau, clignote pendant la rafale
+		var lk := clampf(float(e.lock) / 0.6, 0.0, 1.0)
+		var c := Color(0.55, 0.75, 1.0).lerp(Color(1.0, 0.25, 0.35), lk if st != "aim" else 1.0)
+		var a := 0.18 + 0.2 * lk
+		if st == "aim":
+			a = 0.45 if int(t * 24.0) % 2 == 0 else 0.25
+		_beam_mat.albedo_color = Color(c, a)
+	if kind == "hacker":
+		# éclipse de la téléportation : le pirate se résorbe, puis réapparaît ailleurs
+		body.scale = Vector3.ONE * (maxf(0.05, 1.0 - _state_el / 0.15) if st == "blink" else 1.0)
 	if _elite_ring != null:
 		_elite_ring.rotation.y = t * 1.5
 	if _flash_t > 0.0:
@@ -483,6 +518,36 @@ func sync(e: Node2D, dt: float) -> void:
 				(mi as MeshInstance3D).material_overlay = null
 
 ## Mort : le garde s'effondre, les machines s'affaissent ; le rendu supprime le nœud à la fin.
+## Faisceau du projecteur du gyro : un cône posé au sol (même ouverture et portée que la simulation).
+func _build_beam() -> void:
+	var half := 0.28
+	var reach := 400.0 * K
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 10
+	for i in range(n):
+		var a0 := -half + 2.0 * half * i / n
+		var a1 := -half + 2.0 * half * (i + 1) / n
+		st.set_uv(Vector2(0.5, 0.0))
+		st.add_vertex(Vector3.ZERO)
+		st.set_uv(Vector2(0.0, 1.0))
+		st.add_vertex(Vector3(sin(a0), 0, cos(a0)) * reach)
+		st.set_uv(Vector2(1.0, 1.0))
+		st.add_vertex(Vector3(sin(a1), 0, cos(a1)) * reach)
+	_beam = MeshInstance3D.new()
+	_beam.mesh = st.commit()
+	_beam_mat = StandardMaterial3D.new()
+	_beam_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_beam_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_beam_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_beam_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_beam_mat.albedo_texture = Models.beam()
+	_beam_mat.albedo_color = Color(0.55, 0.75, 1.0, 0.22)
+	_beam.material_override = _beam_mat
+	_beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_beam.position.y = 0.05
+	add_child(_beam)
+
 ## Laser de visée de la vigie : suit la cible, se fige et clignote dans le dernier quart de seconde.
 func _sync_laser(e: Node2D, st: String) -> void:
 	_laser.visible = st == "aim"
@@ -507,6 +572,8 @@ func start_death() -> void:
 	_tell.visible = false
 	if _laser != null:
 		_laser.visible = false
+	if _beam != null:
+		_beam.visible = false
 	if _elite_ring:
 		_elite_ring.visible = false
 	if actor != null:

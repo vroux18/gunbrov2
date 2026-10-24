@@ -110,15 +110,46 @@ const ENEMIES := {
 	"sniper": {"name": "Vigie", "hp": 34.0, "speed": 95.0, "radius": 16.0, "dmg": 16.0, "energy": 2, "tickets": 2},
 	"shield": {"name": "Rempart", "hp": 110.0, "speed": 70.0, "radius": 24.0, "dmg": 14.0, "energy": 3, "tickets": 3},
 	"mortar": {"name": "Mortier", "hp": 60.0, "speed": 60.0, "radius": 22.0, "dmg": 18.0, "energy": 3, "tickets": 3},
+	"roller": {"name": "Patineur", "hp": 20.0, "speed": 230.0, "radius": 15.0, "dmg": 9.0, "energy": 1, "tickets": 1},
+	"hacker": {"name": "Pirate", "hp": 38.0, "speed": 105.0, "radius": 16.0, "dmg": 8.0, "energy": 2, "tickets": 2},
+	"copter": {"name": "Gyro", "hp": 44.0, "speed": 130.0, "radius": 18.0, "dmg": 7.0, "energy": 2, "tickets": 2},
+	"bouncer": {"name": "Videur", "hp": 190.0, "speed": 74.0, "radius": 28.0, "dmg": 20.0, "energy": 4, "tickets": 4},
+	"boss2": {"name": "L'Enseigne", "hp": 2100.0, "speed": 75.0, "radius": 60.0, "dmg": 24.0, "energy": 0, "tickets": 50},
 	"boss": {"name": "Le Portique", "hp": 1700.0, "speed": 70.0, "radius": 58.0, "dmg": 25.0, "energy": 0, "tickets": 40},
 }
 
 # ---------------------------------------------------------------- salles
 const ROOMS := 10
-const WORLD_NAME := "Nébuleuse 7"
+
+# ---------------------------------------------------------------- mondes
+## Un monde par éclat du Cœur. Chaque monde a son décor (scripts/decor/<id>_world.gd, sauf Nébuleuse 7 dont le
+## hangar est construit par view3d.gd), ses ennemis, son boss et ses musiques (suffixe ajouté aux pistes).
+const WORLDS := [
+	{"id": "n7", "name": "Nébuleuse 7", "genre": "Station de fret spatiale", "boss": "boss", "music": "", "accent": Color("#3CF2D8")},
+	{"id": "neon", "name": "Cité Néon", "genre": "Mégapole cyberpunk", "boss": "boss2", "music": "_neon", "accent": Color("#FF3CAC")},
+]
+static var world := 0  # monde de la partie en cours
+
+static func world_id() -> String:
+	return String(WORLDS[world]["id"])
+
+static func world_name() -> String:
+	return String(WORLDS[world]["name"])
+
+static func boss_kind() -> String:
+	return String(WORLDS[world]["boss"])
+
+## Un monde est jouable quand son décor et son boss sont livrés.
+static func world_ready(i: int) -> bool:
+	if i <= 0:
+		return true
+	var id := String(WORLDS[i]["id"])
+	return ResourceLoader.exists("res://scripts/decor/%s_world.gd" % id) and has_model(String(WORLDS[i]["boss"]))
 
 ## Poids d'apparition par genre selon la salle : les nouveaux ennemis arrivent un par un.
 static func _weights(room: int) -> Dictionary:
+	if world_id() == "neon":
+		return _weights_neon(room)
 	var w := {"drone": 1.0, "bomber": 0.35}
 	if room >= 2:
 		w["trooper"] = 0.8
@@ -132,6 +163,24 @@ static func _weights(room: int) -> Dictionary:
 	for k in w.keys():
 		if not has_model(k):
 			w.erase(k)
+	return w
+
+## Cité Néon : patineurs en meute dès le début, puis pirates, gyros, videurs ; quelques pétards de N7 en renfort.
+static func _weights_neon(room: int) -> Dictionary:
+	var w := {"roller": 1.0, "bomber": 0.2}
+	if room >= 2:
+		w["hacker"] = 0.55
+	if room >= 3:
+		w["copter"] = 0.5
+	if room >= 4:
+		w["bouncer"] = 0.2 + room * 0.015
+	if room >= 6:
+		w["sniper"] = 0.18
+	for k in w.keys():
+		if not has_model(k):
+			w.erase(k)
+	if w.is_empty():
+		w["drone"] = 1.0
 	return w
 
 ## Un genre n'entre dans les vagues que si son modèle sculpté est livré.
@@ -152,7 +201,7 @@ static func _pick(w: Dictionary) -> String:
 ## Vagues d'une salle : tableau de vagues, chaque vague = liste de genres ("elite:brute" = élite).
 static func waves_for(room: int, modifier: String) -> Array:
 	if room >= ROOMS:
-		return [["boss"]]
+		return [[boss_kind()]]
 	var n_waves := 3 if room < 5 else 4
 	var w := _weights(room)
 	var out := []
@@ -163,7 +212,13 @@ static func waves_for(room: int, modifier: String) -> Array:
 		var wave := []
 		for i in range(count):
 			wave.append(_pick(w))
-		if wi == n_waves - 1:
+		if wi == n_waves - 1 and world_id() == "neon":
+			var pool := ["roller", "hacker", "copter", "bouncer"].filter(func(k): return has_model(k))
+			if pool.is_empty():
+				pool = ["trooper"]
+			if modifier == "elite" or room == 5 or room == 8 or (room >= 6 and randf() < 0.5):
+				wave.append("elite:" + String(pool.pick_random()))
+		elif wi == n_waves - 1:
 			if modifier == "elite":
 				wave.append("elite:brute" if room >= 3 else "elite:trooper")
 			if room == 5:

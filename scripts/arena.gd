@@ -23,6 +23,7 @@ signal bullet_blocked(pos: Vector2, color: Color)
 signal exploded(pos: Vector2, radius: float, color: Color)
 signal shell_launched(from: Vector2, to: Vector2, flight: float, radius: float)
 signal doors_opened
+signal shockwave_started(pos: Vector2, max_r: float, speed: float, color: Color)
 signal door_taken(door: Dictionary)
 signal shield_blocked(e: Node2D, pos: Vector2, vel: Vector2)  # tir de Jo arrêté par le bouclier d'un rempart
 
@@ -57,6 +58,7 @@ var bullets: Array = []
 var pickups: Array = []
 var particles: Array = []
 var shells: Array = []  # obus du mortier en vol : {from, to, t, flight, r, dmg}
+var waves_fx: Array = []  # ondes de choc au sol (videur, boss) : {pos, r, max, spd, dmg, hit}
 var doors: Array = []  # portails de fin de salle : {pos, kind, title, desc, col}, Jo entre dans l'un d'eux
 var turrets: Array = []
 var allies: Array = []
@@ -113,9 +115,20 @@ func build(sfx_node: Node, hero_node: Node2D) -> void:
 	_layout()
 	queue_redraw()
 
+## Monde choisi au Relais (Data.world) : refait l'agencement de l'arène.
+func set_world() -> void:
+	_layout()
+
 func _layout() -> void:
 	obstacles.clear()
 	_rng.seed = 7
+	# obstacles d'un autre monde : fournis par son décor (const BOXES de scripts/decor/<id>_world.gd)
+	var wpath := "res://scripts/decor/%s_world.gd" % Data.world_id()
+	if Data.world_id() != "n7" and ResourceLoader.exists(wpath):
+		for b in load(wpath).BOXES:
+			obstacles.append(b)
+		_pads()
+		return
 	# caisses du hangar : quelques groupes, jamais au centre ni devant les sas
 	var boxes := [
 		Rect2(520, 300, 150, 110), Rect2(680, 300, 90, 90),
@@ -128,6 +141,10 @@ func _layout() -> void:
 	]
 	for b in boxes:
 		obstacles.append(b)
+	_pads()
+
+## Sas d'apparition des ennemis (les mêmes dans tous les mondes).
+func _pads() -> void:
 	pads.clear()
 	pads.append(Vector2(130, TOP + 90))
 	pads.append(Vector2(W - 130, TOP + 90))
@@ -161,12 +178,13 @@ func _clear_entities() -> void:
 	particles.clear()
 	shells.clear()
 	doors.clear()
+	waves_fx.clear()
 	chest = {}
 	boss = null
 
 func start_room(r: int, mod: String) -> void:
 	room = r
-	Music.play("boss" if r >= Data.ROOMS else "combat")
+	Music.play(("boss" if r >= Data.ROOMS else "combat") + String(Data.WORLDS[Data.world]["music"]))
 	modifier = mod
 	_clear_entities()
 	hero.position = Vector2(W * 0.5, (TOP + H) * 0.5)
@@ -303,6 +321,18 @@ func _process(dt: float) -> void:
 				doors.clear()
 				door_taken.emit(taken)
 				break
+	# ondes de choc : touchent Jo une fois, quand le front passe sur elle
+	var spent := []
+	for wv in waves_fx:
+		wv["r"] += wv["spd"] * dt
+		if not wv["hit"] and absf((hero.position - wv["pos"]).length() - wv["r"]) < 22.0 + hero.radius * 0.5:
+			wv["hit"] = true
+			if hero.take_damage(wv["dmg"]):
+				sfx.play("hurt", 1.0)
+		if wv["r"] >= wv["max"]:
+			spent.append(wv)
+	for wv in spent:
+		waves_fx.erase(wv)
 	# obus du mortier : explosent à l'arrivée sur la zone annoncée au sol
 	var landed := []
 	for sh in shells:
@@ -409,7 +439,7 @@ func _spawn(spec: String) -> void:
 		if (pad - hero.position).length() > 520.0:
 			break
 		pad = pads[randi() % pads.size()]
-	if kind == "boss":
+	if kind.begins_with("boss"):
 		pad = Vector2(W * 0.5, TOP + 150.0)
 		boss = e
 	e.position = pad + Vector2(randf_range(-30, 30), randf_range(-30, 30))
@@ -419,12 +449,13 @@ func _spawn(spec: String) -> void:
 	sfx.play("spawn", randf_range(0.9, 1.2), -16.0)
 	_burst(e.position, CYAN, 8, 180.0, 3.0)
 
-func boss_summon(pos: Vector2, n: int) -> void:
+func boss_summon(pos: Vector2, n: int, kind: String = "") -> void:
 	for i in range(n):
 		var e := Enemy.new()
 		e.arena = self
 		e.hero = hero
-		e.setup("bomber" if i % 2 == 1 and Data.has_model("bomber") else "drone", false, hp_scale)
+		var k := kind if kind != "" else ("bomber" if i % 2 == 1 and Data.has_model("bomber") else "drone")
+		e.setup(k if Data.has_model(k) else "drone", false, hp_scale)
 		e.position = pos + Vector2.RIGHT.rotated(TAU * i / n) * 90.0
 		ents.add_child(e)
 		enemies.append(e)
@@ -454,6 +485,13 @@ func open_doors(list: Array) -> void:
 		doors.append(d)
 	doors_opened.emit()
 	sfx.play("portal", 1.1, -2.0)
+
+## Onde de choc au sol (videur, boss) : un anneau qui s'élargit jusqu'à `max_r` ; le rendu suit le signal.
+func shockwave(pos: Vector2, max_r: float, spd: float, dmg: float, col: Color) -> void:
+	waves_fx.append({"pos": pos, "r": 0.0, "max": max_r, "spd": spd, "dmg": dmg, "hit": false})
+	shockwave_started.emit(pos, max_r, spd, col)
+	sfx.play("boom", 0.7, -5.0)
+	shake_t = maxf(shake_t, 0.15)
 
 ## Explosion : blesse Jo dans le rayon, et les autres ennemis si `enemy_dmg` > 0 (pétard abattu).
 func explode(pos: Vector2, r: float, hero_dmg: float, enemy_dmg: float, col: Color) -> void:
@@ -490,7 +528,8 @@ func on_enemy_died(e: Node2D, rewarded: bool = true) -> void:
 	kills += 1
 	energy += float(e.energy) * hero.energy_mult
 	sfx.play("kill", randf_range(0.9, 1.2), -4.0)
-	_burst(e.position, RED if e.kind != "boss" else Color("#F23CB8"), 14 if e.kind != "boss" else 60, 220.0, 4.0)
+	var is_boss: bool = e.kind.begins_with("boss")
+	_burst(e.position, RED if not is_boss else Color("#F23CB8"), 14 if not is_boss else 60, 220.0, 4.0)
 	for i in range(e.tickets):
 		pickups.append({"pos": e.position, "kind": "ticket", "vel": Vector2.RIGHT.rotated(randf() * TAU) * randf_range(60, 200), "t": 0.0})
 	if randf() < 0.07:
@@ -506,7 +545,7 @@ func on_enemy_died(e: Node2D, rewarded: bool = true) -> void:
 				o.hit(bd)
 		_burst(e.position, ORANGE, 16, 300.0, 5.0)
 		sfx.play("boom", 1.2, -6.0)
-	if e.kind == "boss":
+	if is_boss:
 		boss = null
 	enemy_killed.emit(e)
 	enemies.erase(e)

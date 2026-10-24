@@ -97,6 +97,7 @@ func build(arena_node: Node, hero_node: Node2D, joy_node: Node) -> void:
 	arena.exploded.connect(_on_exploded)
 	arena.shell_launched.connect(_on_shell)
 	arena.doors_opened.connect(_on_doors_opened)
+	arena.shockwave_started.connect(_on_shockwave)
 	hero2d.damaged.connect(_on_hero_damaged)
 
 static func p3(v: Vector2, h: float = 0.0) -> Vector3:
@@ -113,6 +114,32 @@ func _build_env() -> void:
 	sky.sky_material = pano
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
+	we.environment = env
+	add_child(we)
+	sun = DirectionalLight3D.new()
+	sun.add_to_group("sun")  # qualité adaptative (scripts/perf.gd)
+	sun.shadow_enabled = true
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	add_child(sun)
+	_env_defaults()
+	cam = Camera3D.new()
+	cam.fov = CAM_FOV
+	cam.near = 0.5
+	cam.far = 120.0
+	add_child(cam)
+	for i in range(3):
+		var l := OmniLight3D.new()
+		l.omni_range = 4.0
+		l.light_energy = 0.0
+		l.shadow_enabled = false
+		add_child(l)
+		_flash_lights.append(l)
+
+## Réglages d'ambiance de Nébuleuse 7 ; un autre monde les retouche ensuite dans son env(v).
+func _env_defaults() -> void:
+	var pano: PanoramaSkyMaterial = env.sky.sky_material
+	pano.panorama = load("res://assets/env/space.jpg")
+	pano.energy_multiplier = 1.0
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.5, 0.55, 0.92)
 	env.ambient_light_energy = 0.3
@@ -127,30 +154,12 @@ func _build_env() -> void:
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 1.12
 	env.adjustment_contrast = 1.05
-	we.environment = env
-	add_child(we)
-	sun = DirectionalLight3D.new()
-	sun.add_to_group("sun")  # qualité adaptative (scripts/perf.gd)
+	env.fog_enabled = false
 	sun.rotation_degrees = Vector3(-58, 28, 0)
 	sun.light_color = Color(1.0, 0.95, 0.88)
 	sun.light_energy = 0.9
-	sun.shadow_enabled = true
 	sun.shadow_bias = 0.04
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.directional_shadow_max_distance = 26.0
-	add_child(sun)
-	cam = Camera3D.new()
-	cam.fov = CAM_FOV
-	cam.near = 0.5
-	cam.far = 120.0
-	add_child(cam)
-	for i in range(3):
-		var l := OmniLight3D.new()
-		l.omni_range = 4.0
-		l.light_energy = 0.0
-		l.shadow_enabled = false
-		add_child(l)
-		_flash_lights.append(l)
 
 # ---------------------------------------------------------------- hangar
 func _put(path: String, pos: Vector3, rot_y: float = 0.0, scl: Vector3 = Vector3.ONE, parent: Node3D = null, center: bool = false) -> Node3D:
@@ -202,11 +211,24 @@ func _mm(mesh: Mesh, xforms: Array, cast: bool = false) -> MultiMeshInstance3D:
 	level.add_child(mmi)
 	return mmi
 
+var _built_world := -1
+
 func _build_level() -> void:
 	level = Node3D.new()
 	add_child(level)
+	_built_world = Data.world
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1977
+	if Data.world_id() != "n7":
+		# autre monde : son décor fournit build(v, rng), lights(v), env(v) (scripts/decor/<id>_world.gd)
+		var wd: GDScript = load("res://scripts/decor/%s_world.gd" % Data.world_id())
+		wd.build(self, rng)
+		for p in arena.pads:
+			_build_pad(p3(p))
+		_flush_batch()
+		wd.lights(self)
+		wd.env(self)
+		return
 	HangarShell.build(self, rng)
 	# sas d'apparition
 	for p in arena.pads:
@@ -215,6 +237,18 @@ func _build_level() -> void:
 	HangarBay.build(self, rng)
 	_flush_batch()
 	HangarShell.lights(self)
+
+## Monde choisi au Relais : reconstruit le décor et l'ambiance s'il a changé (après arena.set_world()).
+func set_world() -> void:
+	if _built_world == Data.world and level != null:
+		return
+	if level != null:
+		level.queue_free()
+		remove_child(level)
+	pads3d.clear()
+	_batch.clear()
+	_env_defaults()
+	_build_level()
 
 func _build_pad(pos: Vector3) -> void:
 	var root := Node3D.new()
@@ -929,6 +963,12 @@ func _tick_fx(dt: float) -> void:
 			fx.remove_at(i)
 			continue
 		match String(f["kind"]):
+			"shock":
+				# onde de choc : rayon linéaire, exactement celui de la simulation (le front qui blesse)
+				var sz: float = f["max"] * p
+				node.scale = Vector3(sz, 1, sz)
+				var smat: ShaderMaterial = (node as MeshInstance3D).material_override
+				smat.set_shader_parameter("energy", 2.4 * (1.0 - p * 0.6))
 			"marker":
 				var mat: ShaderMaterial = (node as MeshInstance3D).material_override
 				mat.set_shader_parameter("progress", p)
@@ -1077,7 +1117,7 @@ func _on_enemy_killed(e: Node2D) -> void:
 	var id: int = e.get_instance_id()
 	var m: Mob3D = mobs.get(id)
 	var pos := p3(e.position)
-	var big: bool = e.kind == "brute" or e.kind == "boss" or e.elite
+	var big: bool = e.kind == "brute" or e.kind == "bouncer" or e.kind.begins_with("boss") or e.elite
 	var dir: Vector3 = _last_hit.get(id, Vector3.ZERO)
 	_last_hit.erase(id)
 	if m != null:
@@ -1085,15 +1125,15 @@ func _on_enemy_killed(e: Node2D) -> void:
 		m.death_dir = dir
 		m.start_death()
 		dying.append(m)
-	fxs.death(e.kind, pos, dir, e.elite)
+	fxs.death("boss" if e.kind.begins_with("boss") else e.kind, pos, dir, e.elite)
 	var acc: Color = Fx3D.ACCENT.get(e.kind, RED)
-	if e.kind != "boss":
+	if not e.kind.begins_with("boss"):
 		_flash_light(pos + Vector3(0, 1.0, 0), acc.lerp(Color(1.0, 0.7, 0.4), 0.5), 4.0 if big else 2.0, 6.0 if big else 4.0)
 	match e.kind:
 		"brute":
 			add_shake(0.7)
 			hit_stop(0.09, 0.2)
-		"boss":
+		"boss", "boss2":
 			add_shake(0.6)
 			hit_stop(0.12, 0.3)
 		"bomber":
@@ -1103,7 +1143,7 @@ func _on_enemy_killed(e: Node2D) -> void:
 			if e.elite:
 				hit_stop(0.07, 0.25)
 	# pouvoir « Détonation » : les ennemis tués explosent
-	if hero2d.boom > 0 and e.kind != "boss" and e.kind != "bomber":
+	if hero2d.boom > 0 and not e.kind.begins_with("boss") and e.kind != "bomber":
 		fxs.explosion(pos, 0.85, ORANGE, false, 0.04, false)
 
 ## Explosion (pétard, obus du mortier) : boule de feu dodue, onde au sol de la taille du rayon de dégâts,
@@ -1128,6 +1168,29 @@ func _on_exploded(pos: Vector2, radius: float, col: Color) -> void:
 		_flash_light(p + Vector3(0, 1.0, 0), Color(1.0, 0.65, 0.3), 5.0, rr * 5.0)
 		add_shake(0.55)
 		hit_stop(0.05, 0.3)
+
+## Onde de choc du videur ou du boss : anneau au sol qui s'élargit à la vitesse réelle de la simulation.
+func _on_shockwave(pos: Vector2, max_r: float, spd: float, col: Color) -> void:
+	if not active:
+		return
+	var mi := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(1.0, 1.0)
+	mi.mesh = pm
+	var m := ShaderMaterial.new()
+	m.shader = _ring_shader
+	m.set_shader_parameter("color", col)
+	m.set_shader_parameter("width", 0.07)
+	m.set_shader_parameter("fill", 0.06)
+	m.set_shader_parameter("progress", 1.0)
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = p3(pos, 0.05)
+	mi.scale = Vector3(0.01, 1, 0.01)
+	_add_fx(mi, max_r / spd, "shock", {"max": max_r * 2.0 * K})
+	fxs.flash(p3(pos, 0.3), col, 2.2, 0.2)
+	_flash_light(p3(pos, 1.0), col, 3.0, 6.0)
+	add_shake(0.5)
 
 ## Obus du mortier : zone d'impact annoncée au sol (se remplit jusqu'à l'impact) et obus en cloche.
 func _on_shell(from: Vector2, to: Vector2, flight: float, radius: float) -> void:
@@ -1204,7 +1267,7 @@ func _on_enemy_spawned(e: Node2D) -> void:
 	if not active:
 		return
 	var pos := p3(e.position)
-	var boss: bool = e.kind == "boss"
+	var boss: bool = e.kind.begins_with("boss")
 	fxs.spawn_in(pos, MAGENTA if boss else CYAN, boss)
 	if boss:
 		add_shake(0.8)

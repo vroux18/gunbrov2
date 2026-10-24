@@ -1,7 +1,10 @@
 extends Node2D
-## Ennemis du monde 1 (Nébuleuse 7) : sentinelle (fonce), garde (tire à distance), colosse (charge),
+## Ennemis. Monde 1 (Nébuleuse 7) : sentinelle (fonce), garde (tire à distance), colosse (charge),
 ## pétard (kamikaze qui explose), vigie (tireuse d'élite à laser de visée), rempart (bouclier frontal qui bloque
 ## les tirs), mortier (tir en cloche annoncé au sol), boss Le Portique.
+## Monde 2 (Cité Néon) : patineur (meute rapide, élan en ligne droite), pirate (éventail de tirs puis se
+## téléporte), gyro (projecteur qui balaie le sol : pris dans le faisceau, Jo se fait mitrailler), videur (frappe
+## le sol : onde de choc qui s'élargit, à éviter), boss L'Enseigne.
 ## Élite : ×3 PV, ×1.25 vitesse, anneau d'or, lâche un objet. Dessin en code, deux tons, contour sombre.
 
 const Data = preload("res://scripts/data.gd")
@@ -17,6 +20,8 @@ const GOLD := Color("#FFB347")
 const MAGENTA := Color("#F23CB8")
 const VIOLET := Color("#B36BFF")
 const ORANGE_BOOM := Color("#FF9A3C")
+const NEON_PINK := Color("#FF3CAC")
+const NEON_BLUE := Color("#3C8CFF")
 const SHIELD_COS := 0.42  # demi-angle du bouclier du rempart : ~65°
 
 var kind := "drone"
@@ -45,7 +50,9 @@ var facing := Vector2.DOWN
 var spawned_at := {}  # boss : seuils de PV déjà utilisés
 var pattern_t := 0.0
 var charge_cd := 3.0
-var aim_dir := Vector2.DOWN  # vigie : direction du laser de visée (figée juste avant le tir)
+var aim_dir := Vector2.DOWN  # vigie : laser de visée (figé juste avant le tir) ; gyro : axe du projecteur
+var lock := 0.0  # gyro : temps passé par Jo dans le faisceau
+var shots_left := 0  # gyro, boss : tirs restants de la rafale en cours
 var _spr: Sprite2D
 var _glow: Sprite2D
 
@@ -152,6 +159,16 @@ func tick(dt: float) -> void:
 			_mortar(dt, dir, dist, slow)
 		"boss":
 			_boss(dt, dir, dist, slow)
+		"roller":
+			_roller(dt, dir, dist, slow)
+		"hacker":
+			_hacker(dt, dir, dist, slow)
+		"copter":
+			_copter(dt, dir, dist, slow)
+		"bouncer":
+			_bouncer(dt, dir, dist, slow)
+		"boss2":
+			_boss2(dt, dir, dist, slow)
 	if _spr != null:
 		_spr.rotation = facing.angle()
 		var m := Color.WHITE
@@ -284,6 +301,190 @@ func _mortar(dt: float, dir: Vector2, dist: float, slow: float) -> void:
 			fire_cd = randf_range(3.0, 4.0)
 	_contact(dist)
 
+## Patineur : fonce en zigzag, s'accroupit 0,35 s puis file en ligne droite à travers Jo.
+func _roller(dt: float, dir: Vector2, dist: float, slow: float) -> void:
+	charge_cd -= dt
+	if state == "move":
+		var side := dir.orthogonal() * sin(t * 4.0 + wobble) * 0.7
+		var v: Vector2 = arena.steer(position, (dir + side).normalized(), radius) * speed * slow
+		position += v * dt
+		facing = v.normalized()
+		if charge_cd <= 0.0 and dist < 300.0:
+			state = "tell"
+			state_t = 0.35
+			charge_dir = dir
+	elif state == "tell":
+		state_t -= dt
+		charge_dir = dir
+		facing = dir
+		if state_t <= 0.0:
+			state = "charge"
+			state_t = 0.42
+	elif state == "charge":
+		state_t -= dt
+		position += charge_dir * 640.0 * slow * dt
+		facing = charge_dir
+		if state_t <= 0.0:
+			state = "move"
+			charge_cd = randf_range(1.8, 2.8)
+	_contact(dist)
+
+## Pirate : garde ses distances, projette un hologramme 0,55 s puis tire un éventail de 5 ; une fois sur deux,
+## il se téléporte ailleurs autour de Jo (0,3 s d'éclipse).
+func _hacker(dt: float, dir: Vector2, dist: float, slow: float) -> void:
+	if state == "move":
+		var want := Vector2.ZERO
+		if dist > 480.0:
+			want = dir
+		elif dist < 300.0:
+			want = -dir
+		else:
+			want = dir.orthogonal() * sin(t * 1.1 + wobble)
+		want = arena.steer(position, want, radius)
+		position += want * speed * slow * dt
+		facing = dir
+		fire_cd -= dt
+		if fire_cd <= 0.0 and dist < 700.0:
+			state = "tell"
+			state_t = 0.55
+	elif state == "tell":
+		state_t -= dt
+		facing = dir
+		if state_t <= 0.0:
+			for k in range(5):
+				var a := (k - 2) * 0.24
+				arena.spawn_bullet(position + dir * (radius + 6.0), dir.rotated(a) * 270.0, dmg, false, 0, 0, NEON_PINK, 5.0)
+			fire_cd = randf_range(1.8, 2.6)
+			if randf() < 0.5:
+				state = "blink"
+				state_t = 0.3
+			else:
+				state = "move"
+	elif state == "blink":
+		state_t -= dt
+		if state_t <= 0.0:
+			for tries in range(10):
+				var p: Vector2 = hero.position + Vector2.RIGHT.rotated(randf() * TAU) * randf_range(300.0, 420.0)
+				if not arena._blocked(p, radius):
+					position = p
+					break
+			state = "move"
+			arena.sfx.play("portal", 1.8, -14.0)
+	_contact(dist)
+
+## Gyro : drone de police qui tourne autour de Jo en balayant le sol de son projecteur ; si Jo reste 0,6 s
+## dans le faisceau, il lâche une rafale de 4 tirs.
+func _copter(dt: float, dir: Vector2, dist: float, slow: float) -> void:
+	var orbit := dir.orthogonal() * (1.0 if wobble > PI else -1.0)
+	var want := orbit * 0.8 + dir * clampf((dist - 300.0) / 120.0, -1.0, 1.0)
+	position += arena.steer(position, want.normalized(), radius) * speed * slow * dt
+	facing = dir
+	var turn := 1.3 * dt
+	aim_dir = aim_dir.rotated(clampf(aim_dir.angle_to(dir), -turn, turn))
+	if state == "move":
+		var in_beam := dist < 400.0 and absf(aim_dir.angle_to(dir)) < 0.28
+		lock = lock + dt if in_beam else maxf(0.0, lock - dt * 2.0)
+		if lock >= 0.6:
+			lock = 0.0
+			state = "aim"
+			state_t = 0.1
+			shots_left = 4
+	elif state == "aim":
+		state_t -= dt
+		if state_t <= 0.0:
+			arena.spawn_bullet(position + aim_dir * (radius + 6.0), aim_dir.rotated(randf_range(-0.06, 0.06)) * 430.0, dmg, false, 0, 0, NEON_BLUE, 4.5)
+			shots_left -= 1
+			state_t = 0.11
+			if shots_left <= 0:
+				state = "move"
+	_contact(dist)
+
+## Videur : avance lourdement, lève les poings 0,8 s et frappe le sol : onde de choc qui s'élargit jusqu'à 280 px.
+## Pour l'éviter : sortir de la portée pendant que ses poings sont levés.
+func _bouncer(dt: float, dir: Vector2, dist: float, slow: float) -> void:
+	charge_cd -= dt
+	if state == "move":
+		var wd: Vector2 = arena.steer(position, dir, radius)
+		position += wd * speed * slow * dt
+		facing = wd
+		if charge_cd <= 0.0 and dist < 230.0:
+			state = "tell"
+			state_t = 0.8
+	elif state == "tell":
+		state_t -= dt
+		facing = dir
+		if state_t <= 0.0:
+			state = "ring"
+			state_t = 0.35
+			arena.shockwave(position, 280.0, 330.0, dmg, NEON_PINK)
+	elif state == "ring":
+		state_t -= dt
+		if state_t <= 0.0:
+			state = "move"
+			charge_cd = randf_range(2.6, 3.6)
+	_contact(dist)
+
+## L'Enseigne (boss de la Cité Néon) : éventails de tirs néon, spirale de tirs (télégraphiée 0,8 s), frappe au sol
+## en double onde, pluie d'obus autour de Jo ; appelle des patineurs aux deux tiers et au tiers de sa vie.
+func _boss2(dt: float, dir: Vector2, dist: float, slow: float) -> void:
+	pattern_t += dt
+	facing = dir
+	for th in [0.66, 0.33]:
+		if hp / hp_max < th and not spawned_at.has(th):
+			spawned_at[th] = true
+			arena.boss_summon(position, 5, "roller")
+	if state == "move":
+		if dist > 320.0:
+			position += arena.steer(position, dir, radius) * speed * slow * dt
+		else:
+			position += dir.orthogonal() * speed * 0.7 * slow * dt
+		fire_cd -= dt
+		if fire_cd <= 0.0:
+			for k in range(7):
+				arena.spawn_bullet(position + dir * (radius + 8.0), dir.rotated((k - 3) * 0.16) * 300.0, dmg * 0.55, false, 0, 0, NEON_PINK, 5.0)
+			fire_cd = 1.7
+		if pattern_t > 3.2:
+			pattern_t = 0.0
+			var r := randi() % 3
+			if r == 0:
+				state = "tell"
+				state_t = 0.8
+			elif r == 1:
+				state = "ring"
+				state_t = 1.1
+				shots_left = 2
+				arena.shockwave(position, 360.0, 300.0, dmg * 0.8, NEON_PINK)
+			else:
+				for k in range(5):
+					var p: Vector2 = hero.position + Vector2.RIGHT.rotated(TAU * k / 5.0 + randf()) * randf_range(40.0, 170.0)
+					arena.lob(position, p, 1.0 + k * 0.12, 58.0, dmg * 0.7)
+	elif state == "tell":
+		state_t -= dt
+		if state_t <= 0.0:
+			state = "spiral"
+			state_t = 2.2
+			shots_left = 0
+	elif state == "spiral":
+		state_t -= dt
+		fire_cd -= dt
+		if fire_cd <= 0.0:
+			fire_cd = 0.07
+			var a := t * 2.6
+			for k in range(3):
+				var d := Vector2.RIGHT.rotated(a + TAU * k / 3.0)
+				arena.spawn_bullet(position + d * (radius + 6.0), d * 230.0, dmg * 0.45, false, 0, 0, NEON_BLUE if k % 2 == 0 else NEON_PINK, 5.0)
+		if state_t <= 0.0:
+			state = "move"
+			fire_cd = 1.2
+	elif state == "ring":
+		state_t -= dt
+		if shots_left == 2 and state_t < 0.55:
+			shots_left = 1
+			arena.shockwave(position, 360.0, 300.0, dmg * 0.8, NEON_BLUE)
+		if state_t <= 0.0:
+			state = "move"
+	_contact(dist)
+
 func _boss(dt: float, dir: Vector2, dist: float, slow: float) -> void:
 	pattern_t += dt
 	facing = dir
@@ -353,7 +554,7 @@ func _draw() -> void:
 	if elite:
 		draw_arc(Vector2.ZERO, radius + 12.0, t * 1.5, t * 1.5 + TAU, 40, Color(GOLD, 0.85), 4.0, true)
 	if state == "tell":
-		var p := 1.0 - state_t / (0.8 if kind == "boss" else 0.7)
+		var p := 1.0 - state_t / (0.8 if kind.begins_with("boss") else 0.7)
 		draw_arc(Vector2.ZERO, radius + 8.0 + p * 20.0, 0.0, TAU, 40, Color(RED, 0.9 - p * 0.6), 4.0, true)
 		draw_line(Vector2.ZERO, charge_dir * (radius + 90.0), Color(RED, 0.5), 6.0)
 	elif state == "aim":

@@ -11,7 +11,9 @@ static func default_profile() -> Dictionary:
 		"inventory": [],  # instances d'objets {id, rarity, uid}
 		"equipped": {},  # slot -> uid
 		"arsenal": Data.DEFAULT_ARSENAL.duplicate(),
-		"shards": 0,
+		"shards": 0,  # éclats du Cœur : un par monde terminé
+		"worlds_done": [],  # indices des mondes terminés (boss vaincu)
+		"world": 0,  # dernier monde choisi au Relais
 		"tickets": 0,
 		"best_room": 0,
 		"runs": 0,
@@ -37,6 +39,10 @@ static func load_profile() -> Dictionary:
 	for k in p.keys():
 		if parsed.has(k):
 			p[k] = parsed[k]
+	# ancienne sauvegarde : les éclats comptaient chaque victoire ; un éclat = un monde terminé
+	if not parsed.has("worlds_done") and int(p["shards"]) > 0:
+		p["worlds_done"] = [0]
+	p["shards"] = (p["worlds_done"] as Array).size()
 	# ancienne sauvegarde : qui a déjà joué n'a pas besoin du tutoriel
 	if not parsed.has("tutorial_done") and int(p["runs"]) > 0:
 		p["tutorial_done"] = true
