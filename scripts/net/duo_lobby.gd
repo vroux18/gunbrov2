@@ -16,7 +16,6 @@ var _go: Button
 var _hosts: VBoxContainer
 var _hosts_sig := ""
 var _ip: LineEdit
-var _code: LineEdit
 var _relay_box: VBoxContainer
 var _relay_sig := ""
 var _room_l: Label
@@ -67,10 +66,16 @@ func rebuild() -> void:
 			_build_internet()
 		"relay_room":
 			_build_relay_room()
+		"relay_join":
+			_build_relay_join()
 	Fx.slide_in(_box, Vector2(140, 0), 0.0, 0.35)
 
 func _back() -> void:
 	main.sfx.play("click", 0.9, -6.0)
+	if mode == "relay_join":  # saisie du code : retour au choix créer / rejoindre, le relais reste trouvé
+		mode = "internet"
+		rebuild()
+		return
 	if mode == "menu":
 		duo.leave()
 		return
@@ -192,31 +197,85 @@ func _fill_internet() -> void:
 				mode = "relay_room"
 				rebuild())
 			_relay_box.add_child(c)
-			_relay_box.add_child(UI.label("Ou rejoindre avec le code :", 20, UI.MUTED))
-			var row := UI.hbox(10)
-			_relay_box.add_child(row)
-			_code = LineEdit.new()
-			_code.placeholder_text = "ABCD"
-			_code.max_length = 4
-			_code.custom_minimum_size = Vector2(0, 76)
-			_code.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			_code.add_theme_font_size_override("font_size", 38)
-			_code.alignment = HORIZONTAL_ALIGNMENT_CENTER
-			_code.text_changed.connect(func(t: String):
-				var up := t.to_upper()
-				if up != t:
-					var cpos := _code.caret_column
-					_code.text = up
-					_code.caret_column = cpos)
-			row.add_child(_code)
-			var j := UI.button("REJOINDRE", 24, UI.ORANGE, 190)
-			j.custom_minimum_size = Vector2(190, 76)
-			j.pressed.connect(func():
-				if _code.text.strip_edges().length() == 4:
-					duo.join_relay(_code.text.strip_edges())
-					mode = "relay_room"
-					rebuild())
-			row.add_child(j)
+			# le code se tape sur un clavier du jeu : le champ de texte n'ouvrait pas le clavier du téléphone
+			var jn := UI.button("REJOINDRE AVEC UN CODE", 26, UI.ACCENT)
+			jn.custom_minimum_size = Vector2(0, 88)
+			jn.pressed.connect(func():
+				main.sfx.play("click", 1.0, -6.0)
+				_code_txt = ""
+				mode = "relay_join"
+				rebuild())
+			_relay_box.add_child(jn)
+
+## Saisie du code de salle : 4 lettres sur un clavier du jeu (les lettres des codes : sans I ni O).
+const CODE_LETTERS := "ABCDEFGHJKLMNPQRSTUVWXYZ"
+var _code_txt := ""
+var _code_l: Label
+var _join_b: Button
+
+func _build_relay_join() -> void:
+	_text("Tape le code de la salle de ton partenaire :", 22, UI.TEXT)
+	_code_l = UI.title("", 60, UI.GOLD, UI.INK, HORIZONTAL_ALIGNMENT_CENTER)
+	_code_l.custom_minimum_size = Vector2(0, 84)
+	_box.add_child(_code_l)
+	var grid := GridContainer.new()
+	grid.columns = 8
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	_box.add_child(grid)
+	for ch in CODE_LETTERS:
+		var k := UI.button(ch, 30, UI.ACCENT)
+		k.custom_minimum_size = Vector2(0, 68)
+		k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		k.add_theme_font_override("font", UI.TITLE)
+		k.pressed.connect(func(): _code_key(ch))
+		grid.add_child(k)
+	var row := UI.hbox(10)
+	_box.add_child(row)
+	var del := UI.button("EFFACER", 24, UI.MUTED, 200)
+	del.custom_minimum_size = Vector2(200, 76)
+	del.pressed.connect(func(): _code_key(""))
+	row.add_child(del)
+	_join_b = UI.primary("REJOINDRE", 30)
+	_join_b.custom_minimum_size = Vector2(0, 76)
+	_join_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_join_b.pressed.connect(func():
+		if _code_txt.length() == 4:
+			duo.join_relay(_code_txt)
+			mode = "relay_room"
+			rebuild())
+	row.add_child(_join_b)
+	_code_show()
+
+## Une lettre de plus, ou "" pour effacer la dernière.
+func _code_key(ch: String) -> void:
+	main.sfx.play("click", 1.1 if ch != "" else 0.9, -8.0)
+	if ch == "":
+		_code_txt = _code_txt.substr(0, maxi(0, _code_txt.length() - 1))
+	elif _code_txt.length() < 4:
+		_code_txt += ch
+	_code_show()
+
+func _code_show() -> void:
+	var s := ""
+	for i in range(4):
+		s += (_code_txt[i] if i < _code_txt.length() else "_") + (" " if i < 3 else "")
+	_code_l.text = s
+	_join_b.disabled = _code_txt.length() != 4
+
+## Clavier physique (version web, ordinateur) : lettres, retour arrière, Entrée.
+func _unhandled_key_input(ev: InputEvent) -> void:
+	if mode != "relay_join" or not (ev is InputEventKey) or not ev.pressed or ev.echo:
+		return
+	var k := ev as InputEventKey
+	if k.keycode == KEY_BACKSPACE:
+		_code_key("")
+	elif k.keycode == KEY_ENTER or k.keycode == KEY_KP_ENTER:
+		_join_b.pressed.emit()
+	else:
+		var ch := String.chr(k.unicode).to_upper()
+		if ch.length() == 1 and ch in CODE_LETTERS:
+			_code_key(ch)
 
 func _build_relay_room() -> void:
 	_room_l = _text("", 52, UI.GOLD)
