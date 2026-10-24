@@ -13,6 +13,7 @@ const Enemy = preload("res://scripts/enemy.gd")
 const Partner3D = preload("res://scripts/net/partner3d.gd")
 const Data = preload("res://scripts/data.gd")
 const UI = preload("res://scripts/ui.gd")
+const Arena = preload("res://scripts/arena.gd")
 
 var duo: Node
 var main: Node
@@ -23,6 +24,8 @@ var p3d: Node3D
 var marker: Node3D
 var buf: Array = []  # instantanés reçus, triés par heure de l'hôte
 var evq: Array = []  # événements en attente de leur heure
+var _evq_new := false  # événements arrivés depuis le dernier tri de evq
+var _eidx := {}  # ennemi -> rang dans arena.enemies (tirs : le premier touché dans l'ordre de la liste)
 var ghosts := {}  # id réseau -> ennemi fantôme
 var picks := {}  # id réseau -> ramassage
 var offset := 0.0  # heure de l'hôte - heure locale (ms)
@@ -126,6 +129,7 @@ func on_snap(s: Dictionary) -> void:
 		buf.pop_front()
 	for e in s["events"]:
 		evq.append(e)
+		_evq_new = true
 	_apply_latest(buf[buf.size() - 1])
 
 func on_ev(d: Dictionary) -> void:
@@ -273,7 +277,6 @@ func _process(dt: float) -> void:
 	# effets dont la simulation est chez l'hôte : rien à faire vivre ici
 	arena.shells.clear()
 	arena.waves_fx.clear()
-	arena.particles.clear()
 	for pk in picks.values():
 		pk["t"] += dt
 	_send_input()
@@ -286,6 +289,15 @@ func _process(dt: float) -> void:
 ## Les tirs sont des objets légers (scripts/bullet.gd) : on les avance ici, l'arène ne simule pas chez l'invité.
 func _tick_bullets(dt: float) -> void:
 	var gone := []
+	# fantômes rangés dans la grille de l'arène (elle ne simule pas ici) : un tir ne teste que les cases voisines,
+	# et garde le premier touché dans l'ordre de arena.enemies, comme une boucle sur toute la liste
+	var en: Array = arena.enemies
+	var grid: bool = en.size() > 4
+	if grid:
+		arena._grid_build()
+		_eidx.clear()
+		for i in range(en.size()):
+			_eidx[en[i]] = i
 	for b in arena.bullets:
 		b.position += b.vel * dt
 		b.life -= dt
@@ -293,23 +305,52 @@ func _tick_bullets(dt: float) -> void:
 			gone.append(b)
 			continue
 		if b.hero_shot:
-			for e in arena.enemies:
-				if e in b.hits:
-					continue
-				if (e.position - b.position).length() < e.radius + b.radius:
-					if b.pierce > 0:
-						b.pierce -= 1
-						b.hits.append(e)
-					else:
-						gone.append(b)
-					break
+			var hit: Node2D = null
+			if grid:
+				hit = _first_hit(b)
+			else:
+				for e in en:
+					if e in b.hits:
+						continue
+					if (e.position - b.position).length() < e.radius + b.radius:
+						hit = e
+						break
+			if hit != null:
+				if b.pierce > 0:
+					b.pierce -= 1
+					b.hits.append(hit)
+				else:
+					gone.append(b)
 		else:
-			for h in [me, partner]:
+			for hi in range(2):
+				var h: Node2D = me if hi == 0 else partner
 				if not h.dead and (h.position - b.position).length() < h.radius + b.radius:
 					gone.append(b)
 					break
 	for b in gone:
 		arena.bullets.erase(b)
+
+## Premier fantôme (rang le plus bas dans arena.enemies) que le tir `b` touche, ou null. Grille faite par _tick_bullets.
+func _first_hit(b) -> Node2D:
+	var bp: Vector2 = b.position
+	var br: float = b.radius
+	var reach: float = br + arena._grid_rmax + 1.0
+	var x0 := maxi(0, int(floorf((bp.x - reach) / Arena.GRID_CELL)))
+	var x1 := mini(Arena.GRID_NX - 1, int(floorf((bp.x + reach) / Arena.GRID_CELL)))
+	var y0 := maxi(0, int(floorf((bp.y - reach) / Arena.GRID_CELL)))
+	var y1 := mini(Arena.GRID_NY - 1, int(floorf((bp.y + reach) / Arena.GRID_CELL)))
+	var best: Node2D = null
+	var best_i := 1 << 30
+	for cx in range(x0, x1 + 1):
+		for cy in range(y0, y1 + 1):
+			for e in arena._cells[cx * Arena.GRID_NY + cy]:
+				var i: int = _eidx[e]
+				if i >= best_i or e in b.hits:
+					continue
+				if (e.position - bp).length() < e.radius + br:
+					best = e
+					best_i = i
+	return best
 
 func _interpolate(rt: float, dt: float) -> void:
 	if buf.is_empty():
@@ -421,7 +462,10 @@ func _kill_ghost(id: int) -> void:
 func _play_events(rt: float) -> void:
 	if evq.is_empty():
 		return
-	evq.sort_custom(func(x, y): return int(x["ms"]) < int(y["ms"]))
+	if _evq_new:
+		# trié seulement quand de nouveaux événements sont arrivés (sinon il l'est déjà)
+		_evq_new = false
+		evq.sort_custom(func(x, y): return int(x["ms"]) < int(y["ms"]))
 	var n := 0
 	while n < evq.size() and float(evq[n]["ms"]) <= rt:
 		var e: Dictionary = evq[n]
@@ -450,7 +494,8 @@ func _play_events(rt: float) -> void:
 			Proto.E_SHELL:
 				arena.lob(e["from"], e["to"], float(e["flight"]), float(e["r"]), 0.0)
 		n += 1
-	evq = evq.slice(n)
+	if n > 0:
+		evq = evq.slice(n)
 	# événements trop vieux (horloge recalée, salle changée) : jetés
 	while evq.size() > 400:
 		evq.pop_front()

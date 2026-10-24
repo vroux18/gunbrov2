@@ -190,6 +190,9 @@ func tick(dt: float) -> void:
 			_bouncer(dt, dir, dist, slow)
 		"boss2":
 			_boss2(dt, dir, dist, slow)
+	# dessin 2D : l'arène est cachée en jeu (rendu 3D), on ne redemande le dessin que s'il se voit
+	if not is_visible_in_tree():
+		return
 	if _spr != null:
 		_spr.rotation = facing.angle()
 		var m := Color.WHITE

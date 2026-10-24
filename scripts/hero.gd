@@ -279,18 +279,21 @@ func update(dt: float, mv: Vector2, am: Vector2, aim_active: bool) -> void:
 		anim += dt * 11.0 * mv.length()
 	_recoil = maxf(0.0, _recoil - dt * 40.0)
 	_flash_t -= dt
-	_flash.visible = _flash_t > 0.0
-	_flash.rotation += dt * 20.0
-	var bob := absf(sin(anim)) * 3.0 if moving else 0.0
-	_spr.position = Vector2(0, -2 + _recoil - bob)
-	_spr.rotation = sin(anim) * 0.06 if moving else 0.0
-	_spr.scale = Vector2(0.5, 0.5 - _recoil * 0.004)
-	var m := Color.WHITE
-	if flash > 0.0:
-		m = Color(1.7, 1.7, 1.7)
-	elif invuln > 0.0 and int(invuln * 20.0) % 2 == 0 and not preview:
-		m = Color(1.0, 1.0, 1.0, 0.5)
-	_spr.modulate = m
+	# dessin 2D : l'arène est cachée en jeu (Jo est rendue en 3D), on ne le met à jour que s'il se voit
+	var shown := is_visible_in_tree()
+	if shown:
+		_flash.visible = _flash_t > 0.0
+		_flash.rotation += dt * 20.0
+		var bob := absf(sin(anim)) * 3.0 if moving else 0.0
+		_spr.position = Vector2(0, -2 + _recoil - bob)
+		_spr.rotation = sin(anim) * 0.06 if moving else 0.0
+		_spr.scale = Vector2(0.5, 0.5 - _recoil * 0.004)
+		var m := Color.WHITE
+		if flash > 0.0:
+			m = Color(1.7, 1.7, 1.7)
+		elif invuln > 0.0 and int(invuln * 20.0) % 2 == 0 and not preview:
+			m = Color(1.0, 1.0, 1.0, 0.5)
+		_spr.modulate = m
 	# le tir ne part que quand le stick droit est poussé ; sinon Jo regarde où elle va
 	var fire := false
 	if aim_active:
@@ -305,7 +308,8 @@ func update(dt: float, mv: Vector2, am: Vector2, aim_active: bool) -> void:
 			r *= 1.0 + 0.6 + 0.4 * (lv("momentum") - 1)
 		fire_cd = 1.0 / r
 		_shoot()
-	queue_redraw()
+	if shown:
+		queue_redraw()
 
 func _shoot() -> void:
 	shot_i += 1

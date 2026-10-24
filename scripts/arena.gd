@@ -55,6 +55,9 @@ const ICE := Color("#9FDCFF")
 const SHOCK := Color("#FFE45C")
 const VENOM := Color("#8BE05A")
 const GRID_CELL := 128.0
+const GRID_NX := 19  # cases de la grille : ceil(W / GRID_CELL) × ceil(H / GRID_CELL)
+const GRID_NY := 11
+const OBS_REACH := 96.0  # caisses rangées par case avec cette marge (collisions de cercles, sondes de trajet)
 
 var sfx: Node
 var hero: Node2D
@@ -62,14 +65,13 @@ var joy: Node
 var cam: Camera2D
 var ents: Node2D
 var fxn: Node2D
-var fxa: Node2D  # couche additive : halos, particules
+var fxa: Node2D  # couche additive : halos
 var obstacles: Array[Rect2] = []
 var pads: Array[Vector2] = []
 
 var enemies: Array = []
 var bullets: Array = []
 var pickups: Array = []
-var particles: Array = []
 var shells: Array = []  # obus du mortier en vol : {from, to, t, flight, r, dmg}
 var waves_fx: Array = []  # ondes de choc au sol (videur, boss) : {pos, r, max, spd, dmg, hit}
 var doors: Array = []  # portails de fin de salle : {pos, kind, title, desc, col}, Jo entre dans l'un d'eux
@@ -90,7 +92,15 @@ var _pt := {}  # minuteries des pouvoirs périodiques
 var _dash_hits: Array = []
 var _trail_last := Vector2.ZERO
 var _boom_sfx := 0.0
-var _grid := {}  # ennemis rangés par case (collisions des tirs et des zones)
+var _cells: Array = []  # ennemis rangés par case (collisions des tirs et des zones), index cx * GRID_NY + cy
+var _cells_used := PackedInt32Array()  # cases remplies à cette image, vidées à la suivante
+var _grid_rmax := 0.0  # plus grand rayon des ennemis rangés
+var _grid_fresh := false  # vrai du rangement de la grille à la fin de _process : portées resserrées (_reach)
+var _obs_cells: Array = []  # par case : indices (dans l'ordre) des caisses à moins de OBS_REACH de la case
+var _sep_pos := PackedVector2Array()  # écartement des ennemis : positions et rayons copiés (_separate)
+var _sep_rad := PackedFloat64Array()
+var _obs_pt := PackedByteArray()  # par case : 1 si une caisse la touche (test d'un point : tirs)
+var _obs_n := -1  # taille de `obstacles` quand _obs_cells a été rangé
 ## Mode duo (scripts/net/duo.gd), chez l'hôte : la Jo de l'invité, simulée ici comme un second héros.
 ## Nul en solo : tout le code duo de ce fichier est alors sans effet.
 var partner: Node2D = null
@@ -115,6 +125,11 @@ var hp_scale := 1.0
 var elapsed := 0.0
 var shake_t := 0.0
 var _rng := RandomNumberGenerator.new()
+
+func _init() -> void:
+	_cells.resize(GRID_NX * GRID_NY)
+	for i in range(_cells.size()):
+		_cells[i] = []
 
 func build(sfx_node: Node, hero_node: Node2D) -> void:
 	sfx = sfx_node
@@ -163,6 +178,7 @@ func _layout() -> void:
 	if Data.world_id() != "n7" and ResourceLoader.exists(wpath):
 		for b in load(wpath).BOXES:
 			obstacles.append(b)
+		_obs_build()
 		_pads()
 		return
 	# caisses du hangar : quelques groupes, jamais au centre ni devant les sas
@@ -177,6 +193,7 @@ func _layout() -> void:
 	]
 	for b in boxes:
 		obstacles.append(b)
+	_obs_build()
 	_pads()
 
 ## Sas d'apparition des ennemis (les mêmes dans tous les mondes).
@@ -210,7 +227,6 @@ func _clear_entities() -> void:
 	enemies.clear()
 	bullets.clear()
 	pickups.clear()
-	particles.clear()
 	shells.clear()
 	doors.clear()
 	waves_fx.clear()
@@ -225,7 +241,7 @@ func _clear_entities() -> void:
 	blade_pos.clear()
 	_later.clear()
 	_pt.clear()
-	_grid.clear()
+	_grid_clear()
 
 func start_room(r: int, mod: String) -> void:
 	room = r
@@ -292,6 +308,7 @@ func enemies_left() -> int:
 func _process(dt: float) -> void:
 	if not running:
 		return
+	_grid_fresh = false  # jusqu'au rangement de cette image, la grille peut dater (ennemis déplacés entre-temps)
 	elapsed += dt
 	if shake_t > 0.0:
 		shake_t -= dt
@@ -325,51 +342,68 @@ func _process(dt: float) -> void:
 			e.hero = nearest_hero(e.position)
 	for e in enemies:
 		e.tick(dt)
-	for i in range(enemies.size()):
-		var a: Node2D = enemies[i]
-		for j in range(i + 1, enemies.size()):
-			var b: Node2D = enemies[j]
-			var d: Vector2 = b.position - a.position
-			var min_d: float = a.radius + b.radius
-			var l := d.length()
-			if l < min_d and l > 0.01:
-				var push := d.normalized() * (min_d - l) * 0.5
-				a.position -= push
-				b.position += push
+	_separate()
 	for e in enemies:
 		_clamp_circle(e, e.radius)
 	_grid_build()
 	_tick_status(dt)
 	# projectiles (objets légers, déplacés ici)
 	var dead_bullets := []
+	if _obs_n != obstacles.size():
+		_obs_build()
+	# portée de recherche des tirs de Jo : un ennemi touché a son centre à moins de rayon + 10 (bouclier)
+	# + rayon du tir ; jamais plus que les 80 px d'origine
+	var e_reach := _reach(10.0, 80.0)
 	for b in bullets:
-		b.position += b.vel * dt
+		var bp: Vector2 = b.position + b.vel * dt
+		b.position = bp
 		b.life -= dt
 		if b.life <= 0.0:
 			dead_bullets.append(b)
 			continue
-		if _bullet_walls(b):
-			dead_bullets.append(b)
-			continue
+		# murs et caisses : rien à tester loin des bords et dans une case sans caisse
+		if bp.x < WALL or bp.x > W - WALL or bp.y < TOP or bp.y > H - WALL or _obs_pt[int(bp.x / GRID_CELL) * GRID_NY + int(bp.y / GRID_CELL)] != 0:
+			if _bullet_walls(b):
+				dead_bullets.append(b)
+				continue
+			bp = b.position  # un rebond a pu le déplacer
 		if b.hero_shot:
-			for e in _near(b.position, b.radius + 80.0):
-				if e.dead or e in b.hits:
-					continue
-				if (e.position - b.position).length() < e.radius + b.radius + (10.0 if e.kind == "shield" else 0.0):
-					if e.blocks(b.position - b.vel.normalized() * 30.0):
-						shield_blocked.emit(e, b.position, b.vel)
-						bullet_blocked.emit(b.position, b.color)
-						sfx.play("hit", randf_range(1.4, 1.7), -8.0)
-						_burst(b.position, ORANGE, 5, 200.0, 2.0)
-						dead_bullets.append(b)
+			# ennemis des cases proches (comme _near, sans liste intermédiaire : c'est la boucle la plus chaude)
+			var reach: float = b.radius + e_reach
+			var x0 := maxi(0, int(floorf((bp.x - reach) / GRID_CELL)))
+			var x1 := mini(GRID_NX - 1, int(floorf((bp.x + reach) / GRID_CELL)))
+			var y0 := maxi(0, int(floorf((bp.y - reach) / GRID_CELL)))
+			var y1 := mini(GRID_NY - 1, int(floorf((bp.y + reach) / GRID_CELL)))
+			var done := false
+			for cx in range(x0, x1 + 1):
+				for cy in range(y0, y1 + 1):
+					for e in _cells[cx * GRID_NY + cy]:
+						# la grille date du début de l'image : un ennemi libéré entre-temps est sauté
+						if not is_instance_valid(e) or e.dead or e in b.hits:
+							continue
+						var dl: float = (e.position - bp).length()
+						if dl < e.radius + b.radius + (10.0 if e.kind == "shield" else 0.0):
+							if e.blocks(bp - b.vel.normalized() * 30.0):
+								shield_blocked.emit(e, bp, b.vel)
+								bullet_blocked.emit(bp, b.color)
+								sfx.play("hit", randf_range(1.4, 1.7), -8.0)
+								dead_bullets.append(b)
+								done = true
+								break
+							if dl >= e.radius + b.radius:
+								continue
+							if _bullet_hit(b, e):
+								dead_bullets.append(b)
+							done = true
+							break
+					if done:
 						break
-					if (e.position - b.position).length() >= e.radius + b.radius:
-						continue
-					if _bullet_hit(b, e):
-						dead_bullets.append(b)
+				if done:
 					break
 		else:
-			for h in heroes():
+			var p2: Node2D = partner
+			for hi in range(1 if p2 == null else 2):
+				var h: Node2D = hero if hi == 0 else p2
 				if (h.position - b.position).length() < h.radius + b.radius:
 					if h == hero and hero.dodge_t <= 0.0 and hero.invuln <= 0.0 and randf() < [0.0, 0.25, 0.45][hero.lv("deflect")]:
 						_deflect(b)
@@ -427,13 +461,17 @@ func _process(dt: float) -> void:
 	var taken := []
 	for pk in pickups:
 		pk["t"] += dt
-		pk["pos"] += pk["vel"] * dt
-		pk["vel"] *= 0.9
-		var to: Node2D = hero if partner == null else nearest_hero(pk["pos"])  # duo : la Jo la plus proche
-		var d: Vector2 = to.position - pk["pos"]
-		if d.length() < attract:
-			pk["pos"] += d.normalized() * 520.0 * dt
-		if d.length() < to.radius + 14.0:
+		var pp: Vector2 = pk["pos"]
+		var pv: Vector2 = pk["vel"]
+		pp += pv * dt
+		pk["vel"] = pv * 0.9
+		var to: Node2D = hero if partner == null else nearest_hero(pp)  # duo : la Jo la plus proche
+		var d: Vector2 = to.position - pp
+		var dl := d.length()
+		if dl < attract:
+			pp += d.normalized() * 520.0 * dt
+		pk["pos"] = pp
+		if dl < to.radius + 14.0:
 			pk["by"] = to
 			taken.append(pk)
 	for pk in taken:
@@ -475,23 +513,48 @@ func _process(dt: float) -> void:
 				bonus = 2
 			sfx.play("chest")
 			chest_opened.emit(chest["pos"])
-			_burst(chest["pos"], GOLD, 24, 260.0, 4.0)
 			item_found.emit(Data.roll_item(bonus))
 			if partner != null:
 				partner_item.emit(Data.roll_item(bonus))  # duo : un objet pour chacune
-	# particules
-	var i := 0
-	while i < particles.size():
-		var pa: Dictionary = particles[i]
-		pa["life"] -= dt
-		if pa["life"] <= 0.0:
-			particles.remove_at(i)
-			continue
-		pa["pos"] += pa["vel"] * dt
-		pa["vel"] *= 0.92
-		i += 1
-	fxn.queue_redraw()
-	fxa.queue_redraw()
+	_grid_fresh = false  # hors de cette fenêtre, des ennemis ont pu bouger depuis le rangement
+	# dessin 2D (tourelles, butin, halos) : l'arène est cachée en jeu, rendue en 3D par view3d.gd
+	if is_visible_in_tree():
+		fxn.queue_redraw()
+		fxa.queue_redraw()
+
+## Les ennemis qui se chevauchent s'écartent l'un de l'autre (chaque paire, dans l'ordre de la liste).
+## Calcul sur des copies des positions et rayons (lire et écrire les nœuds coûte bien plus cher), reportées à la fin.
+func _separate() -> void:
+	var n := enemies.size()
+	if n < 2:
+		return
+	_sep_pos.resize(n)
+	_sep_rad.resize(n)
+	for i in range(n):
+		var e: Node2D = enemies[i]
+		_sep_pos[i] = e.position
+		_sep_rad[i] = e.radius
+	var moved := false
+	for i in range(n):
+		var pa: Vector2 = _sep_pos[i]
+		var ra: float = _sep_rad[i]
+		for j in range(i + 1, n):
+			var d: Vector2 = _sep_pos[j] - pa
+			var min_d: float = ra + _sep_rad[j]
+			if absf(d.x) > min_d + 0.5 or absf(d.y) > min_d + 0.5:
+				continue  # trop loin sur un axe : la distance dépasse min_d
+			var l := d.length()
+			if l < min_d and l > 0.01:
+				var push := d.normalized() * (min_d - l) * 0.5
+				pa -= push
+				_sep_pos[j] += push
+				moved = true
+		_sep_pos[i] = pa
+	if moved:
+		for i in range(n):
+			var e: Node2D = enemies[i]
+			if e.position != _sep_pos[i]:
+				e.position = _sep_pos[i]
 
 func _room_done() -> void:
 	cleared = true
@@ -529,7 +592,6 @@ func _spawn(spec: String) -> void:
 	enemies.append(e)
 	enemy_spawned.emit(e)
 	sfx.play("spawn", randf_range(0.9, 1.2), -16.0)
-	_burst(e.position, CYAN, 8, 180.0, 3.0)
 
 func boss_summon(pos: Vector2, n: int, kind: String = "") -> void:
 	for i in range(n):
@@ -542,7 +604,6 @@ func boss_summon(pos: Vector2, n: int, kind: String = "") -> void:
 		ents.add_child(e)
 		enemies.append(e)
 		enemy_spawned.emit(e)
-		_burst(e.position, RED, 8, 180.0, 3.0)
 	sfx.play("portal", 0.8)
 
 ## Ouvre les portails de fin de salle (liste de {kind, title, desc, col}) en arc devant Jo, dans l'aire de jeu
@@ -579,7 +640,6 @@ func shockwave(pos: Vector2, max_r: float, spd: float, dmg: float, col: Color) -
 func explode(pos: Vector2, r: float, hero_dmg: float, enemy_dmg: float, col: Color) -> void:
 	exploded.emit(pos, r, col)
 	sfx.play("boom", randf_range(1.0, 1.2), -3.0)
-	_burst(pos, col, 18, 320.0, 5.0)
 	shake_t = maxf(shake_t, 0.12)
 	if hero_dmg > 0.0 and (hero.position - pos).length() < r + hero.radius * 0.5:
 		if hero.take_damage(hero_dmg):
@@ -613,7 +673,6 @@ func on_enemy_died(e: Node2D, rewarded: bool = true) -> void:
 	energy += float(e.energy) * hero.energy_mult
 	sfx.play("kill", randf_range(0.9, 1.2), -4.0)
 	var is_boss: bool = e.kind.begins_with("boss")
-	_burst(e.position, RED if not is_boss else Color("#F23CB8"), 14 if not is_boss else 60, 220.0, 4.0)
 	for i in range(e.tickets):
 		pickups.append({"pos": e.position, "kind": "ticket", "vel": Vector2.RIGHT.rotated(randf() * TAU) * randf_range(60, 200), "t": 0.0})
 	if randf() < 0.07:
@@ -676,8 +735,17 @@ func steer(pos: Vector2, dir: Vector2, r: float) -> Vector2:
 func _blocked(p: Vector2, r: float) -> bool:
 	if p.x < WALL + r or p.x > W - WALL - r or p.y < TOP + r or p.y > H - WALL - r:
 		return true
-	for o in obstacles:
-		if o.grow(r * 0.8).has_point(p):
+	if r * 0.8 >= OBS_REACH - 2.0:
+		for o in obstacles:
+			if o.grow(r * 0.8).has_point(p):
+				return true
+		return false
+	# seules les caisses de la case peuvent contenir `p` (marge OBS_REACH > 0,8 r) ; `p` est dans l'arène,
+	# donc dans la grille (_obs_near écrit ici en ligne : chaque ennemi sonde son chemin à chaque image)
+	if _obs_n != obstacles.size():
+		_obs_build()
+	for i in _obs_cells[int(p.x / GRID_CELL) * GRID_NY + int(p.y / GRID_CELL)]:
+		if obstacles[i].grow(r * 0.8).has_point(p):
 			return true
 	return false
 
@@ -692,15 +760,16 @@ func live_heroes() -> Array:
 			r.append(h)
 	return r
 
-## Jo vivante la plus proche (en solo : Jo).
+## Jo vivante la plus proche (en solo : Jo). Sans liste : appelée pour chaque ennemi à chaque image en duo.
 func nearest_hero(pos: Vector2) -> Node2D:
 	var best: Node2D = hero
 	var bd := INF
-	for h in live_heroes():
-		var d: float = (h.position - pos).length_squared()
+	if not hero.dead:
+		var d := (hero.position - pos).length_squared()
 		if d < bd:
 			bd = d
-			best = h
+	if partner != null and not partner.dead and (partner.position - pos).length_squared() < bd:
+		best = partner
 	return best
 
 func nearest_enemy(pos: Vector2, max_d: float) -> Node2D:
@@ -717,34 +786,77 @@ func nearest_enemy(pos: Vector2, max_d: float) -> Node2D:
 
 # ---------------------------------------------------------------- pouvoirs
 ## Grille des ennemis (cases de GRID_CELL px) : les tirs et les zones ne testent que les ennemis proches.
+## Grille plate (GRID_NX × GRID_NY listes réutilisées) : aucune allocation par image. Les ennemis sont dans
+## l'arène (_clamp_circle passe avant) ; une position hors carte irait dans la case du bord.
 func _grid_build() -> void:
-	_grid.clear()
+	_grid_clear()
+	_grid_rmax = 0.0
+	_grid_fresh = true
 	for e in enemies:
-		var k := _cell(e.position)
-		if _grid.has(k):
-			(_grid[k] as Array).append(e)
-		else:
-			_grid[k] = [e]
+		_grid_rmax = maxf(_grid_rmax, e.radius)
+		var p: Vector2 = e.position
+		var k := clampi(int(p.x / GRID_CELL), 0, GRID_NX - 1) * GRID_NY + clampi(int(p.y / GRID_CELL), 0, GRID_NY - 1)
+		var c: Array = _cells[k]
+		if c.is_empty():
+			_cells_used.append(k)
+		c.append(e)
 
-func _cell(p: Vector2) -> int:
-	return int(floorf(p.x / GRID_CELL)) * 1000 + int(floorf(p.y / GRID_CELL))
+func _grid_clear() -> void:
+	for k in _cells_used:
+		(_cells[k] as Array).clear()
+	_cells_used.clear()
+
+## Portée de recherche dans la grille pour un test « distance < base + rayon de l'ennemi » : base + le plus grand
+## rayon rangé, jamais plus que la portée d'origine `orig`. Seulement si la grille est à jour (sinon `orig`) :
+## le résultat est le même, on visite juste moins de cases.
+func _reach(base: float, orig: float) -> float:
+	return minf(orig, base + _grid_rmax + 1.0) if _grid_fresh else orig
 
 ## Ennemis rangés dans les cases qui touchent le disque (`pos`, `reach`) : à affiner par la vraie distance.
 func _near(pos: Vector2, reach: float) -> Array:
-	var x0 := int(floorf((pos.x - reach) / GRID_CELL))
-	var x1 := int(floorf((pos.x + reach) / GRID_CELL))
-	var y0 := int(floorf((pos.y - reach) / GRID_CELL))
-	var y1 := int(floorf((pos.y + reach) / GRID_CELL))
 	var out := []
+	_near_into(out, pos, reach)
+	return out
+
+## Comme _near, dans la liste `out` (vidée d'abord) : une boucle sur des dizaines de zones garde une seule liste.
+func _near_into(out: Array, pos: Vector2, reach: float) -> void:
+	out.clear()
+	var x0 := maxi(0, int(floorf((pos.x - reach) / GRID_CELL)))
+	var x1 := mini(GRID_NX - 1, int(floorf((pos.x + reach) / GRID_CELL)))
+	var y0 := maxi(0, int(floorf((pos.y - reach) / GRID_CELL)))
+	var y1 := mini(GRID_NY - 1, int(floorf((pos.y + reach) / GRID_CELL)))
 	for cx in range(x0, x1 + 1):
 		for cy in range(y0, y1 + 1):
-			var k := cx * 1000 + cy
-			if _grid.has(k):
-				for e in _grid[k]:
-					# la grille date du début de l'image : un ennemi libéré entre-temps est sauté
-					if is_instance_valid(e):
-						out.append(e)
-	return out
+			for e in _cells[cx * GRID_NY + cy]:
+				# la grille date du début de l'image : un ennemi libéré entre-temps est sauté
+				if is_instance_valid(e):
+					out.append(e)
+
+## Caisses rangées par case de GRID_CELL px : chaque case garde, dans l'ordre de `obstacles`, les caisses dont le
+## rectangle élargi de OBS_REACH la touche. Un point de la case est donc à plus de OBS_REACH de toutes les autres.
+func _obs_build() -> void:
+	_obs_n = obstacles.size()
+	_obs_cells.resize(GRID_NX * GRID_NY)
+	_obs_pt.resize(GRID_NX * GRID_NY)
+	_obs_pt.fill(0)
+	for cx in range(GRID_NX):
+		for cy in range(GRID_NY):
+			var cell := Rect2(cx * GRID_CELL, cy * GRID_CELL, GRID_CELL, GRID_CELL)
+			var ids := PackedInt32Array()
+			for i in range(obstacles.size()):
+				if obstacles[i].grow(OBS_REACH).intersects(cell, true):
+					ids.append(i)
+				if obstacles[i].intersects(cell, true):
+					_obs_pt[cx * GRID_NY + cy] = 1
+			_obs_cells[cx * GRID_NY + cy] = ids
+
+## Indices des caisses proches de `p` (case de la grille), ou null si `p` est hors carte (tout tester alors).
+func _obs_near(p: Vector2):
+	if _obs_n != obstacles.size():
+		_obs_build()
+	if p.x < 0.0 or p.y < 0.0 or p.x >= GRID_NX * GRID_CELL or p.y >= GRID_NY * GRID_CELL:
+		return null
+	return _obs_cells[int(p.x / GRID_CELL) * GRID_NY + int(p.y / GRID_CELL)]
 
 ## Dégâts d'un pouvoir sur un ennemi ; `show` : chiffre et étincelles comme un tir.
 func hurt(e: Node2D, d: float, show: bool = false, crit: bool = false) -> void:
@@ -764,7 +876,6 @@ func _bullet_hit(b, e: Node2D) -> bool:
 	enemy_hit.emit(e, b.position, d, b.crit)
 	e.hit(d)
 	sfx.play("hit", randf_range(0.8, 1.2), -10.0)
-	_burst(b.position, b.color, 4, 140.0, 2.0)
 	if b.elem != 0 and not e.dead:
 		if b.elem & 1:
 			ignite(e, hero.dmg * (0.35 + 0.25 * (hero.lv("fire") - 1)), 3.0)
@@ -868,7 +979,7 @@ func chain(from_e: Node2D, d: float, jumps: int, col: Color) -> void:
 
 ## Explosion d'un pouvoir : ne blesse que les ennemis. `burn` > 0 : enflamme (dégâts par seconde).
 func blast(pos: Vector2, r: float, d: float, col: Color, kind: String = "blast", burn: float = 0.0) -> void:
-	for o in _near(pos, r + 80.0):
+	for o in _near(pos, _reach(r, r + 80.0)):
 		if not o.dead and (o.position - pos).length() < r + o.radius:
 			hurt(o, d)
 			if burn > 0.0:
@@ -882,7 +993,7 @@ func blast(pos: Vector2, r: float, d: float, col: Color, kind: String = "blast",
 
 ## Onde de choc de Jo : repousse, blesse, efface les tirs ennemis dans le rayon.
 func pulse(pos: Vector2, r: float, d: float, col: Color) -> void:
-	for o in _near(pos, r + 80.0):
+	for o in _near(pos, _reach(r, r + 80.0)):
 		if o.dead:
 			continue
 		var v: Vector2 = o.position - pos
@@ -918,6 +1029,7 @@ func _tick_status(dt: float) -> void:
 		if e.burn_t > 0.0:
 			e.burn_t -= dt
 			e.hit(e.burn_dps * dt)
+	var near := []
 	var i := 0
 	while i < clouds.size():
 		var c: Dictionary = clouds[i]
@@ -925,7 +1037,8 @@ func _tick_status(dt: float) -> void:
 		if c["t"] >= c["life"]:
 			clouds.remove_at(i)
 			continue
-		for e in _near(c["pos"], c["r"] + 80.0):
+		_near_into(near, c["pos"], _reach(c["r"], c["r"] + 80.0))
+		for e in near:
 			if not e.dead and (e.position - c["pos"]).length() < c["r"] + e.radius:
 				e.poison_t = 0.3
 				e.hit(c["dps"] * dt)
@@ -937,7 +1050,8 @@ func _tick_status(dt: float) -> void:
 		if f["t"] >= f["life"]:
 			fires.remove_at(i)
 			continue
-		for e in _near(f["pos"], f["r"] + 80.0):
+		_near_into(near, f["pos"], _reach(f["r"], f["r"] + 80.0))
+		for e in near:
 			if not e.dead and (e.position - f["pos"]).length() < f["r"] + e.radius:
 				ignite(e, f["dps"], 1.5)
 		i += 1
@@ -956,7 +1070,7 @@ func _tick_status(dt: float) -> void:
 				_pt["bliz"] = 0.0
 				bliz = true
 				power_event.emit("pulse", {"pos": hero.position, "r": ar, "col": ICE})
-		for e in _near(hero.position, ar + 80.0):
+		for e in _near(hero.position, _reach(ar, ar + 80.0)):
 			if e.dead or (e.position - hero.position).length() > ar + e.radius:
 				continue
 			e.chill_t = maxf(e.chill_t, 0.35)
@@ -972,6 +1086,7 @@ func aura_radius() -> float:
 func _tick_machines(dt: float) -> void:
 	var mr: float = hero.mach_rate
 	var md: float = hero.mach_dmg
+	var near := []  # liste réutilisée par _near_into (lames, mines)
 	for tr in turrets:
 		tr["cd"] -= dt
 		var e: Node2D = nearest_enemy(tr["pos"], 440.0)
@@ -1003,20 +1118,27 @@ func _tick_machines(dt: float) -> void:
 		var storm: bool = hero.has_evo("moulinette")
 		blade_ang += dt * (5.2 if storm else 4.2)
 		var rr := blade_radius()
+		# Tempête de lames : seuls les tirs ennemis peuvent être coupés, triés une fois pour toutes les lames
+		var foes := []
+		if storm:
+			for b in bullets:
+				if not b.hero_shot:
+					foes.append(b)
 		for k in range(nb):
 			var p: Vector2 = hero.position + Vector2.RIGHT.rotated(blade_ang + TAU * k / nb) * rr
 			blade_pos.append(p)
-			for e in _near(p, 100.0):
+			_near_into(near, p, _reach(20.0, 100.0))
+			for e in near:
 				if e.dead or e.touch_cd > 0.0 or (e.position - p).length() > e.radius + 20.0:
 					continue
 				hurt(e, hero.dmg * 1.1 * md, true)
 				e.touch_cd = 0.3 / mr
 				if not e.dead and not e.kind.begins_with("boss"):
 					e.push += (e.position - hero.position).normalized() * 160.0
-			if storm:
+			if storm and not foes.is_empty():
 				var cut := []
-				for b in bullets:
-					if not b.hero_shot and (b.position - p).length() < 26.0:
+				for b in foes:
+					if (b.position - p).length() < 26.0 and bullets.has(b):
 						cut.append(b)
 				for b in cut:
 					bullets.erase(b)
@@ -1033,23 +1155,29 @@ func _tick_machines(dt: float) -> void:
 	var i := 0
 	while i < missiles.size():
 		var m: Dictionary = missiles[i]
-		m["t"] += dt
+		var mt: float = m["t"] + dt
+		m["t"] = mt
 		var tg = m["target"]
 		if tg == null or not is_instance_valid(tg) or tg.dead:
 			tg = nearest_enemy(m["pos"], 900.0)
 			m["target"] = tg
-		var spd := minf(640.0, 240.0 + m["t"] * 900.0)
+		var spd := minf(640.0, 240.0 + mt * 900.0)
+		# position et vitesse lues une fois, réécrites une fois (jusqu'à 40 missiles par image)
+		var mp: Vector2 = m["pos"]
+		var mv: Vector2 = m["vel"]
 		if tg != null:
-			var want: Vector2 = (tg.position - m["pos"]).normalized()
-			m["vel"] = (m["vel"] as Vector2).normalized().slerp(want, clampf(dt * 5.0, 0.0, 1.0)) * spd
+			var want: Vector2 = (tg.position - mp).normalized()
+			mv = mv.normalized().slerp(want, clampf(dt * 5.0, 0.0, 1.0)) * spd
 		else:
-			m["vel"] = (m["vel"] as Vector2).normalized() * spd
-		m["pos"] += m["vel"] * dt
-		var boom: bool = m["t"] > 3.0 or _blocked(m["pos"], 4.0)
-		if tg != null and (tg.position - m["pos"]).length() < tg.radius + 12.0:
+			mv = mv.normalized() * spd
+		mp += mv * dt
+		m["vel"] = mv
+		m["pos"] = mp
+		var boom: bool = mt > 3.0 or _blocked(mp, 4.0)
+		if tg != null and (tg.position - mp).length() < tg.radius + 12.0:
 			boom = true
 		if boom:
-			blast(m["pos"], 72.0, m["dmg"], Color("#FFB347"), "missile")
+			blast(mp, 72.0, m["dmg"], Color("#FFB347"), "missile")
 			missiles.remove_at(i)
 			continue
 		i += 1
@@ -1068,7 +1196,8 @@ func _tick_machines(dt: float) -> void:
 		mn["t"] += dt
 		var go: bool = mn["t"] > 25.0
 		if mn["t"] > 0.4 and not go:
-			for e in _near(mn["pos"], 120.0):
+			_near_into(near, mn["pos"], _reach(30.0, 120.0))
+			for e in near:
 				if not e.dead and (e.position - mn["pos"]).length() < e.radius + 30.0:
 					go = true
 					break
@@ -1107,7 +1236,7 @@ func _tick_machines(dt: float) -> void:
 			sv.y = -sv.y
 		sw["vel"] = sv
 		sw["pos"] = Vector2(clampf(sp.x, WALL + 10.0, W - WALL - 10.0), clampf(sp.y, TOP + 10.0, H - WALL - 10.0))
-		for e in _near(sw["pos"], 100.0):
+		for e in _near(sw["pos"], _reach(18.0, 100.0)):
 			if e.dead or e in sw["hit"] or (e.position - sw["pos"]).length() > e.radius + 18.0:
 				continue
 			hurt(e, sw["dmg"], true)
@@ -1222,7 +1351,7 @@ func _tick_powers(dt: float) -> void:
 	if hero.dash_t > 0.0:
 		var ph: int = hero.lv("phantom")
 		if ph > 0:
-			for e in _near(hero.position, 120.0):
+			for e in _near(hero.position, _reach(hero.radius + 12.0, 120.0)):
 				if e.dead or e in _dash_hits or (e.position - hero.position).length() > e.radius + hero.radius + 12.0:
 					continue
 				_dash_hits.append(e)
@@ -1279,7 +1408,7 @@ func _death_fx(ev: Dictionary) -> void:
 			clouds.remove_at(0)
 		power_event.emit("cloud", {"pos": pos, "r": cr, "life": 3.0})
 	if hero.lv("spread") > 0 and (ev["burn"] or ev["poison"]):
-		for o in _near(pos, 220.0):
+		for o in _near(pos, _reach(140.0, 220.0)):
 			if o.dead or (o.position - pos).length() > 140.0 + o.radius:
 				continue
 			if ev["burn"]:
@@ -1290,7 +1419,7 @@ func _death_fx(ev: Dictionary) -> void:
 		power_event.emit("pulse", {"pos": pos, "r": 140.0, "col": FIRE if ev["burn"] else VENOM})
 	if hero.lv("shatter") > 0 and ev["frozen"]:
 		blast(pos, 115.0, hero.dmg * 3.0, ICE, "shatter")
-		for o in _near(pos, 200.0):
+		for o in _near(pos, _reach(115.0, 200.0)):
 			if not o.dead and (o.position - pos).length() < 115.0 + o.radius:
 				freeze(o, 1.0)
 	var sw: int = hero.lv("swarm")
@@ -1316,16 +1445,34 @@ func _on_dash_end(pos: Vector2) -> void:
 func _clamp_circle(n: Node2D, r: float) -> void:
 	n.position.x = clampf(n.position.x, WALL + r, W - WALL - r)
 	n.position.y = clampf(n.position.y, TOP + r, H - WALL - r)
-	for o in obstacles:
-		var cx := clampf(n.position.x, o.position.x, o.end.x)
-		var cy := clampf(n.position.y, o.position.y, o.end.y)
-		var d := n.position - Vector2(cx, cy)
-		var l := d.length()
-		if l < r:
-			if l < 0.001:
-				d = Vector2(0, -1)
-				l = 1.0
-			n.position += d / l * (r - l)
+	# les caisses hors de la case sont à plus de OBS_REACH : sans effet tant que rien n'a poussé le cercle.
+	# Après une poussée, on reprend toutes les caisses suivantes, comme avant.
+	var near = _obs_near(n.position) if r < OBS_REACH - 2.0 else null
+	if near == null:
+		_clamp_from(n, r, 0)
+		return
+	for i in near:
+		if _clamp_one(n, r, obstacles[i]):
+			_clamp_from(n, r, i + 1)
+			return
+
+func _clamp_from(n: Node2D, r: float, first: int) -> void:
+	for i in range(first, obstacles.size()):
+		_clamp_one(n, r, obstacles[i])
+
+## Sort le cercle (n, r) de la caisse `o`. Vrai s'il a été poussé.
+func _clamp_one(n: Node2D, r: float, o: Rect2) -> bool:
+	var cx := clampf(n.position.x, o.position.x, o.end.x)
+	var cy := clampf(n.position.y, o.position.y, o.end.y)
+	var d := n.position - Vector2(cx, cy)
+	var l := d.length()
+	if l < r:
+		if l < 0.001:
+			d = Vector2(0, -1)
+			l = 1.0
+		n.position += d / l * (r - l)
+		return true
+	return false
 
 ## Vrai si le projectile doit disparaître.
 func _bullet_walls(b) -> bool:
@@ -1346,10 +1493,19 @@ func _bullet_walls(b) -> bool:
 		else:
 			hit = true
 	if hit:
-		_burst(p, b.color, 3, 100.0, 2.0)
 		bullet_blocked.emit(p, b.color)
 		return true
-	for o in obstacles:
+	# seules les caisses de la case peuvent contenir `p` : la première dans l'ordre est la même
+	# (_obs_near écrit ici en ligne : appelé pour chaque tir à chaque image)
+	if _obs_n != obstacles.size():
+		_obs_build()
+	var near
+	if p.x >= 0.0 and p.y >= 0.0 and p.x < GRID_NX * GRID_CELL and p.y < GRID_NY * GRID_CELL:
+		near = _obs_cells[int(p.x / GRID_CELL) * GRID_NY + int(p.y / GRID_CELL)]
+	else:
+		near = range(obstacles.size())
+	for oi in near:
+		var o: Rect2 = obstacles[oi]
 		if o.has_point(p):
 			if b.bounce > 0:
 				b.bounce -= 1
@@ -1363,16 +1519,11 @@ func _bullet_walls(b) -> bool:
 					b.vel.y = -b.vel.y
 					b.position.y += signf(b.vel.y) * (dy + 2.0)
 				return false
-			_burst(p, b.color, 3, 100.0, 2.0)
 			bullet_blocked.emit(p, b.color)
 			return true
 	return false
 
 # ---------------------------------------------------------------- effets et dessin
-func _burst(pos: Vector2, col: Color, n: int, spd: float, r: float) -> void:
-	for i in range(n):
-		particles.append({"pos": pos, "vel": Vector2.RIGHT.rotated(randf() * TAU) * randf_range(spd * 0.3, spd), "life": randf_range(0.25, 0.5), "max": 0.5, "col": col, "r": r})
-
 func _draw() -> void:
 	draw_rect(Rect2(0, 0, W, H), BG)
 	# alcôve du vaisseau (haut) : quai sombre, vaisseau garé, garde-corps
@@ -1451,7 +1602,7 @@ func _draw_fx() -> void:
 		fxn.draw_texture_rect(Art.CHEST, Rect2(p - Vector2(45, 38), Vector2(90, 75)), false, Color.WHITE if not open else Color(0.5, 0.5, 0.55))
 
 func _draw_fxa() -> void:
-	# halos (additifs) : coffre, objets, sas actifs, particules
+	# halos (additifs) : coffre, objets, sas actifs
 	if not chest.is_empty() and not chest["open"]:
 		var pulse := 0.5 + 0.5 * sin(elapsed * 4.0)
 		_glow(fxa, chest["pos"], 90.0 + pulse * 16.0, Color(GOLD, 0.45))
@@ -1464,9 +1615,6 @@ func _draw_fxa() -> void:
 	if not spawn_queue.is_empty():
 		for p in pads:
 			_glow(fxa, p, 120.0 + 20.0 * sin(elapsed * 6.0), Color(CYAN, 0.25))
-	for pa in particles:
-		var a: float = clampf(pa["life"] / pa["max"], 0.0, 1.0)
-		_glow(fxa, pa["pos"], pa["r"] * 6.0 * (0.4 + a), Color(pa["col"], a * 0.9))
 
 func _glow(on: Node2D, pos: Vector2, size: float, col: Color) -> void:
 	on.draw_texture_rect(Art.GLOW, Rect2(pos - Vector2(size, size) * 0.5, Vector2(size, size)), false, col)

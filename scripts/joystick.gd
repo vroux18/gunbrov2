@@ -25,6 +25,7 @@ var _dash_id := -1
 var _dash_pop := 0.0  # 1 à l'appui, décroît
 var _dash_ready_was := true
 var _dash_ready_pop := 0.0  # 1 quand une charge revient
+var _drawn: Array = []  # ce que montre le dernier dessin : on ne redessine que si ça change
 
 const RADIUS := 92.0
 const KNOB := 40.0
@@ -133,7 +134,7 @@ func _process(_dt: float) -> void:
 		move = bot_move
 		aim = bot_aim
 		aim_active = bot_aim_active
-		queue_redraw()
+		_redraw_if_changed()
 		return
 	if _l_id != -1:
 		move = _stick(_l_org, _l_pos)
@@ -145,7 +146,15 @@ func _process(_dt: float) -> void:
 	else:
 		aim = _key_aim()
 		aim_active = aim.length() > DEAD
-	queue_redraw()
+	_redraw_if_changed()
+
+## Redessine seulement si l'un des éléments lus par _draw a changé (sticks au repos, jauge pleine : rien à refaire).
+func _redraw_if_changed() -> void:
+	var now := [enabled, bot, is_visible_in_tree(), _vp(), _l_id, _l_org, _l_pos, _r_id, _r_org, _r_pos, aim_active,
+		dash_charges, dash_max, dash_ratio, _dash_pop, _dash_ready_pop]
+	if now != _drawn:
+		_drawn = now
+		queue_redraw()
 
 func _stick(org: Vector2, pos: Vector2) -> Vector2:
 	var d := (pos - org) / RADIUS
