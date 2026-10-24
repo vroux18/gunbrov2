@@ -31,7 +31,7 @@ func _process(dt: float) -> void:
 	if not enabled or level >= LEVELS.size() - 1:
 		return
 	# on ne mesure qu'en partie (le soleil du hangar existe et le jeu n'est pas en pause)
-	if get_tree().paused or get_tree().get_nodes_in_group("sun").is_empty():
+	if get_tree().paused or not get_tree().has_group("sun"):  # has_group : sans créer de tableau à chaque image
 		_t = 0.0
 		_frames = 0
 		return

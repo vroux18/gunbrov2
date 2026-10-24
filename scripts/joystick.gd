@@ -133,7 +133,7 @@ func _process(_dt: float) -> void:
 		move = bot_move
 		aim = bot_aim
 		aim_active = bot_aim_active
-		queue_redraw()
+		_redraw_if_changed.call_deferred()
 		return
 	if _l_id != -1:
 		move = _stick(_l_org, _l_pos)
@@ -145,7 +145,18 @@ func _process(_dt: float) -> void:
 	else:
 		aim = _key_aim()
 		aim_active = aim.length() > DEAD
-	queue_redraw()
+	_redraw_if_changed.call_deferred()
+
+## Les sticks ne sont redessinés que si ce qu'ils montrent a bougé (pouce, recharge, animations du bouton).
+## Appelé en différé (fin d'image, comme un redessin) : voit aussi les sticks coupés par un overlay ensuite.
+var _drawn: Array = []
+func _redraw_if_changed() -> void:
+	var sig: Array = [false]
+	if enabled and not bot:
+		sig = [true, _vp(), _l_id, _l_org, _l_pos, _r_id, _r_org, _r_pos, aim_active, dash_charges, dash_max, dash_ratio if dash_charges < dash_max else 0.0, _dash_pop, _dash_ready_pop]
+	if sig != _drawn:
+		_drawn = sig
+		queue_redraw()
 
 func _stick(org: Vector2, pos: Vector2) -> Vector2:
 	var d := (pos - org) / RADIUS

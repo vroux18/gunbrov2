@@ -1511,10 +1511,16 @@ func _boxes_row() -> HBoxContainer:
 		glyph.draw_set_transform(Vector2(22, 24), wob, Vector2.ONE)
 		BoxArt.draw_box(glyph, Vector2.ZERO, 40.0, best, n == 0))
 	cb.add_child(glyph)
-	var tw_g := glyph.create_tween().set_loops()
-	tw_g.tween_method(func(v: float):
-		gt["t"] = v
-		glyph.queue_redraw(), 0.0, 2.2, 2.2)
+	# la box ne bouge que pendant la première demi-seconde du cycle : redessinée seulement à ce moment-là
+	# (plus une fois au repos) ; sans box en attente, elle ne bouge jamais
+	if n > 0:
+		var tw_g := glyph.create_tween().set_loops()
+		tw_g.tween_method(func(v: float):
+			var rest := v >= 0.5
+			if not (rest and bool(gt.get("rest", false))):
+				gt["t"] = v
+				glyph.queue_redraw()
+			gt["rest"] = rest, 0.0, 2.2, 2.2)
 	if n > 0:
 		var h := Fx.halo(Color(UI.GOLD, 0.45), Vector2(10, 10))
 		h.show_behind_parent = true
