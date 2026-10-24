@@ -9,6 +9,9 @@ const Actor3D = preload("res://scripts/actor3d.gd")
 const Rig3D = preload("res://scripts/rig3d.gd")
 const Mob3D = preload("res://scripts/mob3d.gd")
 const Data = preload("res://scripts/data.gd")
+const HangarShell = preload("res://scripts/decor/hangar_shell.gd")
+const HangarProps = preload("res://scripts/decor/hangar_props.gd")
+const HangarBay = preload("res://scripts/decor/hangar_bay.gd")
 
 const K := 1.0 / 64.0
 const ST := "res://assets/models/station/"
@@ -196,153 +199,16 @@ func _mm(mesh: Mesh, xforms: Array, cast: bool = false) -> MultiMeshInstance3D:
 func _build_level() -> void:
 	level = Node3D.new()
 	add_child(level)
-	var W: float = arena.W * K
-	var H: float = arena.H * K
-	var WALL: float = arena.WALL * K
-	var TOP: float = arena.TOP * K
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1977
-	# sol : dalles 1×1, dessus à y = 0 (les dalles Kenney font 0,3 d'épaisseur)
-	var plain := []
-	var panel := []
-	var detail := []
-	var bay := []
-	for ix in range(int(ceil(W))):
-		for iz in range(int(ceil(H))):
-			var xf := Transform3D(Basis(), Vector3(ix + 0.5, -0.3, iz + 0.5))
-			if iz + 0.5 < TOP:
-				bay.append(xf)
-				continue
-			var r := rng.randf()
-			if (ix + iz) % 2 == 0 and r < 0.7:
-				panel.append(xf)
-			elif r < 0.08:
-				detail.append(xf)
-			else:
-				plain.append(xf)
-	_mm(Models.mesh_of(ST + "floor.glb"), plain)
-	_mm(Models.mesh_of(ST + "floor-panel.glb"), panel)
-	_mm(Models.mesh_of(ST + "floor-detail.glb"), detail)
-	_mm(Models.mesh_of(ST + "floor-panel-straight.glb"), bay)
-	# bandes lumineuses au sol (croix centrale et bord du quai)
-	var strip_mat := Models.glow_mat(CYAN, 1.6)
-	var s1 := Models.box(Vector3(W - 2 * WALL, 0.02, 0.06), strip_mat)
-	s1.position = Vector3(W * 0.5, 0.012, (TOP + H) * 0.5)
-	level.add_child(s1)
-	var s2 := Models.box(Vector3(0.06, 0.02, H - TOP - WALL), strip_mat)
-	s2.position = Vector3(W * 0.5, 0.012, (TOP + H - WALL) * 0.5)
-	level.add_child(s2)
-	var edge := Models.box(Vector3(W - 2 * WALL, 0.03, 0.08), Models.glow_mat(ORANGE, 1.8))
-	edge.position = Vector3(W * 0.5, 0.015, TOP + 0.05)
-	level.add_child(edge)
-	# murs : ouest, est (hauts), quai nord (fenêtres), sud (garde-corps bas pour ne pas masquer le jeu)
-	var wall_scale := Vector3(1.0, 1.7, 1.0)
-	for iz in range(int(TOP) - 1, int(ceil(H))):
-		var z := iz + 0.5
-		var piece := ST + ("wall-window.glb" if iz % 5 == 2 else ("wall-pillar.glb" if iz % 5 == 0 else "wall.glb"))
-		_bput(piece, Vector3(WALL - 0.15, 0, z), PI * 0.5, wall_scale)
-		_bput(piece, Vector3(W - WALL + 0.15, 0, z), -PI * 0.5, wall_scale)
-	for ix in range(int(ceil(W))):
-		var x := ix + 0.5
-		var piece := ST + ("wall-window.glb" if ix % 3 != 0 else "wall-pillar.glb")
-		_bput(piece, Vector3(x, 0, 0.15), 0.0, Vector3(1.0, 2.2, 1.0))
-		_bput(ST + "rail.glb", Vector3(x, 0, H - WALL + 0.1), PI)
-	# garde-corps du quai (bord nord de l'arène), interrompu au centre devant le sas
-	for ix in range(int(ceil(W))):
-		var x := ix + 0.5
-		if absf(x - W * 0.5) < 1.6:
-			continue
-		_bput(ST + "rail.glb", Vector3(x, 0, TOP - 0.05), 0.0)
+	HangarShell.build(self, rng)
 	# sas d'apparition
 	for p in arena.pads:
 		_build_pad(p3(p))
-	# conteneurs (obstacles de la simulation)
-	for o in arena.obstacles:
-		_build_crate_block(o, rng)
-	# quai nord : vaisseau garé, consoles, machines
-	_build_bay(W, TOP, rng)
-	# décor des coins de l'arène (non bloquant, au ras des murs)
-	for c in [Vector3(WALL + 0.45, 0, TOP + 0.6), Vector3(W - WALL - 0.45, 0, TOP + 0.6)]:
-		_bput(SP + "barrels.glb", c, rng.randf() * TAU, Vector3.ONE * 0.9, true)
-	for c in [Vector3(WALL + 0.4, 0, H - WALL - 0.5), Vector3(W - WALL - 0.4, 0, H - WALL - 0.5)]:
-		_bput(SP + "machine_barrel.glb", c, 0.0, Vector3.ONE * 0.9, true)
-	_build_details(W, H, WALL, TOP)
+	HangarProps.build(self, rng)
+	HangarBay.build(self, rng)
 	_flush_batch()
-	# lumières d'ambiance colorées (peu nombreuses : chaque lumière coûte sur téléphone)
-	var lights := [[Vector3(W * 0.5, 2.5, 1.8), ORANGE, 9.0, 1.4], [Vector3(W * 0.2, 2.2, (TOP + H) * 0.5), CYAN, 9.0, 0.6], [Vector3(W * 0.8, 2.2, (TOP + H) * 0.5), Color("#8E6BFF"), 9.0, 0.6]]
-	for L in lights:
-		var ol := OmniLight3D.new()
-		ol.position = L[0]
-		ol.light_color = L[1]
-		ol.omni_range = L[2]
-		ol.light_energy = L[3]
-		ol.omni_attenuation = 1.4
-		level.add_child(ol)
-
-## Habillage : flaques de lumière au sol, bandes de danger le long des murs, barres lumineuses, emblème central.
-func _build_details(W: float, H: float, WALL: float, TOP: float) -> void:
-	# flaques de lumière des plafonniers (un seul MultiMesh additif)
-	var pool := PlaneMesh.new()
-	pool.size = Vector2(5.5, 5.5)
-	var pm := StandardMaterial3D.new()
-	pm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	pm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	pm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	pm.albedo_texture = Models.radial()
-	pm.albedo_color = Color(0.55, 0.65, 1.0, 0.16)
-	pool.material = pm
-	var pools := []
-	var x := 4.5
-	while x < W - 3.0:
-		var z := TOP + 3.2
-		while z < H - 2.0:
-			pools.append(Transform3D(Basis(), Vector3(x, 0.015, z)))
-			z += 6.0
-		x += 7.0
-	_mm(pool, pools)
-	# bandes de danger au pied des murs ouest, est et sud
-	var hz := StandardMaterial3D.new()
-	hz.albedo_texture = load("res://assets/env/hazard.png")
-	hz.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	hz.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	hz.albedo_color = Color(0.75, 0.75, 0.75, 0.85)
-	hz.texture_repeat = true
-	var strips := [
-		[Vector3(W * 0.5, 0.014, H - WALL - 0.25), Vector2(W - 2 * WALL, 0.42), 0.0, (W - 2 * WALL) / 1.7],
-		[Vector3(WALL + 0.25, 0.014, (TOP + H - WALL) * 0.5), Vector2(H - WALL - TOP, 0.42), PI * 0.5, (H - WALL - TOP) / 1.7],
-		[Vector3(W - WALL - 0.25, 0.014, (TOP + H - WALL) * 0.5), Vector2(H - WALL - TOP, 0.42), PI * 0.5, (H - WALL - TOP) / 1.7],
-	]
-	for st in strips:
-		var mi := MeshInstance3D.new()
-		var plane := PlaneMesh.new()
-		plane.size = st[1]
-		mi.mesh = plane
-		var m: StandardMaterial3D = hz.duplicate()
-		m.uv1_scale = Vector3(st[3], 1, 1)
-		mi.material_override = m
-		mi.position = st[0]
-		mi.rotation.y = st[2]
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		level.add_child(mi)
-	# barres lumineuses verticales sur les piliers des murs latéraux
-	var bar := Models.glow_mat(CYAN, 1.8)
-	for iz in range(int(TOP) - 1, int(ceil(H))):
-		if iz % 5 == 0:
-			_bbox("wall_bar", bar, Vector3(WALL + 0.02, 1.0, iz + 0.5), Vector3(0.04, 1.2, 0.12))
-			_bbox("wall_bar", bar, Vector3(W - WALL - 0.02, 1.0, iz + 0.5), Vector3(0.04, 1.2, 0.12))
-	# bandeau orange en haut du mur nord
-	_bbox("north_strip", Models.glow_mat(ORANGE, 1.6), Vector3(W * 0.5, 2.15, 0.33), Vector3(W, 0.06, 0.04))
-	# emblème du Relais peint au centre de l'arène
-	var c := Vector3(W * 0.5, 0.016, (TOP + H - WALL) * 0.5)
-	for r in [[2.6, 2.68, 0.28], [1.7, 1.74, 0.18]]:
-		var ring := Models.torus(r[0], r[1], Models.glow_mat(CYAN, r[2]), 64)
-		ring.scale = Vector3(1, 0.05, 1)
-		ring.position = c
-		ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		level.add_child(ring)
-	for k in range(4):
-		var a := TAU * k / 4.0 + PI * 0.25
-		_bbox("emblem_tick", Models.glow_mat(ORANGE, 0.6), c + Vector3(cos(a), 0, sin(a)) * 3.0, Vector3(0.36, 0.01, 0.1), -a)
+	HangarShell.lights(self)
 
 func _build_pad(pos: Vector3) -> void:
 	var root := Node3D.new()
@@ -377,69 +243,9 @@ func _ground_quad(size: float, col: Color, alpha: float) -> MeshInstance3D:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
 
-## Une caisse de fret faite en code (pièces ajoutées au lot) : coque acier, couvercle clair, montants
-## sombres, bande orange, voyant.
+## Caisse de fret (aussi utilisée au Relais) : déléguée au décor du hangar.
 func _crate(base: Vector3, size: Vector3, rot: float, rng: RandomNumberGenerator) -> void:
-	var b := Basis(Vector3.UP, rot)
-	var steel := Models.toon(Color("#28325A"), 0.3)
-	var lid := Models.toon(Color("#3A4778"), 0.25)
-	var post := Models.toon(Color("#1C2238"), 0.2)
-	_bbox("crate_body", steel, base + Vector3(0, size.y * 0.5, 0), size - Vector3(0.06, 0.06, 0.06), rot)
-	_bbox("crate_lid", lid, base + Vector3(0, size.y, 0), Vector3(size.x - 0.16, 0.06, size.z - 0.16), rot)
-	for cx in [-1, 1]:
-		for cz in [-1, 1]:
-			var off := b * Vector3(cx * (size.x * 0.5 - 0.05), 0, cz * (size.z * 0.5 - 0.05))
-			_bbox("crate_post", post, base + off + Vector3(0, size.y * 0.5, 0), Vector3(0.1, size.y, 0.1), rot)
-	_bbox("crate_band", Models.toon(Color("#FF7A2F"), 0.2, Color("#FF7A2F"), 0.35), base + Vector3(0, size.y * 0.78, 0), Vector3(size.x + 0.01, 0.08, size.z + 0.01), rot)
-	_bbox("crate_ribs", post, base + Vector3(0, size.y * 0.36, 0), Vector3(size.x * 0.6, size.y * 0.42, size.z + 0.02), rot)
-	var red := rng.randf() < 0.3
-	_bbox("crate_led_r" if red else "crate_led_c", Models.glow_mat(Color("#FF4D6D") if red else Color("#3CF2D8"), 2.5), base + b * Vector3(size.x * 0.28, size.y * 0.62, size.z * 0.5 + 0.02), Vector3(0.1, 0.06, 0.03), rot)
-
-func _build_crate_block(o: Rect2, rng: RandomNumberGenerator) -> void:
-	var c := p3(o.get_center())
-	var sx := o.size.x * K
-	var sz := o.size.y * K
-	var cols := maxi(1, int(round(sx / 1.15)))
-	var rows := maxi(1, int(round(sz / 1.15)))
-	var cw := sx / cols
-	var ch := sz / rows
-	for ix in range(cols):
-		for iz in range(rows):
-			var h := 0.85 + rng.randf() * 0.4
-			var pos := c + Vector3(-sx * 0.5 + cw * (ix + 0.5), 0, -sz * 0.5 + ch * (iz + 0.5))
-			_crate(pos, Vector3(cw - 0.04, h, ch - 0.04), rng.randf_range(-0.03, 0.03), rng)
-			if rng.randf() < 0.16:
-				_bput(ST + ("container-tall.glb" if rng.randf() < 0.5 else "container.glb"), pos + Vector3(rng.randf_range(-0.15, 0.15), h, rng.randf_range(-0.15, 0.15)), rng.randf() * TAU, Vector3.ONE * 1.2, true)
-	_bbox("crate_rim", Models.glow_mat(Color("#FF7A2F"), 1.1), c + Vector3(0, 0.015, 0), Vector3(sx + 0.14, 0.03, sz + 0.14))
-
-func _build_bay(W: float, TOP: float, rng: RandomNumberGenerator) -> void:
-	# vaisseau du Relais garé au centre du quai
-	var ship := _put(SP + "craft_cargoA.glb", Vector3(W * 0.5, 0.0, TOP * 0.5 + 0.1), PI * 0.5, Vector3.ONE * 2.3, null, true)
-	Models.tint_node(ship, 0.5)
-	var eng := _ground_quad(3.5, CYAN, 0.6)
-	eng.position = Vector3(W * 0.5 - 3.4, 0.6, TOP * 0.5 + 0.1)
-	level.add_child(eng)
-	# consoles et machines le long du mur nord
-	var x := 1.6
-	while x < W - 1.4:
-		if absf(x - W * 0.5) > 4.2:
-			var r := rng.randf()
-			if r < 0.3:
-				_bput(ST + "computer-wide.glb", Vector3(x, 0, 0.65), 0.0, Vector3.ONE * 1.4)
-			elif r < 0.5:
-				_bput(ST + "computer-system.glb", Vector3(x, 0, 0.6), 0.0, Vector3.ONE * 1.4)
-			elif r < 0.65:
-				_bput(SP + "machine_generator.glb", Vector3(x, 0, 1.0), rng.randf() * TAU, Vector3.ONE * 1.1, true)
-			elif r < 0.8:
-				_bput(ST + "container-tall.glb", Vector3(x, 0, 0.75), rng.randf_range(-0.3, 0.3), Vector3.ONE * 1.5)
-				_bput(ST + "container.glb", Vector3(x + 0.7, 0, 1.4), rng.randf_range(-0.3, 0.3), Vector3.ONE * 1.3)
-			else:
-				_bput(SP + "barrels.glb", Vector3(x, 0, 1.1), rng.randf() * TAU, Vector3.ONE * 1.1, true)
-		x += rng.randf_range(1.6, 2.4)
-	# caisses et tonneaux devant le vaisseau
-	for side in [-1, 1]:
-		_bput(ST + "container-wide.glb", Vector3(W * 0.5 + side * 5.0, 0, TOP - 1.2), side * 0.2, Vector3.ONE * 1.4)
-		_bput(SP + "satelliteDish.glb", Vector3(W * 0.5 + side * 7.0, 0, 1.3), side * 0.6, Vector3.ONE * 1.2, true)
+	HangarProps.crate(self, base, size, rot, rng)
 
 # ---------------------------------------------------------------- héroïne
 func _build_hero() -> void:

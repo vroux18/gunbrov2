@@ -192,6 +192,25 @@ class Piece:
         return lo - pad, hi + pad
 
 
+def simplify_to(verts, faces, goal):
+    """Allège jusqu'au budget de triangles. Une seule passe de fast_simplification cale parfois à
+    quelques milliers de triangles (boîtes tournées, petites grilles) : on allège en plusieurs passes
+    d'au plus ~3x, en secouant imperceptiblement les sommets quand une passe est bloquée."""
+    v = verts.astype(np.float32)
+    f = faces.astype(np.int32)
+    rng = np.random.default_rng(7)
+    for _ in range(14):
+        if len(f) <= goal * 1.05:
+            break
+        step = max(goal / len(f), 0.3)
+        v2, f2 = fast_simplification.simplify(v, f, target_reduction=1.0 - step)
+        if len(f2) > len(f) * 0.9:
+            v = (v + rng.normal(0.0, 2e-5, v.shape)).astype(np.float32)
+            continue
+        v, f = v2, f2
+    return v, f
+
+
 class Part:
     """Pièce animée : plusieurs volumes de couleur, fusionnés en un seul maillage (un appel de dessin)
     dont les arêtes de couleur restent nettes. pivot : articulation (repère du personnage) ; parent : pièce parente.
@@ -227,7 +246,7 @@ class Part:
         verts, faces, _, _ = measure.marching_cubes(vol, level=0.0, spacing=(res,) * 3)
         verts = verts + lo
         if len(faces) > pc.tris:
-            verts, faces = fast_simplification.simplify(verts.astype(np.float32), faces.astype(np.int32), target_reduction=1.0 - pc.tris / len(faces))
+            verts, faces = simplify_to(verts, faces, pc.tris)
         tm = trimesh.Trimesh(vertices=verts, faces=faces, process=True)
         trimesh.repair.fix_normals(tm)
         V = np.asarray(tm.vertices, dtype=np.float64)
