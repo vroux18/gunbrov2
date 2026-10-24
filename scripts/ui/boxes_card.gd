@@ -80,17 +80,25 @@ func setup(r: Dictionary, sz: Vector2, small: bool = false) -> void:
 	var fs := clampf(sz.x / 250.0, 0.8, 1.0)
 	var title := UI.title(String(d[0]), int(32 * fs) if String(r["kind"]) == "tickets" else maxi(22, int(26 * fs)), UI.TEXT, col.darkened(0.5), HORIZONTAL_ALIGNMENT_CENTER)
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # avant la taille : sinon la ligne entière l'élargit
-	title.position = Vector2(6, sz.y * 0.52)
-	title.size = Vector2(sz.x - 12, sz.y * 0.17)
+	title.position = Vector2(6, sz.y * (0.48 if sz.x < 200.0 else 0.52))
+	title.size = Vector2(sz.x - 12, sz.y * (0.21 if sz.x < 200.0 else 0.17))
 	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	title.add_theme_constant_override("line_spacing", -6)
+	title.max_lines_visible = 2
+	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	add_child(title)
-	var sub := UI.label(String(d[1]), UI.FS_SMALL, Color("#DCE5F0"), HORIZONTAL_ALIGNMENT_CENTER)
+	var sub_txt := String(d[1])
+	if sz.x < 200.0 and " · " in sub_txt:
+		sub_txt = sub_txt.get_slice(" · ", sub_txt.get_slice_count(" · ") - 1)  # petite carte : l'effet seul
+	var sub := UI.label(sub_txt, UI.FS_SMALL, Color("#DCE5F0"), HORIZONTAL_ALIGNMENT_CENTER)
 	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	sub.position = Vector2(8, sz.y * 0.69)
 	sub.size = Vector2(sz.x - 16, sz.y * 0.17)
 	sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	sub.add_theme_constant_override("line_spacing", -4)
+	# petites cartes : une ligne, sinon le texte déborde sur l'étiquette du bas
+	sub.max_lines_visible = 1 if sz.x < 200.0 else 2
+	sub.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	add_child(sub)
 	if not mini or sz.y > 150:
 		var tg := UI.tag(String(d[2]), col, UI.INK, 18)

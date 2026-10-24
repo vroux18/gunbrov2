@@ -413,6 +413,16 @@ func _show_recap() -> void:
 	if int(ceil(float(n) / cols)) * (cs.y + gap) - gap > avail.y:
 		cs = Vector2(200, 264)
 		cols = mini(n, maxi(1, int((avail.x + gap) / (cs.x + gap))))
+	# encore trop : cartes un peu plus petites pour tout montrer sur 2 ou 3 rangées, plutôt qu'une rangée coupée
+	if int(ceil(float(n) / cols)) * (cs.y + gap) - gap > avail.y:
+		for nr in [2, 3]:
+			var h: float = (avail.y - gap * (nr - 1)) / nr
+			var w: float = h * 214.0 / 282.0
+			var nc := int((avail.x + gap) / (w + gap))
+			if w >= 168.0 and nc * nr >= n:
+				cs = Vector2(floorf(w), floorf(h))
+				cols = mini(n, nc)
+				break
 	var rows2 := int(ceil(float(n) / maxi(cols, 1)))
 	var gh := rows2 * (cs.y + gap) - gap
 	var holder: Control = recap
