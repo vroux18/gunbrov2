@@ -117,7 +117,7 @@ func _build_env() -> void:
 	env.sky = sky
 	we.environment = env
 	add_child(we)
-	sun = DirectionalLight3D.new()
+	sun = SunLight.new()
 	sun.add_to_group("sun")  # qualité adaptative (scripts/perf.gd)
 	sun.shadow_enabled = true
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
@@ -129,12 +129,48 @@ func _build_env() -> void:
 	cam.far = 120.0
 	add_child(cam)
 	for i in range(3):
-		var l := OmniLight3D.new()
+		var l := FlashLight.new()
 		l.omni_range = 4.0
 		l.light_energy = 0.0
 		l.shadow_enabled = false
 		add_child(l)
 		_flash_lights.append(l)
+
+## Soleil : la portée de son ombre suit la caméra (profondeur du sol vu en haut de l'écran, avant le fondu de
+## l'ombre) au lieu d'une distance fixe taillée pour le recul le plus large (26 m). Les objets hors de vue
+## sortent de la passe d'ombre ; la carte, de même taille, couvre moins : ombres un peu plus nettes.
+class SunLight extends DirectionalLight3D:
+	const MAX_DIST := 26.0
+
+	func _ready() -> void:
+		process_priority = 1000  # après la caméra (view3d._place_camera)
+
+	func _process(_dt: float) -> void:
+		var cam := get_viewport().get_camera_3d()
+		if cam == null or not shadow_enabled:
+			return
+		# rayon du haut de l'écran (champ vertical) : r = avant + haut * tan(fov / 2), composante avant = 1,
+		# donc la profondeur où il touche le sol (y = 0) vaut hauteur / -r.y
+		var b := cam.global_basis
+		var ry := -b.z.y + b.y.y * tan(deg_to_rad(cam.fov * 0.5))
+		var h := cam.global_position.y
+		var d := MAX_DIST
+		if ry < -0.05 and h > 0.0:
+			d = clampf(h / -ry / directional_shadow_fade_start + 1.0, 8.0, MAX_DIST)
+		if absf(d - directional_shadow_max_distance) > 0.25:
+			directional_shadow_max_distance = d
+
+## Éclair de lumière (tirs, explosions ; voir _flash_light) : caché tant qu'il est éteint. Une lumière
+## d'énergie nulle reste comptée par le rendu : calculée pour chaque pixel des objets à sa portée (sol compris).
+class FlashLight extends OmniLight3D:
+	func _ready() -> void:
+		visible = false
+		process_priority = 1000  # après la vue, qui l'allume et l'éteint dans la même image
+
+	func _process(_dt: float) -> void:
+		var on := light_energy > 0.0
+		if visible != on:
+			visible = on
 
 ## Réglages d'ambiance de Nébuleuse 7 ; un autre monde les retouche ensuite dans son env(v).
 func _env_defaults() -> void:
@@ -171,7 +207,7 @@ func _put(path: String, pos: Vector3, rot_y: float = 0.0, scl: Vector3 = Vector3
 	(parent if parent != null else level).add_child(n)
 	return n
 
-## Décor statique : ajouté au lot, dessiné en un seul MultiMesh par maillage.
+## Décor statique : ajouté au lot, monté par _flush_batch (fusionné par matériau).
 func _bput(path: String, pos: Vector3, rot_y: float = 0.0, scl: Vector3 = Vector3.ONE, center: bool = false) -> void:
 	var xf := Transform3D(Basis(Vector3.UP, rot_y) * Basis.from_scale(scl), pos)
 	for part in Models.parts_of(path, center):
@@ -194,10 +230,92 @@ func _bbox(key: String, mat: Material, center: Vector3, size: Vector3, rot_y: fl
 		_batch[m] = []
 	(_batch[m] as Array).append(Transform3D(Basis(Vector3.UP, rot_y) * Basis.from_scale(size), center))
 
+## Ce qui est plat (socles, liserés, marquages : moins de FLAT_SHADOW de haut) ne projette pas d'ombre :
+## elle tiendrait dans le biais de l'ombre, invisible, mais coûterait un dessin de plus dans la passe d'ombre.
+const FLAT_SHADOW := 0.045
+## attributs de sommet qui doivent concorder pour fusionner deux surfaces
+const _MERGE_FMT := Mesh.ARRAY_FORMAT_VERTEX | Mesh.ARRAY_FORMAT_NORMAL | Mesh.ARRAY_FORMAT_TANGENT | Mesh.ARRAY_FORMAT_COLOR | Mesh.ARRAY_FORMAT_TEX_UV | Mesh.ARRAY_FORMAT_TEX_UV2 | Mesh.ARRAY_FORMAT_CUSTOM0 | Mesh.ARRAY_FORMAT_CUSTOM1 | Mesh.ARRAY_FORMAT_CUSTOM2 | Mesh.ARRAY_FORMAT_CUSTOM3 | Mesh.ARRAY_FORMAT_BONES | Mesh.ARRAY_FORMAT_WEIGHTS | Mesh.ARRAY_FORMAT_INDEX
+
+## Fusion du lot : la salle est découpée en cases de cette taille (m, x et z, 6 x 4 cases) pour que la caméra
+## et l'ombre écartent encore ce qu'elles ne voient pas (sans cases : 40 % de triangles en plus à l'écran).
+const MERGE_CELL := Vector2(6.25, 5.5)
+
+## Monte le lot statique. Les surfaces opaques sont fusionnées par matériau, par mode d'ombre et par case de la
+## salle : un appel de dessin par matériau et par case au lieu d'un par maillage, dans chaque passe (couleur,
+## soleil, ombre). Le reste (transparences, qui se trient par objet) garde un MultiMesh par maillage.
 func _flush_batch() -> void:
+	var groups := {}  # clé -> [SurfaceTool, matériau, ombre]
 	for m in _batch.keys():
-		_mm(m, _batch[m], true)
+		var mesh: Mesh = m
+		var xs: Array = _batch[m]
+		var box: AABB = mesh.get_aabb()
+		var h := 0.0
+		for xf in xs:
+			h = maxf(h, ((xf as Transform3D) * box).size.y)
+		var cast := h >= FLAT_SHADOW
+		var mats := []
+		var mergeable := true
+		for s in range(mesh.get_surface_count()):
+			var mat := mesh.surface_get_material(s)
+			if mat == null and mesh is PrimitiveMesh:
+				mat = (mesh as PrimitiveMesh).material
+			mats.append(mat)
+			mergeable = mergeable and _opaque(mat)
+		if not mergeable:
+			_mm(mesh, xs, cast)
+			continue
+		for s in range(mesh.get_surface_count()):
+			var base := "%d/%d/%s/" % [(mats[s] as Material).get_instance_id(), _surface_fmt(mesh, s), cast]
+			for xf in xs:
+				var c := ((xf as Transform3D) * box).get_center()
+				var key := base + str(Vector2i(floori(c.x / MERGE_CELL.x), floori(c.z / MERGE_CELL.y)))
+				if not groups.has(key):
+					var st := SurfaceTool.new()
+					st.begin(Mesh.PRIMITIVE_TRIANGLES)
+					groups[key] = [st, mats[s], cast]
+				((groups[key] as Array)[0] as SurfaceTool).append_from(mesh, s, xf)
+	for key in groups.keys():
+		var g: Array = groups[key]
+		var am := (g[0] as SurfaceTool).commit()
+		am.surface_set_material(0, g[1])
+		var mi := MeshInstance3D.new()
+		mi.mesh = am
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if g[2] else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		level.add_child(mi)
 	_batch.clear()
+
+## Attributs de sommet d'une surface (les maillages primitifs, BoxMesh, n'exposent pas leur format).
+static func _surface_fmt(mesh: Mesh, s: int) -> int:
+	if mesh is ArrayMesh:
+		return (mesh as ArrayMesh).surface_get_format(s) & _MERGE_FMT
+	var arrays := mesh.surface_get_arrays(s)
+	var fmt := 0
+	for i in range(Mesh.ARRAY_MAX):
+		if arrays[i] != null:
+			fmt |= 1 << i
+	return fmt
+
+## Matériau fusionnable : sans tri de transparence (opaque, ou découpé : alpha scissor / hash), et dont le
+## shader ne dépend pas de l'instance (son origine : phase des balises, moyeu des hélices…). Un matériau peut
+## le déclarer lui-même (méta « per_instance ») ; sinon on lit son code : MODEL_MATRIX n'y doit servir qu'à
+## passer sommets et normales dans le monde.
+static func _opaque(mat: Material) -> bool:
+	if mat == null or mat.next_pass != null or bool(mat.get_meta("per_instance", false)):
+		return false
+	if mat is BaseMaterial3D:
+		if (mat as BaseMaterial3D).billboard_mode != BaseMaterial3D.BILLBOARD_DISABLED:
+			return false  # tourné autour de l'origine de l'instance
+		var t := (mat as BaseMaterial3D).transparency
+		return t == BaseMaterial3D.TRANSPARENCY_DISABLED or t == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR or t == BaseMaterial3D.TRANSPARENCY_ALPHA_HASH
+	if mat is ShaderMaterial and (mat as ShaderMaterial).shader != null:
+		var code := (mat as ShaderMaterial).shader.code
+		if "ALPHA" in code or "blend_" in code or "depth_draw_never" in code or "#include" in code:
+			return false
+		if mat.has_meta("per_instance"):
+			return true
+		code = code.replace("MODEL_MATRIX * vec4(VERTEX, 1.0)", "").replace("MODEL_MATRIX * vec4(NORMAL, 0.0)", "")
+		return not ("MODEL_MATRIX" in code or "INSTANCE" in code or "NODE_POSITION" in code or "MODELVIEW" in code)
+	return false
 
 func _mm(mesh: Mesh, xforms: Array, cast: bool = false) -> MultiMeshInstance3D:
 	var mm := MultiMesh.new()

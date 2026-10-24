@@ -49,6 +49,9 @@ void fragment() {
 	ROUGHNESS = mix(0.58, 0.25, mc.b);
 	METALLIC = 0.0;
 	NORMAL = normalize((VIEW_MATRIX * vec4(nrm, 0.0)).xyz);
-	vec3 v = normalize(CAMERA_POSITION_WORLD - wpos);
-	EMISSION = n7_lights(wpos, nrm, v, alb, vec3(0.04), 0.58, TIME);
+	if (a > 0.0) {
+		// hors de la peinture (alpha nul, le pixel garde le sol) : rien à éclairer
+		vec3 v = normalize(CAMERA_POSITION_WORLD - wpos);
+		EMISSION = n7_lights(wpos, nrm, v, alb, vec3(0.04), 0.58, TIME);
+	}
 }

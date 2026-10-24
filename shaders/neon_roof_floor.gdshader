@@ -170,21 +170,27 @@ void fragment() {
 	rough = mix(rough, 0.035, smoothstep(0.08, 0.5, water));
 	metal *= 1.0 - deep;
 	sl *= 1.0 - deep * 0.92;
-	sl += nr_ripples(wpos.xz, t) * deep * ripple_k;
-	// aire d'atterrissage : feux de balisage encastrés qui tournent
+	if (deep > 0.0) {
+		// gouttes : seulement dans l'eau (deep est nul ailleurs : le reste du sol n'en paie pas le calcul)
+		sl += nr_ripples(wpos.xz, t) * deep * ripple_k;
+	}
+	// aire d'atterrissage : feux de balisage encastrés qui tournent, calculés dans leur couronne seulement
+	// (à plus de 0,6 m d'un feu, sa lueur vaut moins de 1e-5 : rien à l'écran)
 	vec2 hq = wpos.xz - heli.xy;
 	float hd = length(hq);
-	float ha = atan(hq.y, hq.x);
-	float nlamp = 24.0;
-	float ai = floor(ha / 6.28318 * nlamp + 0.5);
-	vec2 lc = heli.xy + vec2(cos(ai / nlamp * 6.28318), sin(ai / nlamp * 6.28318)) * (heli.z + 0.32);
-	float ld = length(wpos.xz - lc);
-	float chase = 0.35 + 0.65 * pow(fract(ai / nlamp - t * 0.35), 6.0);
-	float lamp = 1.0 - smoothstep(0.035, 0.05, ld);
-	float ring = 1.0 - smoothstep(0.05, 0.065, ld);
-	alb = mix(alb, vec3(0.05), ring);
-	emis_c += pad_col * lamp * chase * 2.2;
-	emis_c += pad_col * exp(-ld * ld / 0.04) * chase * 0.05;
+	if (abs(hd - heli.z - 0.32) < 0.6) {
+		float ha = atan(hq.y, hq.x);
+		float nlamp = 24.0;
+		float ai = floor(ha / 6.28318 * nlamp + 0.5);
+		vec2 lc = heli.xy + vec2(cos(ai / nlamp * 6.28318), sin(ai / nlamp * 6.28318)) * (heli.z + 0.32);
+		float ld = length(wpos.xz - lc);
+		float chase = 0.35 + 0.65 * pow(fract(ai / nlamp - t * 0.35), 6.0);
+		float lamp = 1.0 - smoothstep(0.035, 0.05, ld);
+		float ring = 1.0 - smoothstep(0.05, 0.065, ld);
+		alb = mix(alb, vec3(0.05), ring);
+		emis_c += pad_col * lamp * chase * 2.2;
+		emis_c += pad_col * exp(-ld * ld / 0.04) * chase * 0.05;
+	}
 	vec3 nw = normalize(vec3(-sl.x, 1.0, -sl.y));
 	vec3 v = normalize(CAMERA_POSITION_WORLD - wpos);
 	float ndv = max(dot(nw, v), 0.0);

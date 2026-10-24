@@ -148,17 +148,21 @@ static func _build_marks(v: Node, data: Dictionary, lt: Texture2D) -> void:
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	(v.level as Node3D).add_child(mmi)
 
-## Parapets, rambardes, antennes, tour voisine : un maillage, un matériau.
+## Parapets, rambardes, antennes (maillage « edges ») et tour voisine : un matériau chacun, même shader ; celui
+## des bords est privé des branches façade et écrans, qu'il n'a pas (neon_shell_edges.gdshader).
 static func _build_edges(v: Node) -> void:
-	var m := ShaderMaterial.new()
-	m.shader = load("res://shaders/neon_shell.gdshader")
-	m.set_shader_parameter("atlas_tex", load(NS + "neon_atlas.png"))
-	light_params(m)
+	var mats := {}
+	for key in ["edges", "facade"]:
+		var m := ShaderMaterial.new()
+		m.shader = load("res://shaders/neon_shell_edges.gdshader" if key == "edges" else "res://shaders/neon_shell.gdshader")
+		m.set_shader_parameter("atlas_tex", load(NS + "neon_atlas.png"))
+		light_params(m)
+		mats[key] = m
 	var scn: Node = (load(NS + "shell_edges.glb") as PackedScene).instantiate()
 	for mi in scn.find_children("*", "MeshInstance3D", true, false):
 		var out := MeshInstance3D.new()
 		out.mesh = (mi as MeshInstance3D).mesh
-		out.material_override = m
+		out.material_override = mats["edges" if String(mi.name).begins_with("edges") else "facade"]
 		out.layers = DECK_LAYER
 		out.lod_bias = 100.0
 		# la tour voisine ne porte pas d'ombre (la lune est derrière elle) ; parapets et rambardes, si
