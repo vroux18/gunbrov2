@@ -14,6 +14,9 @@ extends Node
 ##     -- [--only=veste,bottes,tickets] [--planche=/chemin/planche.png]
 ## puis `$G --headless --path . --import` pour que le jeu voie les nouvelles images.
 ## --planche écrit aussi une planche de toutes les icônes sur des fonds de carte, en 256 px et à 96 px.
+## --jo=/chemin/jo.png écrit une planche de Jo portant chaque objet, vue de jeu (caméra haute à 56°, Jo ×1,15,
+## même lumière et même liseré qu'en partie), de face en visant et de dos en courant, pixels du jeu agrandis ×2
+## (--only=none pour ne faire que cette planche, --only=a,b pour quelques objets).
 
 const Models = preload("res://scripts/models.gd")
 const Data = preload("res://scripts/data.gd")
@@ -32,16 +35,28 @@ const GUN_BASIS := Basis(Vector3(0, 0, -1), Vector3(-1, 0, 0), Vector3(0, 1, 0))
 const VIEWS := {
 	"blaster_garde": {"yaw": -28.0, "pitch": 16.0, "basis": "gun"},
 	"fusil_impulsion": {"yaw": -28.0, "pitch": 16.0, "basis": "gun"},
+	"riveteuse": {"yaw": -28.0, "pitch": 20.0, "basis": "gun"},
+	"pistolet_neon": {"yaw": -28.0, "pitch": 18.0, "basis": "gun"},
 	"module_canon": {"yaw": 38.0, "pitch": 22.0},
-	"cellule": {"yaw": 40.0, "pitch": 20.0},
+	"cellule": {"yaw": 34.0, "pitch": 14.0},
+	"pince": {"yaw": 62.0, "pitch": 16.0},
+	"antenne": {"yaw": 100.0, "pitch": 22.0},
 	"visiere": {"yaw": -30.0, "pitch": 8.0, "ctx": ["head"]},
 	"casque_garde": {"yaw": 30.0, "pitch": 16.0},
+	"casque_docker": {"yaw": 30.0, "pitch": 16.0},
+	"oreilles_chat": {"yaw": 22.0, "pitch": 10.0},
 	"plastron": {"yaw": 26.0, "pitch": 14.0},
-	"veste": {"yaw": 14.0, "pitch": 16.0, "ctx": ["torso"]},
+	"veste": {"yaw": 16.0, "pitch": 8.0},
+	"gilet_fret": {"yaw": 22.0, "pitch": 14.0, "ctx": ["arm_l", "arm_r"]},
+	"echarpe": {"yaw": 40.0, "pitch": 22.0},
 	"bottes": {"yaw": 34.0, "pitch": 16.0, "ctx": ["leg_l", "leg_r"]},
-	"jambieres": {"yaw": 50.0, "pitch": 34.0, "ctx": ["leg_l", "leg_r"]},
-	"pile": {"yaw": 215.0, "pitch": 30.0},
-	"aimant": {"yaw": 215.0, "pitch": 22.0},
+	"jambieres": {"yaw": 48.0, "pitch": 12.0, "ctx": ["leg_l", "leg_r"]},
+	"amortisseurs": {"yaw": 50.0, "pitch": 14.0, "ctx": ["leg_l", "leg_r"]},
+	"patins": {"yaw": 36.0, "pitch": 22.0},
+	"pile": {"yaw": 200.0, "pitch": 16.0},
+	"aimant": {"yaw": 196.0, "pitch": 14.0},
+	"reservoir": {"yaw": 204.0, "pitch": 18.0},
+	"ailes": {"yaw": 192.0, "pitch": 24.0},
 }
 
 var vp: SubViewport
@@ -55,6 +70,8 @@ var white_mat: StandardMaterial3D
 var outline_mat: ShaderMaterial
 var only: Array = []
 var planche := ""
+var jo_planche := ""
+var _rigs: Array = []  # Jo de la planche « vue de jeu » : {rig, speed, shoot, move}
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
@@ -62,6 +79,8 @@ func _ready() -> void:
 			only = Array(a.trim_prefix("--only=").split(","))
 		elif a.begins_with("--planche="):
 			planche = a.trim_prefix("--planche=")
+		elif a.begins_with("--jo="):
+			jo_planche = a.trim_prefix("--jo=")
 	_build()
 	_run.call_deferred()
 
@@ -196,6 +215,8 @@ func _run() -> void:
 	print("ICONES : %d icônes écrites dans %s" % [done.size(), OUT])
 	if planche != "":
 		_planche(planche)
+	if jo_planche != "":
+		await _jo_board(jo_planche)
 	get_tree().quit()
 
 func _render_item(id: String, path: String) -> void:
@@ -408,7 +429,9 @@ func _planche(path: String) -> void:
 	var cell := 280
 	var W := 40 + cell * 7
 	var rows_big := int(ceil(ids.size() / 7.0))
-	var H := 40 + rows_big * (cell + 10) + 4 * 130 + 40
+	var per_row := int((W - 20) / 106)
+	var rows_small := int(ceil(ids.size() / float(per_row)))
+	var H := 40 + rows_big * (cell + 10) + 4 * rows_small * 130 + 40
 	var out := Image.create(W, H, false, Image.FORMAT_RGBA8)
 	out.fill(Color("#0B1530"))
 	var y := 20
@@ -424,12 +447,11 @@ func _planche(path: String) -> void:
 	for rr in range(4):
 		var rc: Color = Data.RARITY_COLORS[rr]
 		for i in range(ids.size()):
-			var x := 20 + i * 106
-			if x + 100 > W:
-				break
-			_card(out, Rect2i(x, y, 100, 120), rc)
-			_stamp(out, ids[i], Rect2i(x + 2, y + 12, 96, 96), Color("#FFB347") if ids[i] == "tickets" else rc)
-		y += 130
+			var x := 20 + (i % per_row) * 106
+			var yy := y + int(i / per_row) * 130
+			_card(out, Rect2i(x, yy, 100, 120), rc)
+			_stamp(out, ids[i], Rect2i(x + 2, yy + 12, 96, 96), Color("#FFB347") if ids[i] == "tickets" else rc)
+		y += rows_small * 130
 	out.save_png(path)
 	print("ICONES : planche %s" % path)
 
@@ -459,3 +481,168 @@ static func _stamp(out: Image, id: String, r: Rect2i, glow_col: Color) -> void:
 			gd[i + 1] = int(glow_col.g8)
 			gd[i + 2] = int(glow_col.b8)
 		out.blend_rect(Image.create_from_data(g.get_width(), g.get_height(), false, Image.FORMAT_RGBA8, gd), Rect2i(Vector2i.ZERO, g.get_size()), r.position)
+
+# ---------------------------------------------------------------- Jo équipée, vue de jeu
+const Rig3D = preload("res://scripts/rig3d.gd")
+const GAME_SIZE := Vector2i(1280, 720)
+const CROP := 150  # côté du recadrage autour de Jo, en pixels d'un écran de 720 px
+const ZOOM := 2
+const WORLD_NAMES := {"n7": "Nébuleuse 7", "neon": "Cité Néon"}
+
+func _process(_dt: float) -> void:
+	for c in _rigs:
+		var r: Node3D = c["rig"]
+		r.set_motion(float(c["speed"]), float(c["shoot"]))
+		r.set_move(c["move"])
+		if float(c["shoot"]) > 0.5 and Engine.get_process_frames() % 10 == 0:
+			r.fire()
+
+## Planche : pour chaque objet, Jo de face qui vise et Jo de dos qui court, sous la caméra de jeu.
+func _jo_board(path: String) -> void:
+	var gv := SubViewport.new()
+	gv.own_world_3d = true
+	gv.size = GAME_SIZE
+	gv.msaa_3d = Viewport.MSAA_4X
+	gv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(gv)
+	var we := WorldEnvironment.new()
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color("#0B1226")
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.5, 0.55, 0.92)
+	env.ambient_light_energy = 0.3
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 1.05
+	env.glow_enabled = true
+	env.glow_intensity = 0.7
+	env.glow_bloom = 0.04
+	env.glow_hdr_threshold = 1.0
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+	env.adjustment_enabled = true
+	env.adjustment_saturation = 1.12
+	env.adjustment_contrast = 1.05
+	we.environment = env
+	gv.add_child(we)
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-58, 28, 0)
+	sun.light_color = Color(1.0, 0.95, 0.88)
+	sun.light_energy = 0.9
+	sun.shadow_enabled = true
+	sun.shadow_bias = 0.04
+	gv.add_child(sun)
+	var floor := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(40, 40)
+	floor.mesh = pm
+	floor.material_override = Models.toon(Color("#2C3050"), 0.0)
+	gv.add_child(floor)
+	for i in range(-8, 9):
+		for j in range(-6, 7):
+			if (i + j) % 3 == 0:
+				var tile := Models.box(Vector3(1.3, 0.01, 1.3), Models.toon(Color("#262A48"), 0.0))
+				tile.position = Vector3(i * 2.0, 0.005, j * 2.0)
+				gv.add_child(tile)
+	var gcam := Camera3D.new()
+	gcam.fov = 38.0
+	gv.add_child(gcam)
+	var pitch := deg_to_rad(56.0)
+	gcam.position = Vector3(0, sin(pitch), cos(pitch)) * 11.5
+	gcam.look_at(Vector3.ZERO, Vector3.UP)
+	gcam.make_current()
+	var holder := Node3D.new()
+	gv.add_child(holder)
+	var shots := []  # {id, a: Image, b: Image}
+	var ids := []
+	for tpl in Data.ITEMS:
+		var id := String(tpl["id"])
+		if only.is_empty() or only.has(id) or only.has("none"):
+			ids.append(id)
+	for id in ids:
+		for c in holder.get_children():
+			holder.remove_child(c)
+			c.queue_free()
+		_rigs.clear()
+		var poses := [
+			{"pos": Vector3(-1.4, 0, 0), "yaw": 0.55, "speed": 0.0, "shoot": 1.0},
+			{"pos": Vector3(1.4, 0, 0), "yaw": PI + 0.6, "speed": 0.85, "shoot": 0.0},
+		]
+		for ps in poses:
+			var r := Rig3D.new()
+			holder.add_child(r)
+			r.setup(JO, Color(1, 1, 1), 1.7)
+			r.make_hero(Color(0.5, 1.0, 0.94), 0.007, Color(1.0, 0.22, 0.28))
+			r.position = ps["pos"]
+			r.rotation.y = ps["yaw"]
+			r.scale = Vector3.ONE * 1.15
+			r.apply_items([{"id": id, "rarity": 2}])
+			var key := OmniLight3D.new()
+			key.position = ps["pos"] + Vector3(0.0, 2.4, 1.8)
+			key.omni_range = 4.5
+			key.omni_attenuation = 0.6
+			key.light_color = Color(1.0, 0.97, 0.94)
+			key.light_cull_mask = Rig3D.HERO_LAYER
+			holder.add_child(key)
+			var sh := Models.shadow_blob(1.1)
+			sh.position = ps["pos"] + Vector3(0, 0.02, 0)
+			holder.add_child(sh)
+			var fwd := Vector3(sin(ps["yaw"]), 0, cos(ps["yaw"]))
+			_rigs.append({"rig": r, "speed": ps["speed"], "shoot": ps["shoot"], "move": fwd * 0.9 if ps["speed"] > 0.0 else Vector3.ZERO})
+		for i in range(24):
+			await RenderingServer.frame_post_draw
+		var img := gv.get_texture().get_image()
+		img.convert(Image.FORMAT_RGBA8)
+		var crops := []
+		for ps in poses:
+			var c2: Vector2 = gcam.unproject_position(ps["pos"] + Vector3(0, 0.62, 0))
+			var r2 := Rect2i(int(c2.x) - CROP / 2, int(c2.y) - CROP / 2, CROP, CROP)
+			var cr := _crop(img, r2)
+			cr.resize(CROP * ZOOM, CROP * ZOOM, Image.INTERPOLATE_NEAREST)
+			crops.append(cr)
+		shots.append({"id": id, "a": crops[0], "b": crops[1]})
+		print("JO : %s" % id)
+	_rigs.clear()
+	gv.queue_free()
+	await _compose_jo(shots, path)
+
+## Assemble la planche (vignettes nommées) dans un viewport 2D et l'enregistre.
+func _compose_jo(shots: Array, path: String) -> void:
+	var cols := 4
+	var side := CROP * ZOOM
+	var cw := side * 2 + 30
+	var ch := side + 46
+	var rows := int(ceil(shots.size() / float(cols)))
+	var v2 := SubViewport.new()
+	v2.size = Vector2i(cols * cw + 20, rows * ch + 20)
+	v2.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(v2)
+	var bg := ColorRect.new()
+	bg.color = Color("#070B18")
+	bg.size = Vector2(v2.size)
+	v2.add_child(bg)
+	for i in range(shots.size()):
+		var s: Dictionary = shots[i]
+		var tpl := Data.item_template(String(s["id"]))
+		var x := 10 + (i % cols) * cw
+		var y := 10 + int(i / cols) * ch
+		var l := Label.new()
+		l.text = "%s  ·  %s  ·  %s" % [String(tpl["name"]), String(Data.SLOT_NAMES[tpl["slot"]]), String(WORLD_NAMES.get(String(tpl.get("world", "")), "garde"))]
+		l.add_theme_font_size_override("font_size", 22)
+		l.position = Vector2(x + 6, y + 6)
+		v2.add_child(l)
+	for i in range(4):
+		await RenderingServer.frame_post_draw
+	# le viewport 2D ne sert qu'aux noms : les vues sont collées telles quelles (relues d'un viewport 2D, elles
+	# sortiraient éclaircies une seconde fois)
+	var out := v2.get_texture().get_image()
+	out.convert(Image.FORMAT_RGBA8)
+	for i in range(shots.size()):
+		var s: Dictionary = shots[i]
+		var x := 10 + (i % cols) * cw
+		var y := 10 + int(i / cols) * ch
+		for k in range(2):
+			var im: Image = s["a" if k == 0 else "b"]
+			out.blit_rect(im, Rect2i(Vector2i.ZERO, im.get_size()), Vector2i(x + k * (side + 8), y + 40))
+	out.save_png(path)
+	print("JO : planche %s" % path)
+	v2.queue_free()
