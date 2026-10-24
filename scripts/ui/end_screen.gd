@@ -10,13 +10,14 @@ const UI = preload("res://scripts/ui.gd")
 const Fx = preload("res://scripts/ui/fx.gd")
 const Icon = preload("res://scripts/icon.gd")
 const Data = preload("res://scripts/data.gd")
+const BoxArt = preload("res://scripts/ui/boxes_art.gd")
 
 var won := false
 var _t := 0.0
 var _rays: Control
 var _col := UI.GOLD
 
-## info : {room, rooms, kills, tickets, items: [instances], shard: bool, record: bool, title, subtitle}
+## info : {room, rooms, kills, tickets, items: [instances], boxes: [raretés], shard: bool, record: bool, title, subtitle}
 func build(info: Dictionary) -> void:
 	UI.load_fonts()
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -85,6 +86,7 @@ func build(info: Dictionary) -> void:
 		["skull", "Ennemis abattus", int(info.get("kills", 0)), "%d", Color("#FF4D6D")],
 		["coin", "Tickets", int(info.get("tickets", 0)), "+%d", UI.GOLD],
 		["chest", "Objets trouvés", (info.get("items", []) as Array).size(), "%d", Color("#C77DFF")],
+		["box", "Box gagnées", (info.get("boxes", []) as Array).size(), "+%d", UI.GOLD],
 		["shard", "Éclat du Cœur", 1 if won else 0, "+%d" if won else "%d", UI.ACCENT if won else UI.MUTED],
 	]
 	var row_h := 58.0
@@ -95,7 +97,7 @@ func build(info: Dictionary) -> void:
 	var px := (vs.x - pw) * 0.5
 	var i := 0
 	for r in rows:
-		var row := _row(r[0], r[1], int(r[2]), String(r[3]), r[4], Vector2(pw, row_h - 8.0), i == 0 and bool(info.get("record", false)), info.get("items", []) if r[0] == "chest" else [])
+		var row := _row(r[0], r[1], int(r[2]), String(r[3]), r[4], Vector2(pw, row_h - 8.0), i == 0 and bool(info.get("record", false)), info.get("items", []) if r[0] == "chest" else (info.get("boxes", []) if r[0] == "box" else []))
 		row.position = Vector2(px, py + i * row_h)
 		add_child(row)
 		Fx.slide_in(row, Vector2(80, 0), 0.45 + 0.1 * i, 0.32)
@@ -133,9 +135,21 @@ func _row(icon: String, label_text: String, _value: int, _fmt: String, col: Colo
 	st.border_color = col
 	bg.add_theme_stylebox_override("panel", st)
 	c.add_child(bg)
-	var ic := Icon.new(icon, col, sz.y * 0.62)
-	ic.position = Vector2(18, sz.y * 0.19)
-	c.add_child(ic)
+	if icon == "box":
+		# box de butin : petites box sculptées en dessin, une par box gagnée, à la couleur de leur rareté
+		var bi := Control.new()
+		bi.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bi.size = sz
+		bi.draw.connect(func():
+			BoxArt.draw_box(bi, Vector2(18 + sz.y * 0.31, sz.y * 0.5), sz.y * 0.62, String(items[0]) if not items.is_empty() else "or", items.is_empty())
+			for k in range(mini(items.size(), 8)):
+				BoxArt.draw_box(bi, Vector2(266 + k * 44, sz.y * 0.5), 36.0, String(items[k])))
+		c.add_child(bi)
+		items = []
+	else:
+		var ic := Icon.new(icon, col, sz.y * 0.62)
+		ic.position = Vector2(18, sz.y * 0.19)
+		c.add_child(ic)
 	var l := UI.label(label_text, 24, UI.TEXT)
 	l.position = Vector2(30 + sz.y * 0.62, 0)
 	l.size = Vector2(300, sz.y)

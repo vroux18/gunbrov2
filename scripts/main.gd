@@ -17,6 +17,9 @@ const CardScript = preload("res://scripts/ui/card.gd")
 const EnemyCardScript = preload("res://scripts/ui/enemy_card.gd")
 const TutorialScript = preload("res://scripts/ui/tutorial.gd")
 const EndScreenScript = preload("res://scripts/ui/end_screen.gd")
+const Loot = preload("res://scripts/loot.gd")
+const BoxesScreen = preload("res://scripts/ui/boxes_screen.gd")
+const BoxArt = preload("res://scripts/ui/boxes_art.gd")
 
 var profile: Dictionary
 var sfx: Node
@@ -48,6 +51,7 @@ func _ready() -> void:
 	add_child(arena)
 	arena.build(sfx, hero)
 	arena.visible = false
+	_hook_boxes()
 	var ctl := CanvasLayer.new()
 	ctl.layer = 4
 	add_child(ctl)
@@ -332,6 +336,7 @@ func _build_relais_panel() -> void:
 	var ars := _side_button("ARSENAL", "bolt", UI.ORANGE, "%d/%d" % [profile["arsenal"].size(), Data.ARSENAL_SIZE])
 	ars.pressed.connect(show_arsenal)
 	row.add_child(ars)
+	right.add_child(_boxes_row())
 	var equipped := Save.equipped_items(profile)
 	var eq_txt := "Rien d'équipé. Les objets trouvés en partie restent à toi."
 	if not equipped.is_empty():
@@ -634,6 +639,7 @@ func start_run() -> void:
 ## tutoriel des deux pouces à la toute première partie (tant qu'il n'a pas été fait).
 func _start_run_ui() -> void:
 	run_items = []
+	run_boxes = []
 	hud.tickets = int(profile["tickets"])
 	hud.hp = 1.0
 	hud.energy = 0.0
@@ -676,6 +682,7 @@ func _resume() -> void:
 	_clear_overlay()
 	get_tree().paused = false
 	joy.enabled = true
+	_flush_box_toast()
 
 func _card_overlay(title: String, subtitle: String) -> VBoxContainer:
 	_clear_overlay()
@@ -1018,6 +1025,8 @@ func _victory() -> void:
 	_pause_for_overlay()
 	var done: Array = profile["worlds_done"]
 	var first := not done.has(Data.world)
+	for b in Loot.boss_boxes(first):
+		_gain_box(b)
 	if first:
 		done.append(Data.world)
 	profile["shards"] = done.size()
@@ -1038,7 +1047,7 @@ func _show_end(won: bool, title: String, subtitle: String) -> void:
 	ui_layer.add_child(es)
 	es.build({
 		"room": arena.room, "rooms": Data.ROOMS, "kills": arena.kills, "tickets": arena.tickets,
-		"items": run_items, "shard": won, "record": arena.room > int(profile["best_room"]) and int(profile["runs"]) > 1,
+		"items": run_items, "boxes": run_boxes, "shard": won, "record": arena.room > int(profile["best_room"]) and int(profile["runs"]) > 1,
 		"title": title, "subtitle": subtitle,
 	})
 	Fx.screen_in(es, 0.2)
@@ -1056,3 +1065,103 @@ func _end_run(_won: bool) -> void:
 	arena.stop()
 	view.stop()
 	show_base()
+
+# ---------------------------------------------------------------- box de butin (scripts/loot.gd)
+var run_boxes: Array = []  # box gagnées pendant la partie (écran de fin)
+var _box_toast := ""
+var _shot_i := 0
+
+## Gains : élite (petite chance de Bronze), coffre de la route Trésor (Argent), boss (_victory : Or, et
+## Légendaire à la première victoire du monde). Apparence de Jo et traînée de tir appliquées.
+func _hook_boxes() -> void:
+	Loot.apply_skin(profile)
+	arena.elite_killed.connect(func(_e):
+		if state == "arena" and randf() < Loot.ELITE_BOX_CHANCE:
+			_gain_box("bronze")
+			hud.flash("BOX BRONZE !", 1.3, Loot.BOX_COLORS["bronze"]))
+	arena.chest_opened.connect(func(_p):
+		if state == "arena" and arena.modifier == "tresor":
+			_gain_box("argent")
+			_box_toast = "argent")
+	arena.fired.connect(_tint_shot)
+
+func _gain_box(b: String) -> void:
+	Loot.add_box(profile, b)
+	run_boxes.append(b)
+	Save.save_profile(profile)
+	sfx.play("chest", 1.25, -4.0)
+
+## Bandeau « BOX ARGENT ! » après l'objet du coffre (l'overlay l'aurait caché).
+func _flush_box_toast() -> void:
+	if _box_toast != "" and state == "arena":
+		hud.flash("BOX %s !" % String(Loot.BOX_NAMES[_box_toast]).to_upper(), 1.4, Loot.BOX_COLORS[_box_toast])
+	_box_toast = ""
+
+## Traînée de tir équipée : recolore le tir de Jo qui vient de partir (les tirs critiques gardent leur jaune).
+func _tint_shot(_pos: Vector2, _vel: Vector2, hero_shot: bool, color: Color, _r: float) -> void:
+	var tid := String(profile["trail"])
+	if not hero_shot or color != HeroScript.VISOR or tid == Loot.DEFAULT_TRAIL or arena.bullets.is_empty():
+		return
+	_shot_i += 1
+	arena.bullets.back().color = Loot.trail_color(tid, _shot_i)
+
+## Relais : COFFRES (pastille du nombre de box, halo qui pulse) et COLLECTION (compteur).
+func _boxes_row() -> HBoxContainer:
+	var row := UI.hbox(14)
+	var n: int = (profile["boxes"] as Array).size()
+	var cb := _side_button("COFFRES", "chest", UI.GOLD, str(n) if n > 0 else "")
+	cb.pressed.connect(func(): show_coffres("coffres"))
+	row.add_child(cb)
+	# pictogramme : la plus belle box en attente, qui se trémousse de temps en temps
+	for ic in cb.get_children():
+		if ic is UI.Icon:
+			ic.visible = false
+	var best := "or"
+	for r in Loot.BOXES:
+		if Loot.count(profile, r) > 0:
+			best = r
+	var glyph := Control.new()
+	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glyph.anchor_top = 0.5
+	glyph.anchor_bottom = 0.5
+	glyph.offset_left = 14
+	glyph.offset_top = -22
+	glyph.size = Vector2(44, 44)
+	var gt := {"t": 0.0}
+	glyph.draw.connect(func():
+		var k := fmod(float(gt["t"]), 2.2)
+		var wob := sin(k * 26.0) * 0.16 * maxf(0.0, 1.0 - k / 0.5) if n > 0 else 0.0
+		glyph.draw_set_transform(Vector2(22, 24), wob, Vector2.ONE)
+		BoxArt.draw_box(glyph, Vector2.ZERO, 40.0, best, n == 0))
+	cb.add_child(glyph)
+	var tw_g := glyph.create_tween().set_loops()
+	tw_g.tween_method(func(v: float):
+		gt["t"] = v
+		glyph.queue_redraw(), 0.0, 2.2, 2.2)
+	if n > 0:
+		var h := Fx.halo(Color(UI.GOLD, 0.45), Vector2(10, 10))
+		h.show_behind_parent = true
+		cb.add_child(h)
+		cb.resized.connect(func():
+			h.size = cb.size * Vector2(1.25, 2.2)
+			h.position = (cb.size - h.size) * 0.5)
+		Fx.pulse(h, 0.35, 1.0, 1.1)
+	var col := _side_button("COLLECTION", "shard", UI.ACCENT, "%d/%d" % [Loot.owned_count(profile), Loot.total_count()])
+	col.pressed.connect(func(): show_coffres("collection"))
+	row.add_child(col)
+	Fx.rise_in(row, 0.5)
+	return row
+
+func show_coffres(tab: String = "coffres") -> void:
+	var fresh := state != "coffres"
+	_clear_screen(fresh)
+	state = "coffres"
+	screen = BoxesScreen.new()
+	ui_layer.add_child(screen)
+	screen.build(self, tab, fresh)
+	view.relais_focus = 1.0
+
+## Après une ouverture ou un changement d'apparence : Jo et l'équipement suivent le profil.
+func on_boxes_changed() -> void:
+	Loot.apply_skin(profile)
+	_apply_profile_to_hero()

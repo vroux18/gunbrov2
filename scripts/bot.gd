@@ -20,6 +20,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	touch_test = "--touchtest" in OS.get_cmdline_user_args()
 	main.joy.bot = not touch_test
+	_give_loot()
 	print("BOT : démarrage" + (" (test tactile)" if touch_test else ""))
 
 ## Les événements injectés sont en coordonnées de fenêtre ; le moteur les ramène dans le viewport 1280×720.
@@ -58,6 +59,8 @@ func _capture_screen() -> bool:
 		match mode:
 			"loge":
 				main.show_loge()
+			"coffres", "collection":
+				main.show_coffres(mode)
 			"arsenal":
 				main.show_arsenal()
 			"power", "item", "victory", "defeat", "enemy", "tuto", "pause", "hud", "dev":
@@ -102,6 +105,11 @@ func _capture_events(mode: String) -> void:
 					main._show_end(false, "RAPPEL AU RELAIS", "Le butin reste, les pouvoirs partent.")
 			"pause":
 				main._show_pause()
+			"coffres":
+				# --open=or[,legendaire...] ouvre ces box (--serial : à la suite, comme TOUT OUVRIR)
+				for a in OS.get_cmdline_user_args():
+					if a.begins_with("--open="):
+						main.screen.open(Array(a.trim_prefix("--open=").split(",")), "--serial" in OS.get_cmdline_user_args())
 			"dev":
 				main._show_pause()
 				main._show_dev()
@@ -120,6 +128,38 @@ func _capture_events(mode: String) -> void:
 						b.pressed.emit()
 						break
 
+## Options de capture des box : --boxes=N (N box de test, raretés en alternance) ou --boxes=or,legendaire ;
+## --skin=<id> et --trail=<id> donnent et équipent un cosmétique (scripts/loot.gd) ;
+## --tapevery=S touche l'écran d'ouverture toutes les S secondes (après --open).
+func _give_loot() -> void:
+	var Loot = load("res://scripts/loot.gd")
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--boxes="):
+			var v := a.trim_prefix("--boxes=")
+			if v.is_valid_int():
+				for i in range(int(v)):
+					Loot.add_box(main.profile, Loot.BOXES[(Loot.BOXES.size() - 1 - i % Loot.BOXES.size())])
+			else:
+				for b in v.split(","):
+					if b in Loot.BOXES:
+						Loot.add_box(main.profile, b)
+		for k in ["skin", "trail"]:
+			if a.begins_with("--%s=" % k):
+				var id := a.trim_prefix("--%s=" % k)
+				if not (main.profile[k + "s"] as Array).has(id):
+					main.profile[k + "s"].append(id)
+				main.profile[k] = id
+	main.on_boxes_changed()
+
+var _tap_t := 0.0
+func _tap_opener(dt: float) -> void:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--tapevery=") and main.screen != null and main.screen.get("opener") != null:
+			_tap_t += dt
+			if _tap_t >= float(a.trim_prefix("--tapevery=")):
+				_tap_t = 0.0
+				main.screen.opener.tap()
+
 func _give_stuff() -> void:
 	var Data = load("res://scripts/data.gd")
 	var Save = load("res://scripts/save.gd")
@@ -135,6 +175,7 @@ func _give_stuff() -> void:
 func _process(dt: float) -> void:
 	t += dt
 	if _capture_screen():
+		_tap_opener(dt)
 		return
 	if main.overlay != null or main.screen != null:
 		click_t += dt

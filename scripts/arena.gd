@@ -26,6 +26,7 @@ signal doors_opened
 signal shockwave_started(pos: Vector2, max_r: float, speed: float, color: Color)
 signal door_taken(door: Dictionary)
 signal shield_blocked(e: Node2D, pos: Vector2, vel: Vector2)  # tir de Jo arrêté par le bouclier d'un rempart
+signal elite_killed(e: Node2D)  # élite abattue : chance de box (main.gd)
 
 const W := 2400.0
 const H := 1400.0
@@ -537,6 +538,7 @@ func on_enemy_died(e: Node2D, rewarded: bool = true) -> void:
 		pickups.append({"pos": e.position, "kind": "hp", "vel": Vector2.RIGHT.rotated(randf() * TAU) * 120.0, "t": 0.0})
 	if e.elite:
 		pickups.append({"pos": e.position, "kind": "item", "vel": Vector2.ZERO, "t": 0.0, "item": Data.roll_item(1)})
+		elite_killed.emit(e)
 	if hero.vamp > 0:
 		hero.heal(float(hero.vamp))
 	if hero.boom > 0:

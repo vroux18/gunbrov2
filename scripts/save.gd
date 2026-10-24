@@ -4,9 +4,10 @@ extends RefCounted
 
 const PATH := "user://passeurs.json"
 const Data = preload("res://scripts/data.gd")
+const Loot = preload("res://scripts/loot.gd")
 
 static func default_profile() -> Dictionary:
-	return {
+	var p := {
 		"version": 1,
 		"inventory": [],  # instances d'objets {id, rarity, uid}
 		"equipped": {},  # slot -> uid
@@ -21,6 +22,9 @@ static func default_profile() -> Dictionary:
 		"seen_enemies": [],  # genres déjà présentés par la carte « NOUVEL ENNEMI »
 		"tutorial_done": false,  # tutoriel des deux pouces fait
 	}
+	# box à ouvrir, apparences et traînées de tir (scripts/loot.gd)
+	p.merge(Loot.default_fields())
+	return p
 
 ## `--fresh` (captures, essais) : profil neuf, écrit à part pour ne pas toucher la vraie sauvegarde.
 static func _path() -> String:
@@ -54,6 +58,7 @@ static func load_profile() -> Dictionary:
 	if ars.is_empty():
 		ars = Data.DEFAULT_ARSENAL.duplicate()
 	p["arsenal"] = ars
+	Loot.sanitize(p)  # ancienne sauvegarde : pas de box, apparence et traînée d'origine
 	return p
 
 static func save_profile(p: Dictionary) -> void:

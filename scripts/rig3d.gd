@@ -75,6 +75,8 @@ func setup(path: String, tint: Color = Color(1, 1, 1), glow_energy: float = 3.0)
 	_flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	_flash_mat.albedo_color = Color(1, 1, 1, 0)
+	if path.ends_with("/jo.glb"):
+		_skin_register()
 
 ## Lumière teintée (équipement : couleur de rareté) — les pièces lumineuses de l'équipement sont blanches.
 static func tint_glow_mat(col: Color, energy: float) -> StandardMaterial3D:
@@ -147,6 +149,7 @@ func apply_items(items: Array) -> void:
 			if p(nm) != null:
 				p(nm).visible = not hidden.has(nm)
 	meshes = Models.meshes(model)
+	apply_skin()
 
 func p(name: String) -> Node3D:
 	return parts.get(name)
@@ -230,6 +233,63 @@ func _veil(dt: float) -> void:
 	_veil_mat.albedo_color = Color(0.9, 0.85, 0.8, 0.14 if int(invuln * 12.0) % 2 == 0 else 0.03)
 
 
+# ---------------------------------------------------------------- Jo : apparence (scripts/loot.gd)
+## Apparence équipée : palette {suit, accent, light, rainbow} remappée par shaders/skin_remap.* ;
+## vide = couleurs et matériaux d'origine. Tous les modèles de Jo (Relais, partie) suivent.
+static var hero_skin: Dictionary = {}
+static var _skin_rigs: Array = []  # WeakRef des modèles de Jo
+static var _skin_mats := {}
+var _skin_orig := {}  # MeshInstance3D -> matériau d'origine
+
+static func set_hero_skin(pal: Dictionary) -> void:
+	hero_skin = pal
+	for w in _skin_rigs.duplicate():
+		var r = (w as WeakRef).get_ref()
+		if r == null:
+			_skin_rigs.erase(w)
+		else:
+			r.apply_skin()
+
+func _skin_register() -> void:
+	_skin_rigs.append(weakref(self))
+	apply_skin()
+
+func apply_skin() -> void:
+	if model == null or not _skin_rigs.any(func(w): return (w as WeakRef).get_ref() == self):
+		return
+	var keep := {}
+	for mi in Models.meshes(model):
+		var m: MeshInstance3D = mi
+		if not (m.material_override is ShaderMaterial and m.material_override.has_meta("skin")):
+			_skin_orig[m] = m.material_override
+		keep[m] = _skin_orig.get(m)
+		var orig = keep[m]
+		if hero_skin.is_empty() or not (orig is StandardMaterial3D):
+			m.material_override = orig
+			continue
+		var glow := (orig as StandardMaterial3D).shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.material_override = _skin_mat(orig, glow, String(m.name) == "head")
+	_skin_orig = keep
+
+static func _skin_mat(orig: StandardMaterial3D, glow: bool, head: bool) -> ShaderMaterial:
+	var key := "%s|%d|%d|%d" % [String(hero_skin.get("id", "")), int(glow), int(head), orig.get_instance_id()]
+	if _skin_mats.has(key):
+		return _skin_mats[key]
+	var sm := ShaderMaterial.new()
+	sm.shader = preload("res://shaders/skin_remap_glow.gdshader") if glow else preload("res://shaders/skin_remap.gdshader")
+	sm.set_meta("skin", true)
+	for k in [["suit", "suit"], ["accent", "accent"], ["light", "lit_col"]]:
+		var c: Color = hero_skin[k[0]]
+		sm.set_shader_parameter(k[1], Vector3(c.r, c.g, c.b))
+	sm.set_shader_parameter("rainbow", 1.0 if bool(hero_skin.get("rainbow", false)) else 0.0)
+	sm.set_shader_parameter("suit_on", 0.0 if (glow or head) else 1.0)
+	if glow:
+		var a := orig.albedo_color  # en Compatibility, la teinte passe telle quelle (sortie sRGB)
+		sm.set_shader_parameter("tint", Vector3(a.r, a.g, a.b))
+	sm.next_pass = orig.next_pass  # liseré de Jo en jeu
+	_skin_mats[key] = sm
+	return sm
+
 # ---------------------------------------------------------------- Jo : locomotion, coup reçu, victoire, repos
 ## Déplacement voulu dans le monde (longueur 0..1). Les jambes le suivent, le buste suit la visée (orientation
 ## du rig) : Jo peut tirer en reculant ou en pas chassés. Sans appel, les jambes suivent l'orientation.
@@ -298,6 +358,7 @@ func make_hero(outline: Color, width: float, hurt: Color) -> void:
 			m.material_override = xray_mat if String(m.name) in XRAY_PARTS else _hero_mat
 	flash_color = hurt
 	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
+	apply_skin()
 
 func _jo_reset() -> void:
 	_jo_vel = Vector3.ZERO
