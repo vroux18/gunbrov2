@@ -679,11 +679,30 @@ def build_south(mb):
         # tube monde (side = 1, XF décalé) : on passe par cyl en coordonnées locales -> monde
         for xa in np.linspace(x0, x1, 9)[:-1]:
             mb.cyl((xa - XF, y, z0 + 0.22), (xa + (x1 - x0) / 8 - XF, y, z0 + 0.22), r, uvr("pipe"), c, BARE, 10)
-    # bord du pont et fosse de service
-    wbox(((x0 + x1) / 2, -1.25, H), (W, 2.5, 0.01), uvr("dark"), (0.6, 0.6, 0.6), PAINT, "s")
-    wbox((W / 2, -2.5, H + 3.0), (W, 0.01, 6.0), uvr("roof"), (0.5, 0.5, 0.6), PAINT, "t")
-    for xs in np.arange(3.0, W, 6.0):
-        wbox((xs, -2.48, H + 2.5), (2.0, 0.02, 0.05), uvr("white"), srgb("#5c8cff") * 0.8, GLOW, "t")
+    # bord du pont ouvert sur l'espace : tranche boulonnée, feux de balisage, conduites et câbles suspendus
+    # sous le rebord ; en dessous, le ciel (la nébuleuse) reste visible
+    nf = int(W / 1.5)
+    for i in range(nf):
+        xa = (i + 0.5) * W / nf
+        wbox((xa, -0.22, H), (W / nf, 0.44, 0.02), uvr("header", (0, 0, 1, 1)), (0.9, 0.9, 0.95), PAINT, "s")
+        wbox((xa, -0.5, H - 0.12), (W / nf, 0.12, 0.02), uvr("dark"), ONE, PAINT, "s")
+    wbox((W / 2, -0.44, H - 0.06), (W, 0.01, 0.12), uvr("dark"), ONE, PAINT, "u")
+    for k, xs in enumerate(np.arange(0.75, W, 1.5)):
+        wbox((xs, -0.12, H + 0.012), (0.16, 0.05, 0.02), uvr("white"), srgb("#ffb347") * 0.9, GLOW, "s")
+        if k % 3 == 1:
+            wbox((xs, -0.32, H + 0.012), (0.08, 0.08, 0.02), uvr("white"), srgb("#ff7a2f"), GLOW, "s")
+    mb.side = 1
+    for (y, zz, r, c) in ((-0.72, H - 0.02, 0.07, srgb("#56647c")), (-0.9, H - 0.12, 0.05, srgb("#b08a3a"))):
+        for xa in np.linspace(0.0, W, 9)[:-1]:
+            mb.cyl((xa - XF, y, zz), (xa + W / 8 - XF, y, zz), r, uvr("pipe"), c, BARE, 10)
+    for xs in np.arange(1.5, W, 3.0):
+        # étriers qui tiennent les conduites sous le rebord
+        wbox((xs, -0.75, H - 0.05), (0.06, 0.62, 0.16), uvr("dark"), ONE, PAINT, "sewn")
+    # câbles qui pendent en chaînette entre les étriers
+    for xs in np.arange(1.5, W - 3.0, 3.0):
+        for (dy, sag, cr, cc) in ((-0.6, 0.35, 0.02, srgb("#202228")), (-0.62, 0.5, 0.016, srgb("#c86a2a"))):
+            pts = [(xs + 3.0 * t - XF, dy - sag * 4 * t * (1 - t), H + 0.04) for t in np.linspace(0, 1, 10)]
+            mb.tube(pts, cr, uvr("dark"), cc, RUBBER, 6)
 
 
 def main():
