@@ -4,9 +4,9 @@
 
 uniform vec4 ceil_grid = vec4(3.75, 7.5, 7.6, 8.5);   // x0, pas en x, z0, pas en z
 uniform vec2 ceil_count = vec2(5.0, 2.0);
-uniform float ceil_h = 6.0;
+uniform float ceil_h = 4.5;
 uniform vec3 ceil_col : source_color = vec3(0.78, 0.84, 1.0);
-uniform float ceil_energy = 1.15;
+uniform float ceil_energy = 2.4;
 uniform vec4 lamp_grid = vec4(0.9, 36.6, 2.95, 3.0);  // x ouest, x est, z0, pas en z
 uniform float lamp_count = 7.0;
 uniform float lamp_h = 2.8;
@@ -51,7 +51,7 @@ vec3 n7_lights(vec3 wp, vec3 n, vec3 v, vec3 dif, vec3 f0, float rough, float tm
 				continue;
 			}
 			vec3 lp = vec3(ceil_grid.x + ij.x * ceil_grid.y, ceil_h, ceil_grid.z + ij.y * ceil_grid.w);
-			acc += ceil_col * ceil_energy * n7_point(lp, 9.5, 0.6, wp, n, v, dif, f0, rough);
+			acc += ceil_col * ceil_energy * n7_point(lp, 8.0, 0.6, wp, n, v, dif, f0, rough);
 		}
 	}
 	// appliques du mur le plus proche : les deux plus proches
@@ -87,4 +87,20 @@ vec3 n7_lights(vec3 wp, vec3 n, vec3 v, vec3 dif, vec3 f0, float rough, float tm
 		acc += beacon_col * beacon_energy * beam * n7_att(d, 7.0) * ndl * (dif + f0 * 0.5);
 	}
 	return acc;
+}
+
+// Soleil et lumières de Godot, avec un gain propre au matériau : le sol prend moins de soleil pour que
+// les flaques des plafonniers se lisent (Lambert + GGX, ombres comprises dans ATTENUATION).
+uniform float sun_gain = 1.0;
+
+void light() {
+	float ndl = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
+	DIFFUSE_LIGHT += ndl * ATTENUATION * LIGHT_COLOR * sun_gain / 3.14159;
+	vec3 h = normalize(LIGHT + VIEW);
+	float ndh = max(dot(NORMAL, h), 0.0);
+	float a = max(ROUGHNESS * ROUGHNESS, 0.03);
+	float a2 = a * a;
+	float dd = ndh * ndh * (a2 - 1.0) + 1.0;
+	float fr = 0.06 + 0.94 * pow(1.0 - max(dot(VIEW, h), 0.0), 5.0);
+	SPECULAR_LIGHT += a2 / (3.14159 * dd * dd) * fr * 0.25 * ndl * ATTENUATION * LIGHT_COLOR * sun_gain;
 }

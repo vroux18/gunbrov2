@@ -47,7 +47,7 @@ void fragment() {
 			k = 0.15 + 0.85 * step(0.45, fract(TIME * 0.7 + anim.y * 3.7));
 		}
 		em = vcol.rgb * t.rgb * glow_energy * k;
-		alb *= 0.15;
+		alb *= 0.06;
 	} else {
 		float fl = a == 1 ? 0.92 + 0.08 * sin(TIME * 23.0 + wpos.z * 3.0) : 1.0;
 		em = t.rgb * vcol.rgb * t.a * screen_energy * fl;

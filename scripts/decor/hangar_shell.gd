@@ -11,6 +11,8 @@ const CYAN := Color("#3CF2D8")
 const ORANGE := Color("#FF7A2F")
 ## calque de rendu du sol et des marquages : les lumières d'ambiance ne les éclairent pas (un seul passage)
 const DECK_LAYER := 2
+## part du soleil sur le pont (le reste vient des plafonniers simulés : flaques de lumière lisibles)
+const SUN_GAIN_DECK := 0.6
 
 static var _floor_mat: ShaderMaterial = null
 static var _marks_mat: ShaderMaterial = null
@@ -81,6 +83,7 @@ static func _build_floor(v: Node, data: Dictionary, W: float, H: float, TOP: flo
 	m.set_shader_parameter("ins_rect", rects)
 	m.set_shader_parameter("ins_cells", cells)
 	_set_lights(m, beacons)
+	m.set_shader_parameter("sun_gain", SUN_GAIN_DECK)
 	_floor_mat = m
 	var pm := PlaneMesh.new()
 	pm.size = Vector2(W, H - TOP)
@@ -98,6 +101,7 @@ static func _build_marks(v: Node, data: Dictionary, beacons: Array) -> void:
 	m.shader = load("res://shaders/n7_deck_marks.gdshader")
 	_deck_params(m, data, (_floor_mat.get_shader_parameter("layout_tex") as Texture2D))
 	_set_lights(m, beacons)
+	m.set_shader_parameter("sun_gain", SUN_GAIN_DECK)
 	_marks_mat = m
 	var pm := PlaneMesh.new()
 	pm.size = Vector2.ONE
@@ -172,8 +176,8 @@ static func _build_fx(v: Node, data: Dictionary, W: float, H: float, TOP: float)
 	var ramp := Gradient.new()
 	ramp.set_color(0, Color(0.75, 0.78, 0.95, 0.0))
 	ramp.set_color(1, Color(0.75, 0.78, 0.95, 0.0))
-	ramp.add_point(0.25, Color(0.78, 0.8, 0.95, 0.13))
-	ramp.add_point(0.7, Color(0.7, 0.72, 0.9, 0.06))
+	ramp.add_point(0.25, Color(0.78, 0.8, 0.95, 0.42))
+	ramp.add_point(0.7, Color(0.7, 0.72, 0.9, 0.2))
 	var grow := Curve.new()
 	grow.add_point(Vector2(0, 0.35))
 	grow.add_point(Vector2(1, 1.0))
@@ -185,7 +189,7 @@ static func _build_fx(v: Node, data: Dictionary, W: float, H: float, TOP: float)
 	for p in picks.slice(0, 4):
 		var st := CPUParticles3D.new()
 		st.mesh = qm
-		st.amount = 9
+		st.amount = 12
 		st.lifetime = 3.2
 		st.preprocess = 3.0
 		st.position = p
@@ -200,8 +204,8 @@ static func _build_fx(v: Node, data: Dictionary, W: float, H: float, TOP: float)
 		st.damping_max = 0.3
 		st.angle_min = 0.0
 		st.angle_max = 360.0
-		st.scale_amount_min = 0.7
-		st.scale_amount_max = 1.2
+		st.scale_amount_min = 0.9
+		st.scale_amount_max = 1.6
 		st.scale_amount_curve = grow
 		st.color_ramp = ramp
 		st.local_coords = false
@@ -215,12 +219,12 @@ static func _build_fx(v: Node, data: Dictionary, W: float, H: float, TOP: float)
 	dm.vertex_color_use_as_albedo = true
 	dm.albedo_texture = Models.radial()
 	var dq := QuadMesh.new()
-	dq.size = Vector2(0.05, 0.05)
+	dq.size = Vector2(0.06, 0.06)
 	dq.material = dm
 	var dramp := Gradient.new()
 	dramp.set_color(0, Color(0.8, 0.8, 1.0, 0.0))
 	dramp.set_color(1, Color(0.8, 0.8, 1.0, 0.0))
-	dramp.add_point(0.5, Color(0.85, 0.82, 1.0, 0.45))
+	dramp.add_point(0.5, Color(0.85, 0.82, 1.0, 0.75))
 	var dust := CPUParticles3D.new()
 	dust.mesh = dq
 	dust.amount = 90

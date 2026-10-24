@@ -80,7 +80,7 @@ void fragment() {
 	float scr = dt.g * (0.25 + 0.75 * clamp(mc.g + 0.2, 0.0, 1.0));
 	alb = mix(alb, bare_col * 1.15, scr * 0.55);
 	float rough = mix(0.62, 0.34, bare) + (dt.a - 0.5) * 0.25 - scr * 0.12;
-	float metal = mix(0.18, 0.85, max(bare, scr * 0.6));
+	float metal = mix(0.15, 0.55, max(bare, scr * 0.6));
 	vec2 slope = vec2(-nrm.x, -nrm.z) / max(nrm.y, 0.2) + dslope * 0.22;
 	float emis = 0.0;
 	// trappes, regards, grilles : atlas (albédo + hauteur)

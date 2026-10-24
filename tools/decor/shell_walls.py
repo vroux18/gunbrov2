@@ -482,9 +482,13 @@ class MB:
             self.tri([c + d0 * r0, f + d1 * r0, c + d1 * r0], [-d0, -d1, -d1], [(u0, v0), (u1, v1), (u0, v1)], col, cls)
 
     def arrays(self):
-        n = len(self.P)
-        return {"pos": np.array(self.P), "nrm": np.array(self.N), "uv": np.array(self.UV), "uv2": np.array(self.UV2),
-                "col": np.array(self.C), "idx": np.arange(n).reshape(-1, 3)}
+        """Sommets identiques fusionnés (le GLB est trois fois plus léger)."""
+        allv = np.concatenate([np.array(self.P), np.array(self.N), np.array(self.UV), np.array(self.UV2), np.array(self.C)], 1)
+        key = np.round(allv, 5)
+        uniq, inv = np.unique(key, axis=0, return_inverse=True)
+        u = allv[np.unique(inv.reshape(-1), return_index=True)[1]]
+        return {"pos": u[:, 0:3], "nrm": u[:, 3:6], "uv": u[:, 6:8], "uv2": u[:, 8:10], "col": u[:, 10:14],
+                "idx": inv.reshape(-1, 3)}
 
 
 ONE = (1.0, 1.0, 1.0)
