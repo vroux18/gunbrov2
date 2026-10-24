@@ -5,12 +5,13 @@ part cible de Jo (head, torso, arm_l, arm_r...) avec le même pivot, donc les co
 du modèle de Jo (tools/chars/jo.py : regarde vers +Z, sa droite en -X).
 
 Zones (règle avec l'équipement : un objet porté masque, sur la même part, les pièces de tenue de sa zone) :
-  coiffe   couvre-chef, chignons, mèches (masquée par un casque)
+  coiffe   couvre-chef, chignons, mèches (masquée par un couvre-chef : casque, serre-tête)
   visage   visière (masquée par tout objet de tête)
   epaule   épaulettes (masquées par un module posé sur l'épaule)
   torse    col, plastron (masqué par un objet de torse devant)
   dos      panneau du sac, cape (masqué par un gadget dans le dos)
-  autres   (sac : dessus du sac ; ailes, halo...) jamais masquées : posées là où aucun objet ne va
+  ailes    ailes de la tenue (masquées seulement par un gadget large : petites ailes)
+  autres   (sac : dessus du sac ; halo) jamais masquées : posées là où aucun objet ne va
 Suffixes : « _glow » lumineux (lumière de l'apparence), « _hair » cheveux (couleur de cheveux de l'apparence),
 « _spin » tourne lentement sur lui-même (halo).
 

@@ -356,11 +356,19 @@ static func _skin_mat(pal: Dictionary, orig: StandardMaterial3D, glow: bool, hea
 ## (_hero_mat, calque HERO_LAYER en partie) remappé par l'apparence. « _glow » : lumineux ; « _hair » : cheveux ;
 ## « _spin » : tourne (halo).
 ## Règle avec l'équipement : l'objet porté l'emporte. Il masque, sur la part où il se pose, les pièces de tenue de
-## sa zone (voir _gear_zones) : un casque masque la coiffe et la visière, un autre objet de tête la visière, un
-## module d'épaule l'épaulette de ce bras, un objet de torse devant le col, un gadget dans le dos ce qui couvre le
-## sac (cape), des jambières les pièces des jambes. Les zones où aucun objet ne se pose (ailes, halo) restent.
+## sa zone (_gear_zones, d'après la forme de l'objet, donc valable pour les objets à venir) :
+##   tête    couvre-chef (casque, serre-tête : masque les lunettes ou monte au-dessus du crâne) -> coiffe et visière ;
+##           autre objet de tête (visière) -> visière seulement
+##   bras    objet posé sur l'épaule (module, antenne, pince) -> épaulette de ce bras ; une manche ne masque rien
+##   torse   devant ou autour du cou (plastron, veste, gilet, écharpe) -> col ; dans le dos (gadget) -> ce qui couvre
+##           le sac (cape) ; gadget large (petites ailes) -> aussi les ailes de la tenue
+##   jambes  -> pièces des jambes
+## Les autres zones (dessus du sac, halo) restent toujours.
 ## La palette « hides » liste les parts de Jo que la coiffe recouvre (cheveux, lunettes) : masquées seulement
 ## quand la coiffe est portée (sous un casque, les cheveux et le casque reprennent leur place).
+## Couleurs : les pièces de tenue suivent la palette de l'apparence (sculptées aux couleurs de Jo). L'équipement
+## aussi, par le même remappage (apply_skin) : ses parties blanches, orange et turquoise prennent les couleurs de
+## l'apparence pour aller avec la tenue ; ses métaux, ses sombres et sa lumière de rareté ne bougent pas.
 var _outfit_id := ""
 var _outfit: Array = []
 var _outfit_spin: Array = []
@@ -384,12 +392,16 @@ func _apply_outfit(pal: Dictionary) -> void:
 				var target := p(String(nd.name).get_slice("__", 0))
 				if target == null:
 					continue
+				var orig := String(nd.name)
 				nd.get_parent().remove_child(nd)
 				nd.owner = null
+				# zone notée à part, nom préfixé : un objet porté peut avoir le même nom (« torso__ailes »)
+				nd.set_meta("zone", orig.get_slice("__", 0) + "__" + orig.get_slice("__", 1).get_slice("_", 0))
+				nd.name = "tenue_" + orig
 				target.add_child(nd)
 				nd.transform = Transform3D.IDENTITY
 				_outfit.append(nd)
-				if "_spin" in String(nd.name):
+				if "_spin" in orig:
 					_outfit_spin.append(nd)
 				for mi in Models.meshes(nd):
 					var m: MeshInstance3D = mi
@@ -401,8 +413,7 @@ func _apply_outfit(pal: Dictionary) -> void:
 	var blocked := _gear_zones()
 	var coiffe := false
 	for n in _outfit:
-		var nm := String((n as Node).name)
-		var key := nm.get_slice("__", 0) + "__" + nm.get_slice("__", 1).get_slice("_", 0)
+		var key := String((n as Node).get_meta("zone", ""))
 		(n as Node3D).visible = not blocked.has(key)
 		if key == "head__coiffe" and (n as Node3D).visible:
 			coiffe = true
@@ -413,7 +424,7 @@ func _apply_outfit(pal: Dictionary) -> void:
 			hidden[String(nm)] = true
 	for g in _gear:
 		if is_instance_valid(g):
-			for nm in HIDES.get(String((g as Node).name).get_slice("__", 1).trim_suffix("_glow"), []):
+			for nm in HIDES.get(_gear_name(g).get_slice("__", 1).trim_suffix("_glow"), []):
 				hidden[nm] = true
 	var names := BASE_HIDEABLE.duplicate()
 	for v in HIDES.values():
@@ -423,26 +434,36 @@ func _apply_outfit(pal: Dictionary) -> void:
 			p(nm).visible = not hidden.has(nm)
 	meshes = Models.meshes(model)
 
-## Zones de tenue occupées par l'équipement porté : « part__zone » -> true.
+## Nom « cible__id » d'une part d'objet porté (sans le « @…@n » qu'ajoute Godot à un nom en double).
+static func _gear_name(g: Node) -> String:
+	return String(g.name).trim_prefix("@").get_slice("@", 0)
+
+## Zones de tenue occupées par l'équipement porté : « part__zone » -> true (voir la règle plus haut). Les
+## boîtes sont dans le repère de la part cible (origine au pivot : cou, épaule, hanches).
 func _gear_zones() -> Dictionary:
 	var out := {}
 	for g in _gear:
-		if not is_instance_valid(g):
+		if not is_instance_valid(g) or not (g is MeshInstance3D) or (g as MeshInstance3D).mesh == null:
 			continue
-		var nm := String((g as Node).name)
+		var nm := _gear_name(g)
 		var tgt := nm.get_slice("__", 0)
 		var gid := nm.get_slice("__", 1).trim_suffix("_glow")
+		var box: AABB = (g as MeshInstance3D).get_aabb()
 		match tgt:
 			"head":
 				out["head__visage"] = true
-				if "goggles" in HIDES.get(gid, []):  # un casque : couvre le crâne
+				if "goggles" in HIDES.get(gid, []) or box.end.y > 0.4:  # couvre-chef
 					out["head__coiffe"] = true
 			"torso":
-				# devant (plastron, veste) ou dans le dos (gadget posé sur le sac)
-				var back := g is MeshInstance3D and (g as MeshInstance3D).mesh != null and (g as MeshInstance3D).get_aabb().get_center().z < -0.1
-				out["torso__dos" if back else "torso__torse"] = true
+				if box.get_center().z < -0.2:  # gadget posé sur le sac
+					out["torso__dos"] = true
+					if box.size.x > 0.4:
+						out["torso__ailes"] = true
+				else:
+					out["torso__torse"] = true
 			"arm_l", "arm_r":
-				out[tgt + "__epaule"] = true
+				if box.end.y > 0.07:  # sur l'épaule (une manche de veste reste plus bas)
+					out[tgt + "__epaule"] = true
 			"leg_l", "leg_r":
 				out[tgt + "__jambes"] = true
 	return out
