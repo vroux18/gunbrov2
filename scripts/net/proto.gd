@@ -342,7 +342,7 @@ static func encode_input(i: Dictionary) -> PackedByteArray:
 	b.put_8(_s8(mv.y))
 	b.put_8(_s8(am.x))
 	b.put_8(_s8(am.y))
-	b.put_u8((1 if i["aim_on"] else 0) | (2 if i["choosing"] else 0))
+	b.put_u8((1 if i["aim_on"] else 0) | (2 if i["choosing"] else 0) | (4 if i.get("dodge", false) else 0))
 	return b.data_array
 
 static func decode_input(pk: PackedByteArray) -> Dictionary:
@@ -362,4 +362,5 @@ static func decode_input(pk: PackedByteArray) -> Dictionary:
 	var f := b.get_u8()
 	i["aim_on"] = f & 1 != 0
 	i["choosing"] = f & 2 != 0
+	i["dodge"] = f & 4 != 0  # ruée en cours : invulnérable
 	return i

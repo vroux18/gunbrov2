@@ -464,7 +464,7 @@ func _send_input() -> void:
 	var j: Node = main.joy
 	var alive: bool = not me.dead
 	duo.send_raw(Proto.encode_input({"seq": _seq, "pos": me.position, "mv": j.move if alive else Vector2.ZERO,
-		"aim": j.aim if alive else Vector2.ZERO, "aim_on": alive and j.aim_active, "choosing": main.overlay != null}), false)
+		"aim": j.aim if alive else Vector2.ZERO, "aim_on": alive and j.aim_active, "choosing": main.overlay != null, "dodge": alive and me.dodge_t > 0.0}), false)
 
 ## Pouvoirs choisis et objets équipés par l'invité : envoyés à l'hôte qui simule sa Jo.
 func _sync_loadout() -> void:

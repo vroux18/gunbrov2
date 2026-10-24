@@ -147,6 +147,8 @@ func _process(dt: float) -> void:
 		arena._clamp_circle(partner, partner.radius)
 		if inp["choosing"]:
 			partner.invuln = maxf(partner.invuln, 0.3)
+		if inp.get("dodge", false):
+			partner.dodge_t = maxf(partner.dodge_t, 0.12)  # sa ruée la rend invulnérable ici aussi
 	p3d.shooting = inp["aim_on"] and not partner.dead
 	# l'hôte, pendant son propre choix (pouvoir, objet) : invulnérable, la partie continue
 	if main.overlay != null and not hero.dead:
