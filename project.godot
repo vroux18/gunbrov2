@@ -23,6 +23,7 @@ run/max_fps=120
 [autoload]
 
 Perf="*res://scripts/perf.gd"
+Music="*res://scripts/music.gd"
 
 [display]
 

@@ -165,6 +165,7 @@ func _clear_entities() -> void:
 
 func start_room(r: int, mod: String) -> void:
 	room = r
+	Music.play("boss" if r >= Data.ROOMS else "combat")
 	modifier = mod
 	_clear_entities()
 	hero.position = Vector2(W * 0.5, (TOP + H) * 0.5)
@@ -390,6 +391,7 @@ func _room_done() -> void:
 	p.y = clampf(p.y, TOP + 160, H - 200)
 	chest = {"pos": p, "open": false}
 	sfx.play("level", 1.2)
+	Music.stinger()
 	room_cleared.emit()
 
 # ---------------------------------------------------------------- apparitions et morts

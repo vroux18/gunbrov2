@@ -178,6 +178,7 @@ func show_base() -> void:
 	arena.cam.enabled = false
 	arena.running = false
 	view.show_relais(Save.equipped_items(profile))
+	Music.play("relais")
 	view.set_shards(int(profile["shards"]))
 	hud.visible = false
 	joy.enabled = false
@@ -528,6 +529,11 @@ func _show_pause() -> void:
 	var r := UI.primary("REPRENDRE", 30, 360)
 	r.pressed.connect(_resume)
 	box.add_child(r)
+	var mu := UI.button("MUSIQUE : " + ("OUI" if Music.enabled else "NON"), 22, UI.ACCENT, 360)
+	mu.pressed.connect(func():
+		Music.set_enabled(not Music.enabled)
+		mu.text = "MUSIQUE : " + ("OUI" if Music.enabled else "NON"))
+	box.add_child(mu)
 	var q := UI.button("ABANDONNER  ·  le butin reste", 22, UI.MUTED, 360)
 	q.pressed.connect(func(): _end_run(false))
 	box.add_child(q)
