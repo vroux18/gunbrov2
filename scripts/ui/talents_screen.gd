@@ -4,6 +4,8 @@ extends Control
 ## élastique). Toucher un nœud ouvre sa fiche (effet actuel → suivant, coût, AMÉLIORER). L'achat : tickets qui
 ## volent du compteur vers le nœud, compteur qui défile, éclat, gerbe d'étoiles, liens suivants qui s'allument.
 ## Tout est dessiné en code dans deux passes (arbre, effets) ; quelques pictogrammes et la fiche sont des nœuds.
+## L'arbre est découpé en calques (fond, liens, socles, deux par nœud) redessinés seulement quand ce qu'ils
+## montrent change : le fond une fois, un nœud figé jamais, un nœud animé (halo, couronne) à chaque image.
 
 const UI = preload("res://scripts/ui.gd")
 const Fx = preload("res://scripts/ui/fx.gd")
@@ -38,6 +40,15 @@ var _pos := {}  # id -> centre dans l'arbre
 var _links := []  # {from, to, pts, col, need, id}
 var _plates := []  # {pos, branch}
 var _canvas_size := Vector2.ZERO
+var _bg: Control  # calques de l'arbre, dans l'ordre de dessin (enfants de _canvas, sous les pictogrammes)
+var _plates_l: Control
+var _layer_a := {}  # id -> calque du dessous (halo, anneau d'achat, ombre, couronne, sélection)
+var _layer_b := {}  # id -> calque du nœud (corps, niveaux, pastille, nom)
+var _sig_a := {}
+var _sig_b := {}
+var _info := {}  # id -> {st, lv, buyable, col} : recalculé quand le profil change (_profile_fp)
+var _fp := []
+var _fx_n := 0
 var _band := 260.0  # largeur d'une branche : plus large sur les écrans allongés
 var _sel := ""
 var _t := 0.0
@@ -120,7 +131,6 @@ func _build_tree() -> void:
 	var row1_y := ROW4_Y + 3.0 * GY + 12.0
 	_canvas_size = Vector2(half * 2.0, row1_y + 128.0)
 	_canvas.size = _canvas_size
-	_canvas.draw.connect(_draw_tree)
 	for t in Talents.TALENTS:
 		var id := String(t["id"])
 		var b := Talents.branch(String(t["branch"]))
@@ -141,6 +151,19 @@ func _build_tree() -> void:
 					_links.append({"from": "", "to": id, "need": 0, "col": col, "pts": _curve(pl["pos"] + Vector2(0, -20), _pos[id])})
 		for r in req.keys():
 			_links.append({"from": String(r), "to": id, "need": int(req[r]), "col": col, "pts": _curve(_pos[String(r)], _pos[id])})
+	# calques de l'arbre (sous les pictogrammes)
+	_bg = _layer(func(cv): _draw_bg(cv))
+	for l in _links:
+		# chaque lien : tracé (figé) puis énergie qui y monte (animée), dans l'ordre des liens
+		l["lit"] = false
+		l["line_l"] = _layer(func(cv): _draw_link(cv, l))
+		l["dots_l"] = _layer(func(cv): _draw_link_dots(cv, l))
+	_plates_l = _layer(func(cv): _draw_plates(cv))
+	for t in Talents.TALENTS:
+		var id := String(t["id"])
+		_layer_a[id] = _layer(func(cv): _draw_node_a(cv, id))
+		_layer_b[id] = _layer(func(cv): _draw_node_b(cv, id))
+	_refresh_info()
 	# pictogrammes
 	for t in Talents.TALENTS:
 		var id := String(t["id"])
@@ -151,6 +174,14 @@ func _build_tree() -> void:
 		ic.pivot_offset = Vector2(s, s) * 0.5
 		_canvas.add_child(ic)
 		_icons[id] = ic
+
+func _layer(fn: Callable) -> Control:
+	var c := Control.new()
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.size = _canvas_size
+	c.draw.connect(fn.bind(c))
+	_canvas.add_child(c)
+	return c
 
 ## Courbe en S, du parent (en bas) vers l'enfant (en haut).
 func _curve(a: Vector2, b: Vector2) -> PackedVector2Array:
@@ -234,6 +265,22 @@ func _build_fiche() -> void:
 	_fiche.add_child(_fiche_box)
 
 # ---------------------------------------------------------------- état
+## Empreinte du profil (tickets, éclats, niveaux) : l'état des nœuds n'est recalculé que si elle change.
+func _profile_fp() -> Array:
+	return [int(profile.get("tickets", 0)), int(profile.get("shards", 0)), Talents.levels(profile).hash()]
+
+func _refresh_info() -> void:
+	_fp = _profile_fp()
+	for t in Talents.TALENTS:
+		var id := String(t["id"])
+		_info[id] = {"st": _state(id), "lv": Talents.level(profile, id), "buyable": Talents.block_reason(profile, id) == "", "col": Talents.color(id)}
+	for l in _links:
+		var from := String(l["from"])
+		l["lit"] = from == "" or Talents.level(profile, from) >= int(l["need"])
+		(l["line_l"] as Control).queue_redraw()
+		(l["dots_l"] as Control).queue_redraw()
+	_plates_l.queue_redraw()
+
 func _state(id: String) -> String:
 	var lv := Talents.level(profile, id)
 	if lv >= int(Talents.talent(id)["max"]):
@@ -627,43 +674,76 @@ func _process(dt: float) -> void:
 	if _shake > 0.0:
 		sh = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake * 10.0
 	_canvas.position = (_pan + sh).round()
+	# animations des nœuds : retirées une fois finies (une valeur absente vaut 0)
 	for dict in [_pop, _flash, _deny]:
 		for k in dict.keys():
 			dict[k] = maxf(0.0, float(dict[k]) - dt * 2.2)
+			if dict[k] <= 0.0:
+				dict.erase(k)
 	for k in _wake.keys():
 		_wake[k] = maxf(0.0, float(_wake[k]) - dt * 1.8)
+		if _wake[k] <= 0.0:
+			_wake.erase(k)
 	_update_parts(dt)
-	_update_icons()
-	_canvas.queue_redraw()
-	_fx.queue_redraw()
-	_fx_txt.queue_redraw()
+	if _profile_fp() != _fp:
+		_refresh_info()
+	_update_layers()
+	# effets : redessinés tant qu'il y en a, une dernière fois pour les effacer
+	var n := _parts.size() + _texts.size()
+	if n > 0 or _fx_n > 0:
+		_fx.queue_redraw()
+		_fx_txt.queue_redraw()
+	_fx_n = n
 
-func _update_icons() -> void:
-	for id in _icons.keys():
-		var ic: Control = _icons[id]
-		var st := _state(id)
-		var col := Talents.color(id)
-		var c: Color
-		match st:
-			"max":
-				c = UI.INK
-			"owned":
-				c = col.lightened(0.45)
-			"open":
-				c = col
-			_:
-				c = Color(col.lerp(UI.MUTED, 0.5), 0.36)
-		var w := float(_wake.get(id, 0.0))
-		if w > 0.0 and w <= 1.0 and st != "locked":
-			c = c.lerp(Color.WHITE, w * 0.7)
-		if ic.get("color") != c:
-			ic.set("color", c)
-			ic.queue_redraw()
-		var s := 1.0 + 0.3 * sin(float(_pop.get(id, 0.0)) * PI)
+## Calques des nœuds : un calque animé est redessiné à chaque image, un calque figé quand son état change.
+func _update_layers() -> void:
+	for l in _links:
+		if l["lit"]:
+			(l["dots_l"] as Control).queue_redraw()  # énergie qui monte le long des liens allumés
+	for id in _layer_a.keys():
+		var inf: Dictionary = _info[id]
+		var st := String(inf["st"])
+		var pop := float(_pop.get(id, 0.0))
 		var dn := float(_deny.get(id, 0.0))
-		ic.scale = Vector2.ONE * s
-		var s0: float = ic.size.x
-		ic.position = _pos[id] - Vector2(s0, s0) * 0.5 + Vector2(sin(dn * 40.0) * 8.0 * dn, 0)
+		var anim: bool = st == "max" or st == "owned" or bool(inf["buyable"]) or id == _sel or (_node_r(id) > R and st != "locked")
+		var sa := [st, inf["buyable"], pop, dn, id == _sel, _t if anim else 0.0]
+		if sa != _sig_a.get(id):
+			_sig_a[id] = sa
+			(_layer_a[id] as Control).queue_redraw()
+		var w := float(_wake.get(id, 0.0))
+		var sb := [st, inf["lv"], pop, dn, w if w <= 1.0 else 0.0, float(_flash.get(id, 0.0))]
+		if sb != _sig_b.get(id):
+			_sig_b[id] = sb
+			(_layer_b[id] as Control).queue_redraw()
+			_update_icon(id)
+
+## Pictogramme d'un nœud : couleur de l'état, éclat au réveil, gonfle à l'achat, tremble au refus
+## (mêmes entrées que le calque du nœud : mis à jour quand elles changent).
+func _update_icon(id: String) -> void:
+	var ic: Control = _icons[id]
+	var st := String(_info[id]["st"])
+	var col: Color = _info[id]["col"]
+	var c: Color
+	match st:
+		"max":
+			c = UI.INK
+		"owned":
+			c = col.lightened(0.45)
+		"open":
+			c = col
+		_:
+			c = Color(col.lerp(UI.MUTED, 0.5), 0.36)
+	var w := float(_wake.get(id, 0.0))
+	if w > 0.0 and w <= 1.0 and st != "locked":
+		c = c.lerp(Color.WHITE, w * 0.7)
+	if ic.get("color") != c:
+		ic.set("color", c)
+		ic.queue_redraw()
+	var s := 1.0 + 0.3 * sin(float(_pop.get(id, 0.0)) * PI)
+	var dn := float(_deny.get(id, 0.0))
+	ic.scale = Vector2.ONE * s
+	var s0: float = ic.size.x
+	ic.position = _pos[id] - Vector2(s0, s0) * 0.5 + Vector2(sin(dn * 40.0) * 8.0 * dn, 0)
 
 func _update_parts(dt: float) -> void:
 	var keep := []
@@ -689,10 +769,8 @@ func _update_parts(dt: float) -> void:
 	_texts = keep_t
 
 # ---------------------------------------------------------------- dessin de l'arbre
-func _draw_tree() -> void:
-	var cv := _canvas
-	var font := UI.TITLE
-	# fond : pointillés et colonnes de couleur des branches
+## Fond : pointillés et colonnes de couleur des branches (dessiné une fois).
+func _draw_bg(cv: Control) -> void:
 	var sz := _canvas_size
 	for gx in range(0, int(sz.x) + 1, 40):
 		for gy in range(0, int(sz.y) + 1, 40):
@@ -704,36 +782,45 @@ func _draw_tree() -> void:
 		var bot: float = pl["pos"].y
 		cv.draw_polygon(PackedVector2Array([Vector2(x - _band * 0.47, top), Vector2(x + _band * 0.47, top), Vector2(x + _band * 0.47, bot), Vector2(x - _band * 0.47, bot)]),
 			PackedColorArray([Color(col, 0.0), Color(col, 0.0), Color(col, 0.07), Color(col, 0.07)]))
-	# liens
-	for l in _links:
-		var pts: PackedVector2Array = l["pts"]
-		var col: Color = l["col"]
-		var from := String(l["from"])
-		var lit := from == "" or Talents.level(profile, from) >= int(l["need"])
-		var part := from != "" and not lit and Talents.level(profile, from) > 0
-		cv.draw_polyline(pts, Color(UI.INK, 0.9), 12.0, true)
-		if lit:
-			cv.draw_polyline(pts, Color(col, 0.16), 22.0, true)
-			cv.draw_polyline(pts, col.darkened(0.1), 7.0, true)
-			cv.draw_polyline(pts, Color(col.lightened(0.5), 0.7), 2.5, true)
-			# énergie qui monte le long du lien
-			for k in range(3):
-				var f := fmod(_t * 0.55 + k / 3.0 + pts[0].x * 0.0013, 1.0)
-				var q := _along(pts, f)
-				cv.draw_circle(q, 5.0, Color(col.lightened(0.6), 0.85 * sin(f * PI)))
-		elif part:
-			cv.draw_polyline(pts, Color(col, 0.38), 6.0, true)
-			var lv := Talents.level(profile, from)
-			var f2 := float(lv) / float(maxi(1, int(l["need"])))
-			var sub := PackedVector2Array()
-			for i in range(int(round(f2 * (pts.size() - 1))) + 1):
-				sub.append(pts[i])
-			if sub.size() > 1:
-				cv.draw_polyline(sub, col.darkened(0.1), 7.0, true)
-		else:
-			cv.draw_polyline(pts, Color("#1E2E52"), 6.0, true)
-			cv.draw_polyline(pts, Color(col, 0.16), 4.0, true)
-	# socles des branches
+
+func _draw_link(cv: Control, l: Dictionary) -> void:
+	var pts: PackedVector2Array = l["pts"]
+	var col: Color = l["col"]
+	var from := String(l["from"])
+	var lit: bool = l["lit"]
+	var part := from != "" and not lit and Talents.level(profile, from) > 0
+	cv.draw_polyline(pts, Color(UI.INK, 0.9), 12.0, true)
+	if lit:
+		cv.draw_polyline(pts, Color(col, 0.16), 22.0, true)
+		cv.draw_polyline(pts, col.darkened(0.1), 7.0, true)
+		cv.draw_polyline(pts, Color(col.lightened(0.5), 0.7), 2.5, true)
+	elif part:
+		cv.draw_polyline(pts, Color(col, 0.38), 6.0, true)
+		var lv := Talents.level(profile, from)
+		var f2 := float(lv) / float(maxi(1, int(l["need"])))
+		var sub := PackedVector2Array()
+		for i in range(int(round(f2 * (pts.size() - 1))) + 1):
+			sub.append(pts[i])
+		if sub.size() > 1:
+			cv.draw_polyline(sub, col.darkened(0.1), 7.0, true)
+	else:
+		cv.draw_polyline(pts, Color("#1E2E52"), 6.0, true)
+		cv.draw_polyline(pts, Color(col, 0.16), 4.0, true)
+
+## Énergie qui monte le long d'un lien allumé.
+func _draw_link_dots(cv: Control, l: Dictionary) -> void:
+	if not l["lit"]:
+		return
+	var pts: PackedVector2Array = l["pts"]
+	var col: Color = l["col"]
+	for k in range(3):
+		var f := fmod(_t * 0.55 + k / 3.0 + pts[0].x * 0.0013, 1.0)
+		var q := _along(pts, f)
+		cv.draw_circle(q, 5.0, Color(col.lightened(0.6), 0.85 * sin(f * PI)))
+
+## Socles des branches : nom et niveaux pris sur le total de la branche.
+func _draw_plates(cv: Control) -> void:
+	var font := UI.TITLE
 	for pl in _plates:
 		var b: Dictionary = pl["branch"]
 		var col: Color = b["col"]
@@ -752,26 +839,24 @@ func _draw_tree() -> void:
 		cv.draw_rect(Rect2(r.position.x + 18, r.position.y + 3, w - 36, 3), Color(col, 0.8))
 		cv.draw_string(font, Vector2(r.position.x, p.y + 6.0), String(b["name"]), HORIZONTAL_ALIGNMENT_CENTER, w - 54.0, 18, col.lightened(0.15))
 		cv.draw_string(UI.BODY, Vector2(r.position.x + w - 62.0, p.y + 6.0), "%d/%d" % [own, tot], HORIZONTAL_ALIGNMENT_RIGHT, 50.0, 18, UI.MUTED if own < tot else UI.GOLD)
-	# nœuds
-	for t in Talents.TALENTS:
-		_draw_node(cv, String(t["id"]))
 
-func _draw_node(cv: Control, id: String) -> void:
-	var t := Talents.talent(id)
-	var col := Talents.color(id)
-	var st := _state(id)
-	var lv := Talents.level(profile, id)
-	var mx := int(t["max"])
-	var key := _node_r(id) > R
-	var pop := float(_pop.get(id, 0.0))
-	var r := _node_r(id) * (1.0 + 0.22 * sin(pop * PI))
+## Centre (le nœud tremble quand l'achat est refusé) et rayon (il gonfle à l'achat) d'un nœud.
+func _node_c(id: String) -> Vector2:
 	var dn := float(_deny.get(id, 0.0))
-	var c: Vector2 = _pos[id] + Vector2(sin(dn * 40.0) * 8.0 * dn, 0)
-	var buyable := Talents.block_reason(profile, id) == ""
-	var w := float(_wake.get(id, 0.0))
-	if w > 1.0:
-		# entrée de l'écran : pas encore allumé
-		w = 0.0
+	return _pos[id] + Vector2(sin(dn * 40.0) * 8.0 * dn, 0)
+
+func _node_rr(id: String) -> float:
+	return _node_r(id) * (1.0 + 0.22 * sin(float(_pop.get(id, 0.0)) * PI))
+
+## Dessous d'un nœud : halo, anneau d'achat possible, ombre, couronne crantée, tirets de sélection.
+func _draw_node_a(cv: Control, id: String) -> void:
+	var inf: Dictionary = _info[id]
+	var col: Color = inf["col"]
+	var st := String(inf["st"])
+	var key := _node_r(id) > R
+	var r := _node_rr(id)
+	var c := _node_c(id)
+	var buyable: bool = inf["buyable"]
 	# halo
 	if st == "max" or st == "owned":
 		var hs := r * (3.4 if st == "max" else 2.4)
@@ -782,27 +867,54 @@ func _draw_node(cv: Control, id: String) -> void:
 		cv.draw_arc(c, r + 17.0 + 2.0 * sin(_t * 4.0), 0.0, TAU, 48, Color(UI.GOLD, pa), 3.0, true)
 	# ombre, tranche, face
 	cv.draw_circle(c + Vector2(0, 6), r + 6.0, Color(0, 0, 0, 0.5))
-	var rim: Color
-	var face: Color
-	match st:
-		"max":
-			rim = col.lightened(0.35)
-			face = col
-		"owned":
-			rim = col
-			face = col.darkened(0.55)
-		"open":
-			rim = col.darkened(0.2)
-			face = col.darkened(0.8)
-		_:
-			rim = col.darkened(0.72)
-			face = Color("#0C152C")
+	var rim := _rim(st, col)
 	if key:
 		# nœud clé : couronne crantée
 		for k in range(12):
 			var a := TAU * k / 12.0 + _t * (0.25 if st != "locked" else 0.0)
 			var p0 := c + Vector2(cos(a), sin(a)) * (r + 8.0)
 			cv.draw_colored_polygon(PackedVector2Array([p0 + Vector2(cos(a), sin(a)) * 9.0, p0 + Vector2(cos(a + 1.5708), sin(a + 1.5708)) * 7.0, p0 - Vector2(cos(a), sin(a)) * 3.0, p0 - Vector2(cos(a + 1.5708), sin(a + 1.5708)) * 7.0]), rim if st != "locked" else Color("#1C2A4A"))
+	# sélection : tirets qui tournent (au-delà de la tranche et des niveaux, rien ne les recouvre)
+	if id == _sel:
+		for k in range(16):
+			var a := TAU * k / 16.0 + _t * 0.9
+			cv.draw_arc(c, r + (30.0 if key else 24.0), a, a + 0.22, 6, Color(1, 1, 1, 0.9), 3.0, true)
+
+func _rim(st: String, col: Color) -> Color:
+	match st:
+		"max":
+			return col.lightened(0.35)
+		"owned":
+			return col
+		"open":
+			return col.darkened(0.2)
+	return col.darkened(0.72)
+
+## Nœud : tranche, face, niveaux, éclat à dépenser, cadenas, pastille de niveau, nom.
+func _draw_node_b(cv: Control, id: String) -> void:
+	var t := Talents.talent(id)
+	var inf: Dictionary = _info[id]
+	var col: Color = inf["col"]
+	var st := String(inf["st"])
+	var lv := int(inf["lv"])
+	var mx := int(t["max"])
+	var r := _node_rr(id)
+	var c := _node_c(id)
+	var w := float(_wake.get(id, 0.0))
+	if w > 1.0:
+		# entrée de l'écran : pas encore allumé
+		w = 0.0
+	var rim := _rim(st, col)
+	var face: Color
+	match st:
+		"max":
+			face = col
+		"owned":
+			face = col.darkened(0.55)
+		"open":
+			face = col.darkened(0.8)
+		_:
+			face = Color("#0C152C")
 	cv.draw_circle(c, r + 5.0, rim)
 	cv.draw_circle(c, r, face)
 	cv.draw_arc(c, r - 6.0, -2.6, -0.6, 20, Color(1, 1, 1, 0.3 if st == "max" else 0.12), 4.0, true)
@@ -820,11 +932,6 @@ func _draw_node(cv: Control, id: String) -> void:
 			var a0 := -PI * 0.5 + seg * i + gap * 0.5
 			var on := i < lv
 			cv.draw_arc(c, r + 11.0, a0, a0 + seg - gap, 12, (col.lightened(0.3) if st != "max" else UI.GOLD) if on else Color("#2A3F6E"), 5.0, true)
-	# sélection : tirets qui tournent
-	if id == _sel:
-		for k in range(16):
-			var a := TAU * k / 16.0 + _t * 0.9
-			cv.draw_arc(c, r + (30.0 if key else 24.0), a, a + 0.22, 6, Color(1, 1, 1, 0.9), 3.0, true)
 	# éclat du Cœur à dépenser
 	if int(t.get("shards", 0)) > 0:
 		var sp := c + Vector2(r * 0.72, -r * 0.72)
@@ -861,8 +968,21 @@ func _along(pts: PackedVector2Array, f: float) -> Vector2:
 	var i := mini(int(x), pts.size() - 2)
 	return pts[i].lerp(pts[i + 1], x - i)
 
+static var _rr_sb: StyleBoxFlat = null
+
+## Rectangle arrondi. Opaque : un seul polygone (StyleBoxFlat, 1 appel de dessin au lieu de 5). Translucide
+## (ombres) : deux rectangles et quatre disques qui se recouvrent, comme toujours (les recouvrements foncent).
 static func _round_rect(ci: CanvasItem, r: Rect2, rad: float, col: Color) -> void:
 	rad = minf(rad, minf(r.size.x, r.size.y) * 0.5)
+	if col.a >= 1.0 and rad == roundf(rad):
+		if _rr_sb == null:
+			_rr_sb = StyleBoxFlat.new()
+			_rr_sb.corner_detail = 16
+			_rr_sb.anti_aliasing = false  # bords nets, comme draw_circle
+		_rr_sb.bg_color = col
+		_rr_sb.set_corner_radius_all(int(rad))
+		_rr_sb.draw(ci.get_canvas_item(), r)
+		return
 	ci.draw_rect(Rect2(r.position.x + rad, r.position.y, r.size.x - rad * 2.0, r.size.y), col)
 	ci.draw_rect(Rect2(r.position.x, r.position.y + rad, r.size.x, r.size.y - rad * 2.0), col)
 	for p in [r.position + Vector2(rad, rad), Vector2(r.end.x - rad, r.position.y + rad), Vector2(r.position.x + rad, r.end.y - rad), r.end - Vector2(rad, rad)]:

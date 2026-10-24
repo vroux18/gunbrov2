@@ -2,7 +2,9 @@ extends CanvasLayer
 ## HUD de combat, dans les marges de sécurité (encoches) : vie en haut à gauche (tremble au coup reçu),
 ## énergie au centre (pulse quand elle est presque pleine) et piste des 10 salles, tickets qui défilent et
 ## pause à droite, barre de boss en bas, bandeau d'annonce au milieu, voile rouge quand Jo est touchée.
-## Tout est dessiné dans un seul Control (pas de nœuds par frame) ; styleboxes réutilisés.
+## Tout est dessiné en code (pas de nœuds par frame) ; styleboxes réutilisés. Chaque bloc a son calque,
+## redessiné seulement quand ce qu'il montre change (une barre figée ne coûte rien) ; l'ordre de dessin est
+## celui d'un seul passage : voile, vie, bouclier, énergie, étincelle, tickets, boss, bandeau.
 
 const UI = preload("res://scripts/ui.gd")
 const Icon = preload("res://scripts/icon.gd")
@@ -47,6 +49,17 @@ var _ins := {"left": 24.0, "right": 24.0, "top": 14.0, "bottom": 12.0}
 var _ins_t := 0.0
 var _sb := StyleBoxFlat.new()
 var _rng := RandomNumberGenerator.new()
+var _cv: Control  # calque en cours de dessin (les primitives dessinent dedans)
+var _ly := {}  # nom -> calque
+var _sig := {}  # nom -> entrées du dernier dessin
+var _sh := Vector2.ZERO  # tremblement de la barre de vie, tiré une fois par image
+var _W := 0.0
+var _H := 0.0
+var _L := 0.0
+var _R := 0.0
+var _T := 0.0
+
+const LAYERS := ["veil", "health", "shield", "energy", "spark", "right", "boss", "message"]
 
 const RED := Color("#FF4D6D")
 const HP_COL := Color("#FF7A2F")
@@ -57,28 +70,22 @@ func _ready() -> void:
 	UI.load_fonts()
 	_sb.anti_aliasing = true
 	# vignettage léger : bords assombris, centre net
-	var g := Gradient.new()
-	g.set_color(0, Color(0, 0, 0, 0.0))
-	g.set_color(1, Color(0.0, 0.01, 0.04, 0.5))
-	g.add_point(0.62, Color(0, 0, 0, 0.0))
-	var gt := GradientTexture2D.new()
-	gt.gradient = g
-	gt.fill = GradientTexture2D.FILL_RADIAL
-	gt.fill_from = Vector2(0.5, 0.5)
-	gt.fill_to = Vector2(1.0, 1.0)
-	gt.width = 256
-	gt.height = 144
-	var vig := TextureRect.new()
-	vig.texture = gt
-	vig.stretch_mode = TextureRect.STRETCH_SCALE
+	var vig := Control.new()
 	vig.set_anchors_preset(Control.PRESET_FULL_RECT)
 	vig.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vig.draw.connect(_draw_vignette.bind(vig))
 	add_child(vig)
 	_c = Control.new()
 	_c.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_c.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_c.draw.connect(_draw_hud)
 	add_child(_c)
+	for k in LAYERS:
+		var ly := Control.new()
+		ly.set_anchors_preset(Control.PRESET_FULL_RECT)
+		ly.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ly.draw.connect(_draw_layer.bind(k, ly))
+		_c.add_child(ly)
+		_ly[k] = ly
 	# pause : zone de toucher de 84 px (≈ 126 px en 1080p), pictogramme au centre
 	_pause = UI.button("", 24, UI.MUTED)
 	var ps: StyleBoxFlat = UI.chunky(Color("#1B2A52", 0.92), Color("#0A1430"), false, 20)
@@ -143,7 +150,63 @@ func _process(dt: float) -> void:
 		_energy_pop = 1.0
 	_energy_last = energy
 	_energy_pop = maxf(0.0, _energy_pop - dt * 4.0)
-	_c.queue_redraw()
+	# en fin d'image (comme un redessin) : voit aussi ce qui est réglé après le HUD dans l'image, même si
+	# le jeu vient d'être mis en pause (bandeau effacé par un overlay)
+	_update_layers.call_deferred()
+
+## Entrées de chaque calque : s'il y en a une qui change (ou s'il est animé : _t), il est redessiné.
+func _update_layers() -> void:
+	_W = _c.size.x
+	_H = _c.size.y
+	_L = _ins["left"]
+	_R = _W - float(_ins["right"])
+	_T = float(_ins["top"]) - 120.0 * _intro * _intro  # entrée : le bandeau descend
+	_sh = Vector2.ZERO
+	if _shake > 0.0:
+		var a := 9.0 * _shake * _shake
+		_sh = Vector2(_rng.randf_range(-a, a), _rng.randf_range(-a * 0.6, a * 0.6))
+	var low := hp < 0.3
+	var pulsing := energy > 0.75  # presque pleine : tout le bloc énergie pulse
+	_set_sig("veil", [_W, _H, hurt, _t if low else 0.0, fade])
+	_set_sig("health", [_L, _T, _sh, _shake, hp, _hp_ghost, hp_max, hp_text, _t if low else 0.0])
+	_set_sig("shield", [shield, _L, _T, _sh, _t if shield else 0.0])
+	_set_sig("energy", [_W, _T, energy, _t if pulsing else 0.0, _energy_pop, room, rooms, wave, waves, boss_hp < 0.0])
+	_set_sig("spark", [_t])
+	_set_sig("right", [_R, _T, _tk_int, _ticket_pop, enemies_left, boss_hp < 0.0])
+	_set_sig("boss", [boss_hp, _boss_ghost, boss_name, _W, _H, _ins["bottom"]] if boss_hp >= 0.0 else [])
+	_set_sig("message", [_message_t, message, message_col, _W, _H] if _message_t > 0.0 and message != "" else [])
+
+func _set_sig(k: String, sig: Array) -> void:
+	if sig != _sig.get(k):
+		_sig[k] = sig
+		(_ly[k] as Control).queue_redraw()
+
+## Vignettage : dégradé radial (transparent jusqu'à 62 % du rayon, puis vers un bleu nuit à 50 % dans les
+## coins), en coordonnées normalisées de l'écran. Dessiné en anneau de triangles (couleurs aux sommets) qui ne
+## couvre que le bord : le centre de l'écran (60 % de sa surface) n'est plus mélangé à chaque image.
+## Le long d'un rayon, la couleur varie linéairement : l'interpolation des sommets y est exacte.
+func _draw_vignette(vig: Control) -> void:
+	const SEG := 256  # rayons (multiple de 8 : les coins de l'écran sont des rayons)
+	const T0 := 0.62
+	const EDGE := Color(0.0, 0.01, 0.04, 0.5)
+	var sz := vig.size
+	var k := Vector2(0.5, 0.5).length()  # rayon du dégradé (centre -> coin), en coordonnées normalisées
+	var pts := PackedVector2Array()
+	var cols := PackedColorArray()
+	var idx := PackedInt32Array()
+	for i in range(SEG + 1):
+		var a := TAU * i / SEG
+		var d := Vector2(cos(a), sin(a))
+		var s_out := minf(0.5 / maxf(absf(d.x), 1e-6), 0.5 / maxf(absf(d.y), 1e-6))
+		var t_out := minf(s_out / k, 1.0)
+		pts.append((Vector2(0.5, 0.5) + d * (T0 * k)) * sz)
+		pts.append((Vector2(0.5, 0.5) + d * s_out) * sz)
+		cols.append(Color(0, 0, 0, 0))
+		cols.append(Color(0, 0, 0, 0).lerp(EDGE, clampf((t_out - T0) / (1.0 - T0), 0.0, 1.0)))
+		if i > 0:
+			var b := 2 * i
+			idx.append_array([b - 2, b - 1, b + 1, b - 2, b + 1, b])
+	RenderingServer.canvas_item_add_triangle_array(vig.get_canvas_item(), idx, pts, cols)
 
 ## Remet les compteurs animés à la valeur courante (nouvelle partie).
 func snap() -> void:
@@ -160,7 +223,7 @@ func _rr(r: Rect2, col: Color, radius: float, border: float = 0.0, border_col: C
 	_sb.set_corner_radius_all(int(radius))
 	_sb.set_border_width_all(int(border))
 	_sb.border_color = border_col
-	_c.draw_style_box(_sb, r)
+	_cv.draw_style_box(_sb, r)
 
 func _bar(r: Rect2, ratio: float, col: Color, ghost: float = -1.0, segments: int = 0, flash_k: float = 0.0) -> void:
 	var rad := r.size.y * 0.5
@@ -177,60 +240,76 @@ func _bar(r: Rect2, ratio: float, col: Color, ghost: float = -1.0, segments: int
 		_rr(Rect2(r.position + Vector2(rad * 0.6, 3), Vector2(maxf(0.0, w - rad * 1.2), r.size.y * 0.24)), Color(1, 1, 1, 0.35), r.size.y * 0.12)
 	for k in range(1, segments):
 		var x := r.position.x + r.size.x * k / segments
-		_c.draw_line(Vector2(x, r.position.y + 2), Vector2(x, r.end.y - 2), Color(UI.INK, 0.7), 3.0)
+		_cv.draw_line(Vector2(x, r.position.y + 2), Vector2(x, r.end.y - 2), Color(UI.INK, 0.7), 3.0)
 
 func _txt(pos: Vector2, s: String, size: int, col: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT, w: float = -1.0, font: Font = null, outline: int = 6) -> void:
 	var f: Font = font if font != null else UI.TITLE
 	if outline > 0:
-		_c.draw_string_outline(f, pos, s, align, w, size, outline, UI.INK)
-	_c.draw_string(f, pos, s, align, w, size, col)
+		_cv.draw_string_outline(f, pos, s, align, w, size, outline, UI.INK)
+	_cv.draw_string(f, pos, s, align, w, size, col)
 
 func _icon(kind: String, pos: Vector2, size: float, col: Color) -> void:
 	# pictogrammes du HUD dessinés directement (pas de nœud) : mêmes formes que icon.gd, version simplifiée
 	match kind:
 		"heart":
-			_c.draw_circle(pos + Vector2(-size * 0.17, -size * 0.1), size * 0.2, col)
-			_c.draw_circle(pos + Vector2(size * 0.17, -size * 0.1), size * 0.2, col)
-			_c.draw_colored_polygon(PackedVector2Array([pos + Vector2(-size * 0.36, -size * 0.04), pos + Vector2(size * 0.36, -size * 0.04), pos + Vector2(0, size * 0.36)]), col)
-			_c.draw_circle(pos + Vector2(-size * 0.2, -size * 0.16), size * 0.07, Color(1, 1, 1, 0.55))
+			_cv.draw_circle(pos + Vector2(-size * 0.17, -size * 0.1), size * 0.2, col)
+			_cv.draw_circle(pos + Vector2(size * 0.17, -size * 0.1), size * 0.2, col)
+			_cv.draw_colored_polygon(PackedVector2Array([pos + Vector2(-size * 0.36, -size * 0.04), pos + Vector2(size * 0.36, -size * 0.04), pos + Vector2(0, size * 0.36)]), col)
+			_cv.draw_circle(pos + Vector2(-size * 0.2, -size * 0.16), size * 0.07, Color(1, 1, 1, 0.55))
 		"bolt":
 			var pts := [Vector2(0.08, -0.44), Vector2(-0.28, 0.06), Vector2(-0.02, 0.06), Vector2(-0.1, 0.44), Vector2(0.28, -0.08), Vector2(0.02, -0.08)]
 			var p := PackedVector2Array()
 			for v in pts:
 				p.append(pos + (v as Vector2) * size)
-			_c.draw_colored_polygon(p, col)
+			_cv.draw_colored_polygon(p, col)
 		"coin":
-			_c.draw_circle(pos, size * 0.46, UI.INK)
-			_c.draw_circle(pos, size * 0.39, col.darkened(0.25))
-			_c.draw_circle(pos + Vector2(0, -size * 0.04), size * 0.33, col)
-			_c.draw_arc(pos, size * 0.2, 0, TAU, 20, col.darkened(0.3), size * 0.07, true)
-			_c.draw_circle(pos + Vector2(-size * 0.13, -size * 0.15), size * 0.08, Color(1, 1, 1, 0.7))
+			_cv.draw_circle(pos, size * 0.46, UI.INK)
+			_cv.draw_circle(pos, size * 0.39, col.darkened(0.25))
+			_cv.draw_circle(pos + Vector2(0, -size * 0.04), size * 0.33, col)
+			_cv.draw_arc(pos, size * 0.2, 0, TAU, 20, col.darkened(0.3), size * 0.07, true)
+			_cv.draw_circle(pos + Vector2(-size * 0.13, -size * 0.15), size * 0.08, Color(1, 1, 1, 0.7))
 		"skull":
-			_c.draw_circle(pos + Vector2(0, -size * 0.06), size * 0.34, col)
-			_c.draw_rect(Rect2(pos + Vector2(-size * 0.2, size * 0.12), Vector2(size * 0.4, size * 0.22)), col)
-			_c.draw_circle(pos + Vector2(-size * 0.13, -size * 0.06), size * 0.09, UI.INK)
-			_c.draw_circle(pos + Vector2(size * 0.13, -size * 0.06), size * 0.09, UI.INK)
+			_cv.draw_circle(pos + Vector2(0, -size * 0.06), size * 0.34, col)
+			_cv.draw_rect(Rect2(pos + Vector2(-size * 0.2, size * 0.12), Vector2(size * 0.4, size * 0.22)), col)
+			_cv.draw_circle(pos + Vector2(-size * 0.13, -size * 0.06), size * 0.09, UI.INK)
+			_cv.draw_circle(pos + Vector2(size * 0.13, -size * 0.06), size * 0.09, UI.INK)
 		"shield":
 			var sp := PackedVector2Array()
 			for v in [Vector2(0, -0.42), Vector2(0.36, -0.28), Vector2(0.3, 0.14), Vector2(0, 0.42), Vector2(-0.3, 0.14), Vector2(-0.36, -0.28)]:
 				sp.append(pos + (v as Vector2) * size)
-			_c.draw_colored_polygon(sp, col)
+			_cv.draw_colored_polygon(sp, col)
 
 func _badge(c: Vector2, r: float, inner: Color, ring: Color) -> void:
-	_c.draw_circle(c + Vector2(0, 4), r + 3.0, Color(0, 0, 0, 0.35))
-	_c.draw_circle(c, r + 3.0, UI.INK)
-	_c.draw_circle(c, r, inner)
-	_c.draw_arc(c, r - 1.5, 0, TAU, 40, ring, 3.0, true)
-	_c.draw_arc(c, r - 7.0, -2.5, -0.9, 16, Color(1, 1, 1, 0.22), 3.0, true)
+	_cv.draw_circle(c + Vector2(0, 4), r + 3.0, Color(0, 0, 0, 0.35))
+	_cv.draw_circle(c, r + 3.0, UI.INK)
+	_cv.draw_circle(c, r, inner)
+	_cv.draw_arc(c, r - 1.5, 0, TAU, 40, ring, 3.0, true)
+	_cv.draw_arc(c, r - 7.0, -2.5, -0.9, 16, Color(1, 1, 1, 0.22), 3.0, true)
 
 # ---------------------------------------------------------------- dessin
-func _draw_hud() -> void:
-	var W := _c.size.x
-	var H := _c.size.y
-	var L: float = _ins["left"]
-	var R: float = W - float(_ins["right"])
-	var T: float = float(_ins["top"]) - 120.0 * _intro * _intro  # entrée : le bandeau descend
-	# voile rouge (coup reçu, vie basse)
+func _draw_layer(k: String, ly: Control) -> void:
+	_cv = ly
+	match k:
+		"veil":
+			_draw_veil(_W, _H)
+		"health":
+			_draw_health(_L, _T)
+		"shield":
+			_draw_shield(_L, _T)
+		"energy":
+			_draw_energy(_W, _T)
+		"spark":
+			_draw_spark(_W, _T)
+		"right":
+			_draw_right(_R, _T)
+		"boss":
+			if boss_hp >= 0.0:
+				_draw_boss(_W, _H)
+		"message":
+			_draw_message(_W, _H)
+
+## Voile rouge (coup reçu, vie basse) et éclair de portail (début de salle).
+func _draw_veil(W: float, H: float) -> void:
 	var low := hp < 0.3
 	var v := hurt
 	if low:
@@ -239,24 +318,14 @@ func _draw_hud() -> void:
 		for k in range(8):
 			var a := v * 0.1 * (1.0 - k / 8.0)
 			var g := 10.0 + k * 11.0
-			_c.draw_rect(Rect2(0, 0, W, H).grow(-g * 0.5), Color(1.0, 0.1, 0.25, a), false, g)
+			_cv.draw_rect(Rect2(0, 0, W, H).grow(-g * 0.5), Color(1.0, 0.1, 0.25, a), false, g)
 	# éclair de portail (début de salle)
 	if fade > 0.0:
-		_c.draw_rect(Rect2(0, 0, W, H), Color(0.75, 1.0, 0.97, fade * fade * 0.85))
-	_draw_health(L, T)
-	_draw_energy(W, T)
-	_draw_right(R, T)
-	if boss_hp >= 0.0:
-		_draw_boss(W, H)
-	_draw_message(W, H)
+		_cv.draw_rect(Rect2(0, 0, W, H), Color(0.75, 1.0, 0.97, fade * fade * 0.85))
 
 func _draw_health(L: float, T: float) -> void:
 	var low := hp < 0.3
-	var sh := Vector2.ZERO
-	if _shake > 0.0:
-		var a := 9.0 * _shake * _shake
-		sh = Vector2(_rng.randf_range(-a, a), _rng.randf_range(-a * 0.6, a * 0.6))
-	var o := Vector2(L, T) + sh
+	var o := Vector2(L, T) + _sh
 	var bc := o + Vector2(40, 40)
 	var beat := 1.0 + (0.14 * maxf(0.0, sin(_t * 9.0)) if low else 0.0) + _shake * 0.2
 	_badge(bc, 36.0, Color("#3A1426"), RED.lerp(Color.WHITE, _shake * 0.6))
@@ -266,10 +335,14 @@ func _draw_health(L: float, T: float) -> void:
 	var segs := clampi(int(hp_max / 25.0), 2, 12)
 	_bar(r, hp, RED if low else HP_COL, _hp_ghost, segs, _shake * 0.55)
 	_txt(Vector2(r.position.x, r.position.y + 26), hp_text, 22, UI.TEXT, HORIZONTAL_ALIGNMENT_CENTER, r.size.x, null, 6)
+
+## Bouclier prêt : pastille à droite de la barre de vie (tremble avec elle), pictogramme qui respire.
+func _draw_shield(L: float, T: float) -> void:
 	if shield:
+		var r := Rect2(Vector2(L, T) + _sh + Vector2(84, 22), Vector2(300.0, 34))
 		var sc := Vector2(r.end.x + 26, r.position.y + 17)
-		_c.draw_circle(sc, 19, UI.INK)
-		_c.draw_circle(sc, 15, Color("#103A44"))
+		_cv.draw_circle(sc, 19, UI.INK)
+		_cv.draw_circle(sc, 15, Color("#103A44"))
 		_icon("shield", sc, 22.0 + 2.0 * sin(_t * 4.0), UI.ACCENT)
 
 func _draw_energy(W: float, T: float) -> void:
@@ -288,10 +361,6 @@ func _draw_energy(W: float, T: float) -> void:
 		r = r.grow_individual(0, grow, 0, grow)
 	var ecol := UI.ACCENT.lerp(Color.WHITE, (0.25 + 0.35 * puls) * near if not full else 0.5 + 0.4 * puls)
 	_bar(r, energy, ecol, -1.0, 10, _energy_pop * 0.4)
-	# étincelle au bout du remplissage
-	if energy > 0.02:
-		var tip := Vector2(r.position.x + r.size.x * clampf(energy, 0.0, 1.0) - 6.0, r.position.y + r.size.y * 0.5)
-		_c.draw_circle(tip, 5.0 + 3.0 * puls * (0.4 + near), Color(1, 1, 1, 0.55 + 0.35 * near))
 	var bc := Vector2(ex - 30, T + 30)
 	var bs := 1.0 + 0.18 * near * puls + _energy_pop * 0.15
 	_badge(bc, 28.0 * (1.0 + 0.06 * near * puls), Color("#0E3640"), UI.ACCENT.lerp(Color.WHITE, near * puls * 0.6))
@@ -307,24 +376,44 @@ func _draw_energy(W: float, T: float) -> void:
 	var wave_txt := ("VAGUE %d/%d" % [wave, waves]) if boss_hp < 0.0 else "BOSS"
 	_txt(Vector2(pill.end.x - 124, y + 8), wave_txt, 20, UI.MUTED if boss_hp < 0.0 else Color("#F23CB8"), HORIZONTAL_ALIGNMENT_RIGHT, 110, null, 0)
 	var x0 := cx - track_w * 0.5
-	_c.draw_line(Vector2(x0, y), Vector2(x0 + track_w, y), Color(UI.LINE, 0.9), 3.0)
-	_c.draw_line(Vector2(x0, y), Vector2(x0 + pip * (room - 1), y), Color(UI.ACCENT, 0.9), 3.0)
+	_cv.draw_line(Vector2(x0, y), Vector2(x0 + track_w, y), Color(UI.LINE, 0.9), 3.0)
+	_cv.draw_line(Vector2(x0, y), Vector2(x0 + pip * (room - 1), y), Color(UI.ACCENT, 0.9), 3.0)
 	for i in range(rooms):
 		var p := Vector2(x0 + i * pip, y)
 		var n := i + 1
 		if n == rooms:
 			var col := Color("#F23CB8") if n <= room else Color("#7A3A66")
-			_c.draw_circle(p, 10.0, UI.INK)
+			_cv.draw_circle(p, 10.0, UI.INK)
 			_icon("skull", p + Vector2(0, 1), 17.0, col)
 		elif n < room:
-			_c.draw_circle(p, 6.0, UI.ACCENT)
+			_cv.draw_circle(p, 6.0, UI.ACCENT)
 		elif n == room:
-			_c.draw_circle(p, 10.0 + 1.5 * sin(_t * 5.0), Color(UI.ORANGE, 0.35))
-			_c.draw_circle(p, 7.5, UI.ORANGE)
-			_c.draw_circle(p + Vector2(-2, -2), 2.5, Color(1, 1, 1, 0.7))
+			pass  # salle en cours : pastille qui pulse (_draw_spark)
 		else:
-			_c.draw_circle(p, 5.5, UI.INK)
-			_c.draw_arc(p, 5.0, 0, TAU, 16, Color(UI.MUTED, 0.6), 2.0, true)
+			_cv.draw_circle(p, 5.5, UI.INK)
+			_cv.draw_arc(p, 5.0, 0, TAU, 16, Color(UI.MUTED, 0.6), 2.0, true)
+
+## Ce qui bouge à chaque image dans le bloc énergie : étincelle au bout du remplissage, pastille de la salle en
+## cours sur la piste (rien ne les recouvre : un calque au-dessus suffit).
+func _draw_spark(W: float, T: float) -> void:
+	var ew := clampf(W * 0.3, 320.0, 440.0)
+	var ex := W * 0.5 - ew * 0.5 + 30.0
+	var near := clampf((energy - 0.75) / 0.25, 0.0, 1.0)
+	var puls := 0.5 + 0.5 * sin(_t * (9.0 + 5.0 * near))
+	var r := Rect2(ex, T + 18, ew, 24)
+	if near > 0.0:
+		var grow := 1.5 * near * puls
+		r = r.grow_individual(0, grow, 0, grow)
+	if energy > 0.02:
+		var tip := Vector2(r.position.x + r.size.x * clampf(energy, 0.0, 1.0) - 6.0, r.position.y + r.size.y * 0.5)
+		_cv.draw_circle(tip, 5.0 + 3.0 * puls * (0.4 + near), Color(1, 1, 1, 0.55 + 0.35 * near))
+	if room >= 1 and room < rooms:
+		var y := T + 70.0
+		var pip := 22.0
+		var p := Vector2(W * 0.5 - pip * (rooms - 1) * 0.5 + (room - 1) * pip, y)
+		_cv.draw_circle(p, 10.0 + 1.5 * sin(_t * 5.0), Color(UI.ORANGE, 0.35))
+		_cv.draw_circle(p, 7.5, UI.ORANGE)
+		_cv.draw_circle(p + Vector2(-2, -2), 2.5, Color(1, 1, 1, 0.7))
 
 func _draw_right(R: float, T: float) -> void:
 	# tickets : pastille à gauche du bouton pause, chiffre qui défile
@@ -367,15 +456,15 @@ func _draw_message(W: float, H: float) -> void:
 	var shadow := PackedVector2Array()
 	for q in p:
 		shadow.append(q + Vector2(6, 7))
-	_c.draw_colored_polygon(shadow, Color(0, 0, 0, 0.35 * a))
-	_c.draw_colored_polygon(p, Color(UI.INK, 0.82 * a))
-	_c.draw_polyline(PackedVector2Array([p[0], p[1], p[2], p[3], p[0]]), Color(message_col, 0.9 * a), 3.0, true)
+	_cv.draw_colored_polygon(shadow, Color(0, 0, 0, 0.35 * a))
+	_cv.draw_colored_polygon(p, Color(UI.INK, 0.82 * a))
+	_cv.draw_polyline(PackedVector2Array([p[0], p[1], p[2], p[3], p[0]]), Color(message_col, 0.9 * a), 3.0, true)
 	# chevrons de part et d'autre
 	for sd: float in [-1.0, 1.0]:
 		for k in range(2):
 			var x := cx + sd * (bw * 0.5 + 34.0 + k * 22.0)
 			var c := Color(message_col, a * (0.9 - 0.4 * k))
-			_c.draw_colored_polygon(PackedVector2Array([Vector2(x, y - 14), Vector2(x + sd * 12, y), Vector2(x, y + 14), Vector2(x - sd * 6, y + 14), Vector2(x + sd * 6, y), Vector2(x - sd * 6, y - 14)]), c)
+			_cv.draw_colored_polygon(PackedVector2Array([Vector2(x, y - 14), Vector2(x + sd * 12, y), Vector2(x, y + 14), Vector2(x - sd * 6, y + 14), Vector2(x + sd * 6, y), Vector2(x - sd * 6, y - 14)]), c)
 	var ty := y + fs * 0.34
-	_c.draw_string_outline(UI.TITLE, Vector2(0, ty), message, HORIZONTAL_ALIGNMENT_CENTER, W, fs, 10, Color(UI.INK, a))
-	_c.draw_string(UI.TITLE, Vector2(0, ty), message, HORIZONTAL_ALIGNMENT_CENTER, W, fs, Color(message_col.lerp(Color.WHITE, 0.15), a))
+	_cv.draw_string_outline(UI.TITLE, Vector2(0, ty), message, HORIZONTAL_ALIGNMENT_CENTER, W, fs, 10, Color(UI.INK, a))
+	_cv.draw_string(UI.TITLE, Vector2(0, ty), message, HORIZONTAL_ALIGNMENT_CENTER, W, fs, Color(message_col.lerp(Color.WHITE, 0.15), a))

@@ -192,7 +192,7 @@ func _process(dt: float) -> void:
 				p.stop()
 			continue
 		var base: float = TRACKS[_track[i]][1] if TRACKS.has(_track[i]) else 0.0
-		p.volume_db = base + linear_to_db(_level[i] * _level[i] * (3.0 - 2.0 * _level[i])) + _duck_db()
+		_set_db(p, base + linear_to_db(_level[i] * _level[i] * (3.0 - 2.0 * _level[i])) + _duck_db())
 	_duck = move_toward(_duck, 1.0 if get_tree().paused else 0.0, dt / 0.4)
 	# fond sonore : le nouveau monte pendant que l'ancien descend
 	for i in range(2):
@@ -203,7 +203,7 @@ func _process(dt: float) -> void:
 			if a.playing:
 				a.stop()
 			continue
-		a.volume_db = float(AMBIENCES[_amb_id[i]][1]) + linear_to_db(_amb_level[i])
+		_set_db(a, float(AMBIENCES[_amb_id[i]][1]) + linear_to_db(_amb_level[i]))
 	# sirène au loin, de temps en temps (pas pendant une pause), hauteur et niveau un peu différents à chaque fois
 	if _siren.stream != null and not get_tree().paused:
 		_siren_t -= dt
@@ -218,6 +218,12 @@ func _process(dt: float) -> void:
 		_sduck = move_toward(_sduck, 1.0, dt / 0.15)
 	else:
 		_sduck = move_toward(_sduck, 0.0, dt / 1.0)
+
+## Volume posé seulement s'il change (chaque affectation repasse par le serveur audio). Le lecteur garde le
+## volume en simple précision : comparaison à 1/10 000 de dB près.
+func _set_db(p: AudioStreamPlayer, db: float) -> void:
+	if absf(p.volume_db - db) > 0.0001:
+		p.volume_db = db
 
 func _duck_db() -> float:
 	return DUCK_DB * _duck + STINGER_DUCK_DB * _sduck
