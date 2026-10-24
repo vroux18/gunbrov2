@@ -222,6 +222,7 @@ func _clear_entities() -> void:
 func start_room(r: int, mod: String) -> void:
 	room = r
 	Music.play(("boss" if r >= Data.ROOMS else "combat") + String(Data.WORLDS[Data.world]["music"]))
+	Music.ambience(Data.world_id())
 	modifier = mod
 	_clear_entities()
 	hero.position = Vector2(W * 0.5, (TOP + H) * 0.5)
