@@ -2,6 +2,8 @@ extends Node3D
 ## Planche des ennemis vus à la caméra de jeu, à côté de Jo : même éclairage que le jeu (view3d.gd),
 ## rangées normales / élites face caméra, rangée de dos. Modèles montés par mob3d.gd (échelle, anneau d'élite).
 ## godot --path . res://tools/mobboard.tscn --write-movie out.png --fixed-fps 10 --quit-after 12 -- [--set=boss] [--dist=11.5] [--state=move]
+## Jeux : a, b (moitiés de planche), all / elite (tous les genres en deux rangs), bosses, boss, close, solo, horde.
+## Jo à sa taille de jeu (Dev hero_scale), matériau BD.
 
 const Mob3D = preload("res://scripts/mob3d.gd")
 const Rig3D = preload("res://scripts/rig3d.gd")
@@ -49,6 +51,27 @@ func _ready() -> void:
 		_mob("boss", false, Vector3(0.3, 0, -0.4), 0.3)
 		_mob("drone", false, Vector3(-4.0, 0, -1.6), 0.5)
 		_mob("trooper", true, Vector3(4.6, 0, 1.8), -0.6)
+	elif set_name == "all" or set_name == "elite":
+		# tous les genres, du plus petit au plus gros (deux rangs), Jo en tête de rang ; « elite » : les élites
+		var rows := [["bomber", "drone", "roller", "copter", "hacker", "trooper", "sniper"], ["mortar", "shield", "bouncer", "brute"]]
+		var z := 1.6
+		for ks in rows:
+			var x := -5.6
+			_hero(Vector3(x, 0, z), 0.35)
+			x += 0.3
+			for k in ks:
+				var w: float = float(Data.ENEMIES[k]["radius"]) / 64.0 * 2.7
+				x += w * 0.5 + 0.35
+				_mob(k, set_name == "elite", Vector3(x, 0, z), 0.35)
+				x += w * 0.5
+			_hero(Vector3(x + 0.6, 0, z), 0.35)
+			z -= 3.0
+	elif set_name == "bosses":
+		_hero(Vector3(-3.4, 0, 1.0), 0.35)
+		_mob("boss", false, Vector3(-1.2, 0, -0.3), 0.3)
+		_mob("trooper", false, Vector3(0.8, 0, 1.4), 0.3)
+		_mob("boss2", false, Vector3(3.0, 0, -0.3), 0.3)
+		_hero(Vector3(5.0, 0, 1.0), 0.35)
 	elif set_name == "horde":
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 7
@@ -139,10 +162,11 @@ func _hero(pos: Vector3, yaw: float) -> void:
 	var h := Rig3D.new()
 	add_child(h)
 	h.setup("res://assets/chars3d/jo.glb", Color(1, 1, 1), 1.7)
-	h.scale = Vector3.ONE * 1.75
+	h.make_hero(Color(0, 0, 0), 0.0, Color(1.0, 0.22, 0.28))  # matériau BD de Jo, comme en partie
+	h.scale = Vector3.ONE * Dev.get_f("hero_scale")  # taille de Jo en partie (scripts/dev.gd)
 	h.position = pos
 	h.rotation.y = yaw
-	var sb := Models.shadow_blob(1.1)
+	var sb := Models.shadow_blob(0.5)
 	sb.position = pos + Vector3(0, 0.02, 0)
 	add_child(sb)
 	heroes.append(h)
