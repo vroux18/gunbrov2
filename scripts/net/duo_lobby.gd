@@ -15,7 +15,6 @@ var _partner: Label
 var _go: Button
 var _hosts: VBoxContainer
 var _hosts_sig := ""
-var _ip: LineEdit
 var _relay_box: VBoxContainer
 var _relay_sig := ""
 var _room_l: Label
@@ -68,12 +67,18 @@ func rebuild() -> void:
 			_build_relay_room()
 		"relay_join":
 			_build_relay_join()
+		"ip_join":
+			_build_ip_join()
 	Fx.slide_in(_box, Vector2(140, 0), 0.0, 0.35)
 
 func _back() -> void:
 	main.sfx.play("click", 0.9, -6.0)
 	if mode == "relay_join":  # saisie du code : retour au choix créer / rejoindre, le relais reste trouvé
 		mode = "internet"
+		rebuild()
+		return
+	if mode == "ip_join":  # saisie de l'adresse : retour à la liste des parties du réseau
+		mode = "join_lan"
 		rebuild()
 		return
 	if mode == "menu":
@@ -149,23 +154,15 @@ func _build_join_lan() -> void:
 	_text("Parties trouvées sur le réseau :", 22, UI.TEXT)
 	_hosts = UI.vbox(8)
 	_box.add_child(_hosts)
-	_text("Ou l'adresse de l'hôte :", 20)
-	var row := UI.hbox(10)
-	_box.add_child(row)
-	_ip = LineEdit.new()
-	_ip.placeholder_text = "192.168.1.20"
-	_ip.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_NUMBER_DECIMAL
-	_ip.custom_minimum_size = Vector2(0, 72)
-	_ip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_ip.add_theme_font_size_override("font_size", 30)
-	_ip.text_submitted.connect(func(t: String): duo.join_lan(t.strip_edges()))
-	row.add_child(_ip)
-	var j := UI.button("REJOINDRE", 24, UI.ACCENT, 190)
-	j.custom_minimum_size = Vector2(190, 72)
-	j.pressed.connect(func():
-		if _ip.text.strip_edges() != "":
-			duo.join_lan(_ip.text.strip_edges()))
-	row.add_child(j)
+	# l'adresse se tape sur un pavé du jeu : le champ de texte n'ouvrait pas le clavier du téléphone
+	var ipb := UI.button("ENTRER L'ADRESSE DE L'HÔTE", 22, UI.MUTED)
+	ipb.custom_minimum_size = Vector2(0, 76)
+	ipb.pressed.connect(func():
+		main.sfx.play("click", 1.0, -6.0)
+		_ip_txt = ""
+		mode = "ip_join"
+		rebuild())
+	_box.add_child(ipb)
 	_status_rows()
 
 func _build_internet() -> void:
@@ -276,6 +273,51 @@ func _unhandled_key_input(ev: InputEvent) -> void:
 		var ch := String.chr(k.unicode).to_upper()
 		if ch.length() == 1 and ch in CODE_LETTERS:
 			_code_key(ch)
+
+## Saisie de l'adresse de l'hôte (réseau local) : pavé numérique du jeu.
+var _ip_txt := ""
+var _ip_l: Label
+var _ip_go: Button
+
+func _build_ip_join() -> void:
+	_text("Adresse de l'hôte (affichée sur son écran DUO) :", 22, UI.TEXT)
+	_ip_l = UI.title("", 46, UI.GOLD, UI.INK, HORIZONTAL_ALIGNMENT_CENTER)
+	_ip_l.custom_minimum_size = Vector2(0, 70)
+	_box.add_child(_ip_l)
+	var grid := GridContainer.new()
+	grid.columns = 6
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	_box.add_child(grid)
+	for ch in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", ".", "⌫"]:
+		var k := UI.button(ch, 32, UI.MUTED if ch == "⌫" else UI.ACCENT)
+		k.custom_minimum_size = Vector2(0, 72)
+		k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		k.add_theme_font_override("font", UI.TITLE)
+		k.pressed.connect(func(): _ip_key("" if ch == "⌫" else ch))
+		grid.add_child(k)
+	_ip_go = UI.primary("REJOINDRE", 30)
+	_ip_go.custom_minimum_size = Vector2(0, 80)
+	_ip_go.pressed.connect(func():
+		if _ip_txt.count(".") == 3:
+			duo.join_lan(_ip_txt)
+			mode = "join_lan"
+			rebuild())
+	_box.add_child(_ip_go)
+	_status_rows()
+	_ip_show()
+
+func _ip_key(ch: String) -> void:
+	main.sfx.play("click", 1.1 if ch != "" else 0.9, -8.0)
+	if ch == "":
+		_ip_txt = _ip_txt.substr(0, maxi(0, _ip_txt.length() - 1))
+	elif _ip_txt.length() < 15:
+		_ip_txt += ch
+	_ip_show()
+
+func _ip_show() -> void:
+	_ip_l.text = _ip_txt if _ip_txt != "" else "_ _ _"
+	_ip_go.disabled = _ip_txt.count(".") != 3 or _ip_txt.ends_with(".")
 
 func _build_relay_room() -> void:
 	_room_l = _text("", 52, UI.GOLD)
