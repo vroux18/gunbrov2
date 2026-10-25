@@ -874,7 +874,7 @@ func animate(dt: float) -> void:
 	# --- torse : penché dans le sens de la course, torsion de la marche, respiration et appui au repos
 	var twist := _jo_hips * 0.3 + s * 0.12 * amp * (1.0 - shooting * 0.7)
 	var sway := sin(t * 0.9) * idle_k
-	var t_rot := Vector3(0.17 * run * mdir.y - 0.38 * hk - 0.1 * ck, twist + 0.22 * hk * _jo_hit_side, -0.1 * run * mdir.x + c * 0.04 * amp + 0.03 * sway + 0.18 * hk * _jo_hit_side)
+	var t_rot := Vector3(0.26 * run * mdir.y - 0.38 * hk - 0.1 * ck, twist + 0.22 * hk * _jo_hit_side, -0.1 * run * mdir.x + c * 0.04 * amp + 0.03 * sway + 0.18 * hk * _jo_hit_side)
 	var t_off := Vector3(0.006 * sway, absf(c) * 0.035 * amp + breathe - 0.025 * hk, -0.02 * hk)
 	if _jo_gest == 3:
 		t_rot.x -= 0.14 * ge
@@ -920,7 +920,7 @@ func animate(dt: float) -> void:
 			arm_l = arm_l.lerp(Vector3(-2.85, 0.2, 0.62 + 0.32 * sin(gt * 11.0)), ge)
 			h_rot += Vector3(-0.08, 0.15, -0.12) * ge
 		2:  # main à l'oreillette : écoute la radio du Relais
-			arm_r = arm_r.lerp(Vector3(-2.95, 0.15, -0.32), ge)
+			arm_r = arm_r.lerp(Vector3(-2.5, 0.1, -0.78), ge)  # bras long de la nouvelle Jo : main au niveau de la tempe
 			h_rot += Vector3(0.05, -0.2, 0.2 + 0.04 * sin(gt * 7.0)) * ge
 		3:  # s'étire, bras au ciel
 			var k := sin(clampf(gt / GEST_T, 0.0, 1.0) * PI)
