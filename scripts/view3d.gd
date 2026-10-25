@@ -50,6 +50,17 @@ const SHOT_LAUNCH := 0.06      # s : un tir sort court de la bouche et s'allonge
 const SHOT_HALO := 0.32        # opacité du halo des tirs de Jo (les tirs ennemis : 0,8)
 const WALL_LIGHT_GAP := 0.08   # s minimum entre deux éclats de lumière d'impact sur le décor
 
+# coups sur les ennemis et morts : arrêts sur image [durée réelle (s), vitesse du temps], secousses
+## Un tir normal n'en déclenche aucun (la rafale reste fluide) ; un critique, un à peine perceptible ; un très
+## gros coup (≥ HITSTOP_BIG_MUL × les dégâts d'un tir de Jo), un net. Jamais deux à moins de HITSTOP_GAP.
+const HITSTOP_CRIT := [0.022, 0.45]
+const HITSTOP_BIG := [0.04, 0.3]
+const HITSTOP_BIG_MUL := 2.5
+const HITSTOP_KILL := [0.03, 0.4]  # mort d'un petit ennemi (les gros, élites et boss ont le leur)
+const HITSTOP_GAP := 0.3  # s réelles minimum entre deux arrêts de coups ou de morts ordinaires
+const SHAKE_CRIT := 0.08
+const SHAKE_KILL := 0.2  # petit ennemi ; × taille (rayon / 18 px), élite 0,5, Colosse 0,7
+
 var arena: Node
 var hero2d: Node2D
 var joy: Node
@@ -612,7 +623,7 @@ func _build_pools() -> void:
 		l.render_priority = 10
 		l.outline_render_priority = 9
 		add_child(l)
-		_dmg_labels.append({"node": l, "t": 0.0, "life": 0.0, "vel": Vector3.ZERO, "id": 0, "sum": 0.0, "crit": false, "pop": 1.0, "base": Vector3.ZERO})
+		_dmg_labels.append({"node": l, "t": 0.0, "life": 0.0, "vel": Vector3.ZERO, "id": 0, "sum": 0.0, "crit": false, "pop": 1.0, "s0": 0.35, "shk": 0.0, "base": Vector3.ZERO})
 
 # ---------------------------------------------------------------- partie
 func start_room() -> void:
@@ -744,8 +755,23 @@ func hit_stop(real_s: float, scale: float) -> void:
 	# (les options du moteur comme --fixed-fps ne figurent pas dans get_cmdline_args)
 	if Engine.get_write_movie_path() != "" or "--fixed-fps" in OS.get_cmdline_user_args():
 		return
+	# un arrêt en cours plus fort n'est ni adouci ni raccourci par un plus léger
+	var now := Time.get_ticks_msec()
+	var end := now + int(real_s * 1000.0)
+	if _stop_until > now:
+		scale = minf(scale, Engine.time_scale)
+		end = maxi(end, _stop_until)
 	Engine.time_scale = scale
-	_stop_until = Time.get_ticks_msec() + int(real_s * 1000.0)
+	_stop_until = end
+
+## Petit arrêt d'un coup ou d'une mort ordinaire : jamais deux à moins de HITSTOP_GAP (rafales, foules).
+var _minor_stop := 0
+func _minor_hit_stop(p: Array) -> void:
+	var now := Time.get_ticks_msec()
+	if now < _minor_stop or _stop_until > now:
+		return
+	_minor_stop = now + int(HITSTOP_GAP * 1000.0)
+	hit_stop(float(p[0]), float(p[1]))
 
 func add_shake(v: float) -> void:
 	shake = minf(1.0, shake + v)
@@ -1250,8 +1276,15 @@ func _tick_fx(dt: float) -> void:
 		ol.visible = ol.light_energy > 0.0
 
 ## Chiffre de dégâts : jaillit en rebondissant ; les coups rapprochés sur un même ennemi s'additionnent
-## dans le même chiffre (moins de fouillis) ; un critique sort en gros, doré, avec « ! ».
-func _damage_number(pos: Vector3, dmg: float, crit: bool, id: int = 0) -> void:
+## dans le même chiffre (moins de fouillis : il grossit d'un cran sans repartir de zéro) ; il part un peu
+## dans le sens du coup `dir` ; un critique sort en gros, doré, avec « ! », et tremble un instant ; un très
+## gros coup sort orangé. Réglages :
+const DMG_POP := 1.45  # rebond d'un nouveau chiffre
+const DMG_POP_ADD := 1.22  # coup ajouté à un chiffre déjà affiché
+const DMG_POP_CRIT := 2.0
+const DMG_PUSH := 1.1  # vitesse (m/s) donnée dans le sens du coup
+const DMG_CRIT_SHAKE := 0.05  # tremblement du critique (m), sur 0,15 s
+func _damage_number(pos: Vector3, dmg: float, crit: bool, id: int = 0, dir: Vector3 = Vector3.ZERO) -> void:
 	var best: Dictionary = {}
 	if id != 0:
 		for d in _dmg_labels:
@@ -1272,28 +1305,35 @@ func _damage_number(pos: Vector3, dmg: float, crit: bool, id: int = 0) -> void:
 		best["id"] = id
 		best["crit"] = crit
 		l.position = pos + Vector3(randf_range(-0.4, 0.4), 1.2 + (0.25 if crit else 0.0), randf_range(-0.15, 0.15))
-		best["vel"] = Vector3(randf_range(-0.7, 0.7), 2.8 if not crit else 3.2, 0)
+		best["vel"] = Vector3(randf_range(-0.5, 0.5) + dir.x * DMG_PUSH, 2.8 if not crit else 3.2, dir.z * DMG_PUSH * 0.3)
+		best["s0"] = 0.35
+		best["jx"] = 0.0
+		best["shk"] = 0.0
 		l.visible = true
 	else:
 		l = best["node"]
-		best["vel"] = Vector3((best["vel"] as Vector3).x * 0.5, 1.4, 0)
+		best["vel"] = Vector3((best["vel"] as Vector3).x * 0.5 + dir.x * DMG_PUSH * 0.4, 1.4, 0)
+		best["s0"] = 1.0
 	best["sum"] = float(best["sum"]) + dmg
 	var v := int(round(float(best["sum"])))
+	var fresh: bool = float(best["s0"]) < 1.0
 	best["t"] = 0.0
+	var huge: bool = dmg >= float(hero2d.dmg) * HITSTOP_BIG_MUL
 	if crit:
 		l.text = "%d!" % v
 		l.modulate = Color("#FFD24A")
 		l.outline_modulate = Color(0.42, 0.1, 0.0, 1.0)
-		l.font_size = 108
+		l.font_size = 108 + (12 if huge else 0)
 		best["life"] = 0.95
-		best["pop"] = 1.9
+		best["pop"] = DMG_POP_CRIT if fresh else DMG_POP_ADD + 0.1
+		best["shk"] = 0.15
 	else:
 		l.text = str(v)
-		l.modulate = Color.WHITE if v < 40 else Color("#FFF2C8")
-		l.outline_modulate = Color(0.05, 0.05, 0.14, 0.95)
-		l.font_size = 58 + mini(v / 10, 4) * 6
+		l.modulate = Color("#FFB070") if huge else (Color.WHITE if v < 40 else Color("#FFF2C8"))
+		l.outline_modulate = Color(0.3, 0.08, 0.02, 0.95) if huge else Color(0.05, 0.05, 0.14, 0.95)
+		l.font_size = 58 + mini(v / 10, 4) * 6 + (14 if huge else 0)
 		best["life"] = 0.72
-		best["pop"] = 1.55
+		best["pop"] = (DMG_POP + (0.3 if huge else 0.0)) if fresh else DMG_POP_ADD
 
 func _tick_labels(dt: float) -> void:
 	for d in _dmg_labels:
@@ -1315,8 +1355,13 @@ func _tick_labels(dt: float) -> void:
 		# rebond d'échelle : jaillit au-delà de sa taille, ressort amorti, puis rétrécit en s'effaçant
 		var pop: float = d["pop"]
 		var s := 1.0
+		if float(d["shk"]) > 0.0 or float(d.get("jx", 0.0)) != 0.0:
+			d["shk"] = maxf(0.0, float(d["shk"]) - dt)
+			var jx := sin(tt * 90.0) * DMG_CRIT_SHAKE * float(d["shk"]) / 0.15
+			l.position.x += jx - float(d.get("jx", 0.0))
+			d["jx"] = jx
 		if tt < 0.05:
-			s = lerpf(0.35, pop, tt / 0.05)
+			s = lerpf(float(d["s0"]), pop, tt / 0.05)
 		else:
 			var u := tt - 0.05
 			s = 1.0 + (pop - 1.0) * exp(-u * 16.0) * cos(u * 34.0)
@@ -1371,16 +1416,24 @@ func _on_enemy_hit(e: Node2D, pos: Vector2, dmg: float, crit: bool) -> void:
 		return
 	var id: int = e.get_instance_id()
 	var m: Mob3D = mobs.get(id)
+	# sens de la balle : du point d'impact (côté du tireur) vers le centre ; dégâts d'un pouvoir (impact au
+	# centre) : de Jo vers l'ennemi
+	var dv: Vector2 = e.position - pos
+	if dv.length_squared() < 4.0:
+		dv = e.position - hero2d.position
+	var d := Vector3(dv.x, 0.0, dv.y).normalized()
+	_last_hit[id] = d
+	var amt := 1.0
 	if m != null:
-		m.flash()
-		if m.rig != null:
-			m.rig.flash(0.05)  # éclat blanc bref : le modèle reste lisible sous un feu nourri
-	var n := Vector3(pos.x - e.position.x, 0.0, pos.y - e.position.y).normalized()
-	_last_hit[id] = -n
-	fxs.hit(p3(pos, 0.6), n, CYAN, crit)
-	_damage_number(p3(e.position), dmg, crit, id)
+		amt = m.hit(d, dmg, crit)  # éclat, écrasement, bascule, ressort, pièces qui vibrent (mob3d.gd)
+	fxs.hit_enemy(p3(pos, 0.6), d, crit, amt)
+	_damage_number(p3(e.position), dmg, crit, id, d)
 	if crit:
-		add_shake(0.06)
+		add_shake(SHAKE_CRIT)
+	if dmg >= float(hero2d.dmg) * HITSTOP_BIG_MUL:
+		_minor_hit_stop(HITSTOP_BIG)
+	elif crit:
+		_minor_hit_stop(HITSTOP_CRIT)
 
 var _shield_pos := Vector2(-1, -1)
 
@@ -1463,12 +1516,14 @@ func _on_enemy_killed(e: Node2D) -> void:
 		m.start_death()
 		dying.append(m)
 	fxs.death("boss" if e.kind.begins_with("boss") else e.kind, pos, dir, e.elite)
-	var acc: Color = Fx3D.ACCENT.get(e.kind, RED)
+	# pièces, boulons, étincelles et onde (fx3d.gd) ; le boss explose pour de bon après son chapelet (1,35 s)
+	fxs.death_burst(e.kind, pos, dir, e.elite, 1.35 if e.kind.begins_with("boss") else 0.0)
+	var acc: Color = Fx3D.ACCENT.get(e.kind, Fx3D.DEATH_ACC.get(e.kind, RED))
 	if not e.kind.begins_with("boss"):
 		_flash_light(pos + Vector3(0, 1.0, 0), acc.lerp(Color(1.0, 0.7, 0.4), 0.5), 4.0 if big else 2.0, 6.0 if big else 4.0)
 	match e.kind:
-		"brute":
-			add_shake(0.7)
+		"brute", "bouncer":
+			add_shake(0.7 if not e.elite else 0.85)
 			hit_stop(0.09, 0.2)
 		"boss", "boss2":
 			add_shake(0.6)
@@ -1476,9 +1531,12 @@ func _on_enemy_killed(e: Node2D) -> void:
 		"bomber":
 			pass  # secousse donnée par l'explosion
 		_:
-			add_shake(0.5 if e.elite else 0.2)
 			if e.elite:
+				add_shake(0.5)
 				hit_stop(0.07, 0.25)
+			else:
+				add_shake(SHAKE_KILL * clampf(float(e.radius) / 18.0, 0.7, 1.6))
+				_minor_hit_stop(HITSTOP_KILL)
 	# pouvoirs (Détonation, etc.) : rendus par pfx (scripts/fx/power_fx.gd)
 
 ## Explosion (pétard, obus du mortier) : boule de feu dodue, onde au sol de la taille du rayon de dégâts,

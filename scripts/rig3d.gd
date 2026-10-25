@@ -182,6 +182,93 @@ func die() -> void:
 	dead = true
 	_die_t = 0.0
 
+# ---------------------------------------------------------------- coups reçus (mobs seulement ; Jo a hit())
+## Mob touché (scripts/mob3d.gd) : éclat blanc net et court, tête qui part en arrière dans le sens de la balle
+## puis revient sur un ressort (elle dépasse un peu), pièces qui vibrent un instant. Réglages :
+const HR_HEAD := 0.45  # bascule max de la tête (rad) pour un coup plein
+const HR_ROOT := 0.08  # bascule de la pièce principale (le corps entier bascule déjà dans mob3d)
+const HR_SPRING := 30.0  # raideur du ressort (rad/s) : plus haut, retour plus sec
+const HR_DAMP := 0.35  # amortissement : sous 1, la tête dépasse sa pose et rebondit
+const HR_VIB := 0.14  # vibration des pièces (rad)
+const HR_VIB_T := 0.16  # durée de la vibration (s)
+const HF_HOLD := 0.034  # éclat : plein blanc tenu ~2 images, puis chute rapide
+const HF_GAP := 0.03  # sous un feu nourri, noir minimal entre deux éclats (le modèle reste lisible)
+var _hr_x := Vector3.ZERO  # déplacement du ressort (repère du modèle, horizontal)
+var _hr_v := Vector3.ZERO
+var _hr_vib := 0.0
+var _hr_ready := false
+var _hr_head: Node3D = null
+var _hr_root: Array = []
+var _hr_loose: Array = []
+var _hr_saved: Array = []  # [nœud, transform] d'avant la réaction : rendus avant la pose suivante
+var _hf_dur := 0.0
+var _hf_peak := 0.0
+
+## Éclat de coup : `peak` (0..1) tenu HF_HOLD puis éteint en `dur` ; `force` (critique) passe outre le noir.
+func hit_flash(dur: float, peak: float, force: bool = false) -> void:
+	if _hf_dur > 0.0 and _flash_t > 0.0 and not force and (_hf_dur - _flash_t) < HF_HOLD + HF_GAP:
+		return
+	_hf_dur = dur
+	_hf_peak = peak
+	_flash_t = 0.0
+	flash(dur)
+
+## Coup reçu : `dir` sens de la balle dans le repère du modèle, `amount` ~0..1,5 (dégâts, masse, critique).
+func hit_react(dir: Vector3, amount: float) -> void:
+	if dead:
+		return
+	if not _hr_ready:
+		_hr_ready = true
+		for nm in parts:
+			var n: Node3D = parts[nm]
+			if "_glow" in String(nm):
+				continue
+			if n.get_parent() == model:
+				_hr_root.append(n)
+			elif String(nm) == "head":
+				_hr_head = n
+			else:
+				_hr_loose.append(n)
+	var d := Vector3(dir.x, 0.0, dir.z)
+	if d.length_squared() < 0.0001:
+		d = Vector3(0, 0, -1)
+	_hr_v += d.normalized() * amount * HR_SPRING * 1.3
+	_hr_vib = maxf(_hr_vib, minf(amount * 1.3, 1.0))
+
+func _hr_restore() -> void:
+	for s in _hr_saved:
+		if is_instance_valid(s[0]):
+			(s[0] as Node3D).transform = s[1]
+	_hr_saved.clear()
+
+func _hr_turn(n: Node3D, b: Basis) -> void:
+	_hr_saved.append([n, n.transform])
+	n.transform.basis = b * n.transform.basis
+
+## Après la pose de l'image : ressort de la tête et du corps, vibration des pièces.
+func _hr_apply(dt: float) -> void:
+	if _hr_vib <= 0.0 and _hr_x.length_squared() < 0.000001 and _hr_v.length_squared() < 0.0001:
+		return
+	var sd := minf(dt, 0.05) * 0.5
+	for i in range(2):
+		_hr_v += (-HR_SPRING * HR_SPRING * _hr_x - 2.0 * HR_DAMP * HR_SPRING * _hr_v) * sd
+		_hr_x += _hr_v * sd
+	_hr_vib = maxf(0.0, _hr_vib - dt / HR_VIB_T)
+	var xl := _hr_x.length()
+	if xl > 0.0005:
+		var ax := Vector3.UP.cross(_hr_x / xl)
+		if _hr_head != null:
+			_hr_turn(_hr_head, Basis(ax, minf(xl, 1.5) * HR_HEAD))
+		for n in _hr_root:
+			_hr_turn(n, Basis(ax, minf(xl, 1.5) * HR_ROOT))
+	if _hr_vib > 0.0:
+		var a := HR_VIB * _hr_vib * _hr_vib
+		var i := 0
+		for n in _hr_loose:
+			var ph := t * 70.0 + i * 1.7
+			_hr_turn(n, Basis.from_euler(Vector3(sin(ph), sin(ph * 1.3 + 0.5), sin(ph * 0.7 + 1.1)) * a))
+			i += 1
+
 func revive() -> void:
 	dead = false
 	_die_t = 0.0
@@ -214,18 +301,26 @@ func _process(dt: float) -> void:
 		(n as Node3D).position.y = 0.012 * sin(t * 2.2)
 	if _flash_t > 0.0:
 		_flash_t -= dt
-		_flash_mat.albedo_color = Color(flash_color.r, flash_color.g, flash_color.b, clampf(_flash_t * 10.0, 0.0, 0.85))
+		var fa := clampf(_flash_t * 10.0, 0.0, 0.85)
+		if _hf_dur > 0.0:  # coup reçu par un mob (hit_flash) : plein blanc bref, puis chute rapide
+			fa = _hf_peak if _hf_dur - _flash_t < HF_HOLD else _hf_peak * clampf(_flash_t / maxf(_hf_dur - HF_HOLD, 0.001), 0.0, 1.0)
+		_flash_mat.albedo_color = Color(flash_color.r, flash_color.g, flash_color.b, fa)
 		if _flash_t <= 0.0:
 			_overlay(null)
 			_veiled = false
+			_hf_dur = 0.0
 	if _flash_t <= 0.0 and (invuln > 0.0 or _veiled):
 		_veil(dt)
+	if not _hr_saved.is_empty():
+		_hr_restore()
 	if dead:
 		_die_t += dt
 		animate_death(_die_t)
 		return
 	recoil = maxf(0.0, recoil - dt * 9.0)
 	animate(dt)
+	if _hr_ready:
+		_hr_apply(dt)
 
 func _overlay(m: Material) -> void:
 	for mi in meshes:
