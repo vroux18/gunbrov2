@@ -6,9 +6,9 @@ extends Node3D
 const Models = preload("res://scripts/models.gd")
 const DUST_N := 24
 const JET_N := 40
-## Points d'émission dans le repère des parts (voir tools/chars/jo.py).
+## Points d'émission dans le repère des parts (voir tools/blender/jo.py).
 const NOZZLES := [Vector3(-0.1505, -0.01, -0.2), Vector3(0.1505, -0.01, -0.2)]  # repère « torso »
-const FOOT := Vector3(0.0, -0.33, 0.03)  # repère « leg_r » / « leg_l »
+const FOOT := Vector3(0.0, -0.33, 0.03)  # repère « leg_r » / « leg_l » (ou « shin_r » / « shin_l » : même hauteur)
 
 var rig: Node3D
 var _dust: MultiMeshInstance3D
@@ -89,6 +89,8 @@ func _process(dt: float) -> void:
 	var s := sin(float(rig.phase))
 	if running and signf(s) != signf(_last_s):
 		var leg := "leg_l" if s > 0.0 else "leg_r"
+		if rig.p("shin_r") != null:  # Jo à genoux (tools/blender/jo.py) : le pied est sous le tibia
+			leg = "shin_l" if s > 0.0 else "shin_r"
 		var p := _world(leg, FOOT)
 		p.y = 0.06
 		for i in range(2):

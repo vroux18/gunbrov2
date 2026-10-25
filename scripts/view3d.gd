@@ -17,7 +17,7 @@ const HangarBay = preload("res://scripts/decor/hangar_bay.gd")
 const K := 1.0 / 64.0
 const ST := "res://assets/models/station/"
 const SP := "res://assets/models/space/"
-const JO_MODEL := "res://assets/chars3d/jo.glb"  # sculptée de zéro (tools/chars/jo.py)
+const JO_MODEL := "res://assets/chars3d/jo.glb"  # modelée dans Blender (tools/blender/jo.py)
 const JO_GUN := "res://assets/models/blaster/blaster-b.glb"
 
 const CYAN := Color("#3CF2D8")

@@ -1,7 +1,8 @@
 """Équipement visible de Jo (loot). Un GLB par objet : assets/chars3d/gear_<id>.glb.
 Chaque part s'appelle « <cible>__<id> » : le rig la range dans la part cible de Jo (head, torso, arm_l, arm_r,
 leg_r, leg_l, gun) avec le même pivot, donc les coordonnées ci-dessous sont celles du modèle de Jo
-(tools/chars/jo.py : Jo regarde vers +Z, sa droite est en -X, sa gauche en +X).
+(ancienne Jo, tools/chars/jo.py retiré : Jo regarde vers +Z, sa droite est en -X, sa gauche en +X). Sur la nouvelle Jo
+(tools/blender/jo.py), scripts/rig3d.gd GEAR_FIT ajuste chaque cible (tête plus petite, bras et jambes plus longs).
 Les parts « *_glow » sont blanches : le jeu les teinte à la couleur de rareté.
 
 Chaque objet doit se reconnaître seul, en icône de 96 px (silhouette d'abord : fer à cheval, pile à barres,

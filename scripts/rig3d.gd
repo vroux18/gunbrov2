@@ -125,14 +125,14 @@ var _gear: Array = []
 var _gun_id := ""
 var _gun_meshes := {}  # MeshInstance3D -> Mesh d'origine (blaster du modèle)
 var _items: Array = []  # équipement porté (reposé quand le modèle change avec l'apparence)
-## L'équipement est sculpté pour l'ancienne Jo (tools/chars/gear.py : coordonnées de tools/chars/jo.py, tête ronde,
+## L'équipement est sculpté pour l'ancienne Jo (tools/chars/gear.py : coordonnées de l'ancien tools/chars/jo.py, tête ronde,
 ## jambe d'une pièce) : sur la nouvelle Jo (genoux « shin_* »), chaque cible est ajustée : cible -> [part
 ## d'accueil, Transform3D dans son repère]. L'arme garde son repère (MUZZLE inchangé).
 static var GEAR_FIT := {
 	"head": ["head", Transform3D(Basis.from_scale(Vector3(0.47, 0.47, 0.47)), Vector3(0, 0.037, 0.0))],
 	"torso": ["torso", Transform3D(Basis.from_scale(Vector3(0.94, 1.1, 0.74)), Vector3(0, 0.109, 0.0))],
-	"arm_r": ["arm_r", Transform3D(Basis.from_scale(Vector3(0.92, 1.5, 0.92)), Vector3.ZERO)],
-	"arm_l": ["arm_l", Transform3D(Basis.from_scale(Vector3(0.92, 1.5, 0.92)), Vector3.ZERO)],
+	"arm_r": ["arm_r", Transform3D(Basis.from_scale(Vector3(0.78, 1.3, 0.85)), Vector3(0, -0.015, 0))],
+	"arm_l": ["arm_l", Transform3D(Basis.from_scale(Vector3(0.78, 1.3, 0.85)), Vector3(0, -0.015, 0))],
 	"leg_r": ["shin_r", Transform3D(Basis.from_scale(Vector3(0.82, 0.98, 0.82)), Vector3.ZERO)],
 	"leg_l": ["shin_l", Transform3D(Basis.from_scale(Vector3(0.82, 0.98, 0.82)), Vector3.ZERO)],
 }
@@ -666,14 +666,10 @@ func gesture(i: int) -> void:
 	_jo_gest = i
 	_jo_gest_t = 0.0
 
-## Réglages propres à l'héroïne en jeu : matériau à elle avec un liseré (coque inversée), silhouette « rayons X »
-## quand un ennemi ou une caisse passe devant elle (tampon de stencil, sur les masses seulement : tête, torse,
-## jambes), voile de coup teinté.
-const XRAY_PARTS := ["torso", "head", "leg_r", "leg_l"]
-## Le matériau de Jo est une copie de body_mat() (shaders/character.gdshader) ; son liseré turquoise
-## remplace le contour sombre commun (next_pass) : un seul contour, pas deux.
+## Réglages propres à l'héroïne (partie, Relais, vignettes) : matériau BD partagé (jo_mat), calque HERO_LAYER,
+## voile de coup teinté.
 var _hero_mat: ShaderMaterial = null
-## Jo de l'invité en duo (partner3d.gd) : matériau aux teintes tournées, à poser avant make_hero.
+## Jo de l'invité en duo : partner3d.recolor() lui donne jo_mat(true) ; make_hero rend le matériau normal.
 var _guest := false
 ## Calque de rendu propre à Jo : sa lumière d'appoint (view3d.gd) n'éclaire qu'elle.
 const HERO_LAYER := 1 << 19
@@ -736,7 +732,8 @@ func _flow_scan() -> void:
 		var d := _model_pos(nodes[nodes.size() - 1]) - _model_pos(nodes[0]) if nodes.size() > 1 else Vector3(0, -1, -0.5)
 		if d.length() < 0.001:
 			d = Vector3(0, -1, -0.5)
-		_flows.append({"nodes": nodes, "dir": d.normalized()})
+		# une cape (zone dos) est lourde : elle se soulève moins qu'un ruban ou un plumet
+		_flows.append({"nodes": nodes, "dir": d.normalized(), "gain": 0.4 if String(pre).begins_with("dos") else 1.0})
 
 func _model_pos(n: Node3D) -> Vector3:
 	var xf := Transform3D.IDENTITY
@@ -763,7 +760,7 @@ func _jo_flow(dt: float, lv: Vector3, amp: float) -> void:
 			if ax.length() < 0.0001:
 				n.transform = r
 				continue
-			var ang := clampf(w.length() * (0.55 + 0.2 * i), 0.0, 0.85)
+			var ang := clampf(w.length() * (0.55 + 0.2 * i) * float(f["gain"]), 0.0, 0.85)
 			n.transform = Transform3D(Basis(ax.normalized(), ang) * r.basis, r.origin)
 
 ## Genoux (parts « shin_* ») : la jambe qui revient vers l'avant plie le genou, celle d'appui reste tendue.

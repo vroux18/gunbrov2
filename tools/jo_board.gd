@@ -12,6 +12,7 @@ var cam: Camera3D
 var rigs: Array = []
 var t := 0.0
 var run := false
+var top := false
 
 func _ready() -> void:
 	var models := []
@@ -33,12 +34,17 @@ func _ready() -> void:
 			run = true
 		elif a == "--side":
 			side = true
+		elif a == "--top":
+			top = true
 	_env()
 	var entries := []
 	for m in models:
 		entries.append({"model": "res://assets/chars3d/%s.glb" % m, "skin": ""})
 	for s in skins:
 		entries.append({"model": "res://assets/chars3d/jo.glb", "skin": s})
+	if top:
+		_top(entries, items)
+		return
 	var views := [0.6, PI + 0.5]
 	if side:
 		views = [0.6, PI * 0.5, PI + 0.5]
@@ -68,14 +74,40 @@ func _ready() -> void:
 			l.no_depth_test = true
 			add_child(l)
 
-func _jo(e: Dictionary, pos: Vector3, yaw: float, items: Array) -> void:
+## --top : caméra de jeu (56°, recul 11,5, champ 38°), chaque modèle à l'échelle de la partie (Dev hero_scale),
+## dos à la caméra, de face et de profil, entre des ennemis à leur taille de jeu.
+func _top(entries: Array, items: Array) -> void:
+	cam.fov = Dev.get_f("cam_fov")
+	var pitch := deg_to_rad(Dev.get_f("cam_pitch"))
+	cam.position = Vector3(0, sin(pitch), cos(pitch)) * Dev.get_f("cam_dist")
+	cam.look_at(Vector3.ZERO, Vector3.UP)
+	run = true
+	var n := entries.size()
+	for i in range(n):
+		var x := (i - (n - 1) * 0.5) * 2.4
+		for k in range(3):
+			var yaw: float = [PI + 0.3, 0.4, -PI * 0.5][k]
+			var r := _jo(entries[i], Vector3(x + (k - 1) * 0.75, 0, -1.2 + k * 1.3), yaw, items, Dev.get_f("hero_scale"))
+			r.set_meta("shoot", k != 1)
+	var kinds := ["trooper", "drone", "bomber", "shield", "trooper", "brute"]
+	for j in range(kinds.size()):
+		var m: Node3D = load("res://scripts/mobs/%s.gd" % kinds[j]).new()
+		add_child(m)
+		m.setup("res://assets/chars3d/%s.glb" % kinds[j])
+		m.position = Vector3(-6.0 + j * 2.4, 0, -3.1 + (j % 2) * 0.5)
+		m.rotation.y = PI * 0.1 * (j - 2)
+		var sh := Models.shadow_blob(1.0)
+		sh.position = m.position + Vector3(0, 0.02, 0)
+		add_child(sh)
+
+func _jo(e: Dictionary, pos: Vector3, yaw: float, items: Array, scl: float = 1.6) -> Node3D:
 	var r := Rig3D.new()
 	add_child(r)
 	r.setup(e["model"], Color(1, 1, 1), 1.7)
 	r.make_hero(Color(0.5, 1.0, 0.94), 0.007, Color(1.0, 0.22, 0.28))
 	r.position = pos
 	r.rotation.y = yaw
-	r.scale = Vector3.ONE * 1.6
+	r.scale = Vector3.ONE * scl
 	if not items.is_empty():
 		r.apply_items(items)
 	if String(e["skin"]) != "":
@@ -83,9 +115,10 @@ func _jo(e: Dictionary, pos: Vector3, yaw: float, items: Array) -> void:
 	r._jo_gest_cd = 99.0
 	r._jo_look_cd = 99.0
 	rigs.append(r)
-	var sh := Models.shadow_blob(1.0)
+	var sh := Models.shadow_blob(scl / 1.6)
 	sh.position = pos + Vector3(0, 0.02, 0)
 	add_child(sh)
+	return r
 
 func _env() -> void:
 	var we := WorldEnvironment.new()
@@ -128,5 +161,8 @@ func _env() -> void:
 func _process(dt: float) -> void:
 	t += dt
 	for r in rigs:
-		r.set_motion(0.9 if run else 0.0, 1.0 if run else 0.0)
+		var sh: bool = r.get_meta("shoot", true)
+		r.set_motion(0.9 if run else 0.0, 1.0 if run and sh else 0.0)
+		if run and sh and int(t * 6.0) != int((t - dt) * 6.0):
+			r.shot()
 		r.set_move(Vector3(sin(r.rotation.y), 0, cos(r.rotation.y)) * 0.9 if run else Vector3.ZERO)
