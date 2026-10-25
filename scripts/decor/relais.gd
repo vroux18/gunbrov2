@@ -63,19 +63,111 @@ static func build(v: Node) -> Node3D:
 	_particles(root)
 	_lights(root, st)
 	_scanner(root, st)
-	# Jo (modèle et animation : scripts/rig3d.gd)
+	# Jo (modèle et animation : scripts/rig3d.gd), sur sa scène : fond BD, lumières à elle (_hero_stage)
+	var stage := Node3D.new()
+	stage.position = HERO_STAGE
+	root.add_child(stage)
 	var rh := Rig3D.new()
-	root.add_child(rh)
+	stage.add_child(rh)
 	rh.setup(v.JO_MODEL, Color(1, 1, 1), 1.7)
 	rh.make_hero(Color(0, 0, 0), 0.0, Color(1.0, 0.22, 0.28))  # matériau BD de Jo
-	rh.scale = Vector3.ONE * 2.1  # Jo de 1,26 (tools/blender/jo.py)
-	rh.position = Vector3(0, 0, 0.6)
+	rh.scale = Vector3.ONE * HERO_SCALE  # Jo de 1,26 (tools/blender/jo.py)
+	rh.position = Vector3(0, 0, 0.6)  # repris par view3d.gd (show_relais), dans le repère de la scène
 	rh.rotation.y = 0.35
+	rh.process_priority = -10  # Jo se pose avant la vue (view3d.gd -> tick) : la pose d'attente s'ajoute après
 	root.set_meta("hero", rh)
-	var sh := Models.shadow_blob(1.6)
+	var sh := Models.shadow_blob(1.9)
 	sh.position = Vector3(0, 0.01, 0.6)
-	root.add_child(sh)
+	stage.add_child(sh)
+	_hero_stage(stage, st)
 	return root
+
+# ---------------------------------------------------------------- Jo mise en valeur
+## Jo au Relais : plus grande qu'avant (2,1), un peu avancée vers la caméra, devant un éclat de couverture BD
+## (shaders/jo_backdrop.gdshader) qui la détache du portail blanc ; lumière de face chaude et contre-jour
+## magenta qui ne touchent qu'elle (calque Rig3D.HERO_LAYER) ; pose d'attente vivante par-dessus son repos
+## (_tick_pose). Le décor ne bouge pas.
+const HERO_SCALE := 2.45
+const HERO_STAGE := Vector3(-0.15, 0.0, 0.45)  # décalage de la scène de Jo (Jo à (0, 0, 0,6) dedans)
+const BACKDROP_POS := Vector3(-0.45, 1.85, -0.35)  # centre de l'éclat, derrière Jo (repère de la scène)
+const BACKDROP_SIZE := 3.2
+const KEY_POS := Vector3(2.2, 3.0, 3.6)  # lumière de face (côté caméra, en haut à droite)
+const KEY_E := 3.0
+const RIM_POS := Vector3(-1.6, 2.4, -0.9)  # contre-jour (derrière, à gauche)
+const RIM_E := 4.0
+const POSE_SWAY := 1.0  # amplitude de la pose d'attente (0 : la pose de repos seule)
+
+static func _hero_stage(stage: Node3D, st: Dictionary) -> void:
+	var bd := MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(1, 1)
+	bd.mesh = q
+	var bm := ShaderMaterial.new()
+	bm.shader = load("res://shaders/jo_backdrop.gdshader")
+	bd.material_override = bm
+	bd.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	bd.position = BACKDROP_POS
+	bd.scale = Vector3.ONE * BACKDROP_SIZE
+	stage.add_child(bd)
+	st["backdrop"] = bd
+	st["backdrop_mat"] = bm
+	var key := OmniLight3D.new()
+	key.position = KEY_POS
+	key.light_color = Color(1.0, 0.92, 0.82)
+	key.light_energy = KEY_E
+	key.omni_range = 9.0
+	key.omni_attenuation = 0.6
+	key.light_cull_mask = Rig3D.HERO_LAYER
+	stage.add_child(key)
+	var rim := OmniLight3D.new()
+	rim.position = RIM_POS
+	rim.light_color = Color("#FF3CAC")
+	rim.light_energy = RIM_E
+	rim.omni_range = 5.0
+	rim.light_cull_mask = Rig3D.HERO_LAYER
+	stage.add_child(rim)
+	st["hero_lights"] = [key, rim]
+
+## Pose d'attente : appui sur une jambe (bassin qui bascule, buste qui compense, jambe libre écartée, genou
+## plié), poids qui change de pied toutes les quelques secondes, épaules et tête qui suivent, souffle. Ajoutée
+## aux parts après l'animation de Jo, qui ne pose qu'à 12 i/s (« en deux ») : quand une part n'a plus la
+## transformation écrite ici, Jo l'a reposée et on repart de sa pose. La pose d'attente avance elle aussi par
+## crans de 1/12 s. `k` : 0 pendant le départ (Jo court vers le portail).
+static func _tick_pose(st: Dictionary, rh: Node3D, t: float, k: float) -> void:
+	var tq := floorf(t * 12.0) / 12.0
+	# poids : -1 sur la jambe gauche, +1 sur la droite ; change en douceur toutes les ~7 s
+	var w := clampf(sin(tq * 0.45) * 2.6, -1.0, 1.0) * k * POSE_SWAY
+	var br := sin(tq * 2.1) * k * POSE_SWAY  # souffle
+	var model: Node3D = rh.get("model")
+	var offs := {
+		"torso": [Vector3(-0.06 - 0.02 * br, 0.08 * w, -0.11 * w), Vector3(-0.045 * w, 0.006 * br, 0.0)],
+		"leg_r": [Vector3(-0.16 * maxf(-w, 0.0), 0.0, 0.11 * w - 0.07 - 0.12 * maxf(-w, 0.0)), Vector3.ZERO],
+		"leg_l": [Vector3(-0.16 * maxf(w, 0.0), 0.0, 0.11 * w + 0.07 + 0.12 * maxf(w, 0.0)), Vector3.ZERO],
+		"shin_r": [Vector3(0.38 * maxf(-w, 0.0), 0.0, 0.0), Vector3.ZERO],
+		"shin_l": [Vector3(0.38 * maxf(w, 0.0), 0.0, 0.0), Vector3.ZERO],
+		"head": [Vector3(0.04 * br - 0.05, -0.12 * w, 0.15 * w), Vector3.ZERO],
+		"arm_r": [Vector3(-0.12, 0.0, -0.2 - 0.06 * w), Vector3.ZERO],
+		"arm_l": [Vector3(0.1, 0.0, 0.16 - 0.06 * w), Vector3.ZERO],
+	}
+	var mem: Dictionary = st.get("pose_mem", {})
+	if st.get("pose_model") != model:
+		mem = {}
+		st["pose_model"] = model
+	st["pose_mem"] = mem
+	for nm in offs:
+		var n: Node3D = rh.call("p", nm)
+		if n == null:
+			continue
+		var m: Array = mem.get(nm, [])
+		# Jo a reposé la part depuis notre dernière écriture : sa pose devient la base
+		if m.is_empty() or not n.transform.is_equal_approx(m[1]):
+			m = [n.transform, n.transform]
+		var base: Transform3D = m[0]
+		var o: Array = offs[nm]
+		var xf := Transform3D(base.basis * Basis.from_euler(o[0]), base.origin + base.basis * (o[1] as Vector3))
+		n.transform = xf
+		mem[nm] = [base, xf]
+
 
 static func _xf(pos: Vector3, rot_y: float = 0.0, s: float = 1.0) -> Transform3D:
 	return Transform3D(Basis(Vector3.UP, rot_y).scaled(Vector3.ONE * s), pos)
@@ -524,6 +616,19 @@ static func tick(root: Node3D, dt: float, launching: bool, focus: float = 0.0) -
 	_tick_drone(st, t, dt)
 	_tick_scanner(st, t, focus)
 	_tick_launch(root, st, dt, launching)
+	# Jo : pose d'attente, fond BD (s'efface au départ et dans la Loge, où le scanner prend la place)
+	var rh: Node3D = root.get_meta("hero")
+	var pk := float(st.get("pose_k", 1.0))
+	pk = move_toward(pk, 0.0 if launching else 1.0, dt * 3.0)
+	st["pose_k"] = pk
+	_tick_pose(st, rh, t, pk)
+	var bk := pk * (1.0 - clampf(focus * 1.5, 0.0, 1.0))
+	var bd: MeshInstance3D = st["backdrop"]
+	bd.visible = bk > 0.01
+	var bm: ShaderMaterial = st["backdrop_mat"]
+	bm.set_shader_parameter("opacity", 0.55 * bk)
+	bm.set_shader_parameter("spin", floorf(t * 12.0) / 12.0 * 0.08)
+	bd.scale = Vector3.ONE * BACKDROP_SIZE * (1.0 + 0.015 * sin(floorf(t * 12.0) / 12.0 * 2.1))
 
 ## Loge : anneau au sol et anneau de balayage qui monte et descend le long de Jo.
 static func _tick_scanner(st: Dictionary, t: float, focus: float) -> void:
