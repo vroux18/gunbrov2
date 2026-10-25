@@ -4,13 +4,13 @@ extends Node
 ## compteur d'images par seconde. La vue (view3d.gd) lit ces valeurs à chaque image.
 
 const CFG := "user://dev.cfg"
-const VERSION := 4  # 2 : Jo à 1,15 ; 3 : Jo à 0,95 ; 4 : nouvelle Jo (1,26 de haut) à 0,65 (~57 px en 1280x720)
+const VERSION := 6  # 2 : Jo à 1,15 ; 3 : Jo à 0,95 ; 4 : nouvelle Jo (1,26 de haut) à 0,65 ; 5 : caméra plus proche (9) et Jo à 0,8
 ## Valeurs par défaut (et bornes des curseurs du mode développeur). all_worlds : version de démo, le monde 2
 ## est ouvert sans finir le monde 1 (le mode développeur le referme).
-const DEFAULTS := {"cam_dist": 11.5, "cam_pitch": 56.0, "cam_fov": 38.0, "hero_scale": 0.65, "mob_scale": 1.0, "fps": 60, "show_fps": false, "dev": false, "all_worlds": true, "quality": 1, "sticks_free": true, "jo_twos": true, "comic": true, "bd_fx": true}
+const DEFAULTS := {"cam_dist": 9.0, "cam_pitch": 56.0, "cam_fov": 38.0, "hero_scale": 0.8, "mob_scale": 1.0, "fps": 60, "show_fps": false, "dev": false, "all_worlds": true, "quality": 1, "sticks_free": true, "jo_twos": true, "comic": true, "bd_fx": true}
 const RANGES := {"cam_dist": [6.0, 24.0], "cam_pitch": [30.0, 85.0], "cam_fov": [24.0, 70.0], "hero_scale": [0.6, 2.2], "mob_scale": [0.6, 1.4]}
 ## Préréglages du menu pause (boutons VUE et ANGLE).
-const ZOOMS := [["PROCHE", 9.0], ["NORMALE", 11.5], ["LARGE", 14.0], ["TRÈS LARGE", 16.5]]
+const ZOOMS := [["PROCHE", 8.0], ["NORMALE", 9.0], ["LARGE", 11.5], ["TRÈS LARGE", 14.0]]
 const ANGLES := [["PLONGÉE", 66.0], ["STANDARD", 56.0], ["RASANTE", 46.0]]
 ## Qualité (téléphone) : [nom, échelle de la 3D, ombres du soleil, images par seconde au plus en partie].
 ## La 3D est calculée en dessous de la résolution de l'écran (l'interface reste nette) : c'est ce qui chauffe
@@ -31,6 +31,7 @@ func _ready() -> void:
 		# réglages enregistrés avant un changement de valeur par défaut : la nouvelle valeur l'emporte
 		if int(cf.get_value("dev", "version", 1)) < VERSION:
 			v["hero_scale"] = DEFAULTS["hero_scale"]
+			v["cam_dist"] = DEFAULTS["cam_dist"]
 	# « --devset=clé:valeur » (planches, mesures) : réglage pour ce lancement, non enregistré
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--devset=") and ":" in a:

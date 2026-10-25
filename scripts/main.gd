@@ -1331,28 +1331,32 @@ func _show_dev() -> void:
 	box.add_child(UI.title("MODE DÉVELOPPEUR", 30, UI.TEXT, UI.ACCENT))
 	var summary := UI.label(Dev.summary(), 17, UI.MUTED)
 	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var rows := [["cam_dist", "Recul caméra", 0.1], ["cam_pitch", "Inclinaison", 1.0], ["cam_fov", "Champ de vision", 1.0], ["hero_scale", "Taille de Jo", 0.01], ["mob_scale", "Taille des ennemis (nouveaux)", 0.01]]
+	# réglages au doigt : boutons − et + (un curseur ne suit pas le doigt, le toucher n'étant pas converti en souris)
+	var rows := [["cam_dist", "Recul caméra", 0.5], ["cam_pitch", "Inclinaison", 2.0], ["cam_fov", "Champ de vision", 2.0], ["hero_scale", "Taille de Jo", 0.05], ["mob_scale", "Taille des ennemis (nouveaux)", 0.05]]
 	for r in rows:
 		var key: String = r[0]
-		var head := UI.hbox(8)
-		var name_l := UI.label(String(r[1]), 19, UI.TEXT)
+		var step: float = r[2]
+		var row := UI.hbox(8)
+		var name_l := UI.label(String(r[1]), 20, UI.TEXT)
 		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		head.add_child(name_l)
-		var val_l := UI.label("%.2f" % Dev.get_f(key), 19, UI.ACCENT)
-		head.add_child(val_l)
-		box.add_child(head)
-		var sl := HSlider.new()
-		sl.min_value = Dev.RANGES[key][0]
-		sl.max_value = Dev.RANGES[key][1]
-		sl.step = float(r[2])
-		sl.value = Dev.get_f(key)
-		sl.custom_minimum_size = Vector2(0, 44)
-		sl.value_changed.connect(func(x: float):
-			Dev.set_value(key, x)
-			val_l.text = "%.2f" % x
-			summary.text = Dev.summary()
-			view.refresh_cam())
-		box.add_child(sl)
+		row.add_child(name_l)
+		var val_l := UI.label("%.2f" % Dev.get_f(key), 22, UI.ACCENT)
+		val_l.custom_minimum_size = Vector2(76, 0)
+		val_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		for d in [-1.0, 1.0]:
+			var b := UI.button("−" if d < 0.0 else "+", 30, UI.ACCENT, 64)
+			b.custom_minimum_size = Vector2(64, 60)
+			b.pressed.connect(func():
+				Dev.set_value(key, snappedf(Dev.get_f(key) + d * step, step))
+				val_l.text = "%.2f" % Dev.get_f(key)
+				summary.text = Dev.summary()
+				view.refresh_cam())
+			if d < 0.0:
+				row.add_child(b)
+				row.add_child(val_l)
+			else:
+				row.add_child(b)
+		box.add_child(row)
 	var fps_row := UI.hbox(10)
 	box.add_child(fps_row)
 	for f in [60, 120]:

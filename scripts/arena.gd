@@ -119,7 +119,7 @@ var cleared := false
 var kills := 0
 var tickets := 0
 var energy := 0.0
-const ENERGY_SCALE := 1.3  # vagues moins nombreuses : chaque kill vaut plus, le rythme des pouvoirs reste le même
+const ENERGY_SCALE := 1.0  # énergie par kill (1,3 faisait monter de niveau trop vite, retour de Victor)
 var energy_need := 10.0
 var energy_level := 0
 var boss: Node2D = null
@@ -306,7 +306,7 @@ func consume_energy() -> void:
 ## Énergie demandée pour le choix n° `level` : barre courte au début (les premiers choix arrivent vite),
 ## qui s'allonge ensuite.
 static func need_for(level: int) -> float:
-	return 4.0 + 3.0 * level + 0.6 * level * level
+	return 5.0 + 4.0 * level + 0.8 * level * level
 
 func enemies_left() -> int:
 	return enemies.size() + spawn_queue.size()
