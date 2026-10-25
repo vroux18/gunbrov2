@@ -41,14 +41,17 @@ const DUP_TICKETS := [30, 80, 200, 500]
 ## Correspondance avec les anciennes apparences (les ids et la sauvegarde ne changent pas) :
 ##   eclat (Éclat d'or, légendaire) -> Chevalière d'or (jo_chevalier) ; nebuleuse (Nébuleuse, épique) -> Mage
 ##   Nébuleuse (jo_magicienne) ; neon (Cité Néon, épique) -> Ronin Néon (jo_samourai) ; les autres : palette.
+##   Deuxième lot (tools/blender/jo_skins_2.py) : cargo -> Pirate de l'espace (jo_pirate) ; glacier -> Exploratrice
+##   polaire (jo_polaire) ; ardoise -> Mécano (jo_mecano) ; menthe -> Jardinière (jo_jardiniere) ; corail (rare) ->
+##   Princesse de bal (jo_princesse) ; lagon (rare) -> Plongeuse (jo_plongeuse).
 const SKINS := [
 	{"id": "passeuse", "name": "Passeuse", "tier": 0, "suit": Color("#F4F4F1"), "accent": Color("#F0262E"), "light": Color("#9FF6FF")},
-	{"id": "cargo", "name": "Cargo", "tier": 0, "suit": Color("#E6D7AE"), "accent": Color("#5E8A3C"), "light": Color("#F2E14C")},
-	{"id": "glacier", "name": "Glacier", "tier": 0, "suit": Color("#EAF4FF"), "accent": Color("#3E86FF"), "light": Color("#9FE8FF")},
-	{"id": "ardoise", "name": "Ardoise", "tier": 0, "suit": Color("#6A7488"), "accent": Color("#FFB347"), "light": Color("#FFE08A")},
-	{"id": "menthe", "name": "Menthe", "tier": 0, "suit": Color("#E2FFF2"), "accent": Color("#22B585"), "light": Color("#B8FF6A")},
-	{"id": "corail", "name": "Corail", "tier": 1, "suit": Color("#FFE4DC"), "accent": Color("#FF5C6E"), "light": Color("#FFC94D"), "hair": Color("#6E1F3C")},
-	{"id": "lagon", "name": "Lagon", "tier": 1, "suit": Color("#DDF6FF"), "accent": Color("#00A0C6"), "light": Color("#FF8AE8")},
+	{"id": "cargo", "name": "Pirate de l'espace", "tier": 0, "suit": Color("#B3243A"), "accent": Color("#F2B33D"), "light": Color("#7AF2FF"), "model": "jo_pirate"},
+	{"id": "glacier", "name": "Exploratrice polaire", "tier": 0, "suit": Color("#F2531C"), "accent": Color("#2F7BFF"), "light": Color("#9FE8FF"), "model": "jo_polaire"},
+	{"id": "ardoise", "name": "Mécano", "tier": 0, "suit": Color("#EBA21C"), "accent": Color("#E8452C"), "light": Color("#FFE08A"), "model": "jo_mecano"},
+	{"id": "menthe", "name": "Jardinière", "tier": 0, "suit": Color("#3FBF88"), "accent": Color("#F2CE6A"), "light": Color("#B8FF6A"), "model": "jo_jardiniere"},
+	{"id": "corail", "name": "Princesse de bal", "tier": 1, "suit": Color("#F2475E"), "accent": Color("#F2B33D"), "light": Color("#FF7AD0"), "model": "jo_princesse"},
+	{"id": "lagon", "name": "Plongeuse", "tier": 1, "suit": Color("#1C2232"), "accent": Color("#14C8E0"), "light": Color("#FFD23A"), "model": "jo_plongeuse"},
 	{"id": "sentinelle", "name": "Sentinelle", "tier": 1, "suit": Color("#C8CEDC"), "accent": Color("#2C3350"), "light": Color("#FF4D6D")},
 	{"id": "agrume", "name": "Agrume", "tier": 1, "suit": Color("#FFF5D2"), "accent": Color("#FFBE0B"), "light": Color("#7CFF4D"), "hair": Color("#B5521C")},
 	{"id": "lavande", "name": "Lavande", "tier": 1, "suit": Color("#EEE6FF"), "accent": Color("#8A5CFF"), "light": Color("#5CF0FF"), "hair": Color("#4B3A9E")},

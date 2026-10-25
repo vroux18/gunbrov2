@@ -344,6 +344,12 @@ def samourai():
 
 BUILDS = {"jo_chevalier": chevalier, "jo_magicienne": magicienne, "jo_samourai": samourai}
 
+# deuxième lot : tools/blender/jo_skins_2.py
+import jo_skins_2  # noqa: E402
+BUILDS.update({"jo_pirate": jo_skins_2.pirate, "jo_polaire": jo_skins_2.polaire, "jo_mecano": jo_skins_2.mecano,
+               "jo_jardiniere": jo_skins_2.jardiniere, "jo_princesse": jo_skins_2.princesse,
+               "jo_plongeuse": jo_skins_2.plongeuse})
+
 
 if __name__ == "__main__":
     names = [a for a in sys.argv[1:] if not a.startswith("-")] or list(BUILDS)
