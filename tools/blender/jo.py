@@ -458,24 +458,25 @@ def bangs(m, col=HAIR):
     return hp
 
 
-HOOD = [  # centre, a, b, demi-ouverture devant (degrés) : capuche ronde et basse, qui retombe sur la nuque
-    ((0, 0.915, -0.034), 0.112, 0.1, 38), ((0, 0.97, -0.026), 0.114, 0.112, 56), ((0, 1.04, -0.02), 0.11, 0.117, 66),
-    ((0, 1.11, -0.022), 0.104, 0.115, 64), ((0, 1.165, -0.026), 0.09, 0.104, 56), ((0, 1.205, -0.03), 0.065, 0.08, 44),
-    ((0, 1.228, -0.033), 0.033, 0.045, 26), ((0, 1.236, -0.035), 0.008, 0.012, 10)]
+HOOD = [  # centre, a, b, demi-ouverture devant (degrés) : capuche en dôme, volume derrière la tête, qui retombe
+    # en s'évasant sur la nuque et les épaules
+    ((0, 0.9, -0.06), 0.13, 0.11, 84), ((0, 0.95, -0.044), 0.118, 0.112, 74), ((0, 1.01, -0.032), 0.11, 0.118, 66),
+    ((0, 1.07, -0.03), 0.106, 0.12, 64), ((0, 1.12, -0.032), 0.096, 0.112, 60), ((0, 1.165, -0.034), 0.078, 0.096, 52),
+    ((0, 1.198, -0.036), 0.052, 0.068, 40), ((0, 1.22, -0.038), 0.024, 0.034, 22), ((0, 1.226, -0.038), 0.005, 0.007, 8)]
 
 
 def hood(m, col=WHITE, lining=RED, band=RED, tails=True):
     """Capuche relevée, doublée de rouge, ceinte d'un bandeau rouge (d'en haut : l'anneau des Passeurs) noué
     derrière, deux pans qui flottent (coiffe_f1..f3)."""
     c = P(m, "coiffe")
-    hg = shell([{"c": cc, "a": a, "b": b, "a0": 90 + o, "a1": 450 - o} for cc, a, b, o in HOOD], 0.014, col, inner=lining, seg=32)
+    hg = shell(smooth([{"c": cc, "a": a, "b": b, "a0": 90 + o, "a1": 450 - o} for cc, a, b, o in HOOD], 2), 0.014, col, inner=lining, seg=32)
     c.add(hg)
     if band:
-        c.add(shell([{"c": (0, 1.088, -0.021), "a": 0.11, "b": 0.121, "a0": 90 + 68, "a1": 450 - 68},
-                     {"c": (0, 1.128, -0.026), "a": 0.104, "b": 0.12, "a0": 90 + 65, "a1": 450 - 65}], 0.012, band, seg=32))
-        c.add(box((0, 1.108, -0.15), (0.024, 0.022, 0.016), 0.008, band, nc=2))
+        c.add(shell([{"c": (0, 1.075, -0.03), "a": 0.114, "b": 0.128, "a0": 90 + 69, "a1": 450 - 69},
+                     {"c": (0, 1.11, -0.032), "a": 0.106, "b": 0.122, "a0": 90 + 66, "a1": 450 - 66}], 0.012, band, seg=32))
+        c.add(box((0, 1.093, -0.162), (0.024, 0.022, 0.016), 0.008, band, nc=2))
     if tails:
-        pv = [(0, 1.106, -0.158), (0, 1.045, -0.2), (0, 0.98, -0.232), (0, 0.915, -0.25)]
+        pv = [(0, 1.092, -0.17), (0, 1.03, -0.21), (0, 0.97, -0.24), (0, 0.91, -0.258)]
         segs = chain(m, "coiffe", pv[:3], "coiffe")
         for k, sx in ((1.0, 1), (0.85, -1)):
             for i, sg in enumerate(segs):

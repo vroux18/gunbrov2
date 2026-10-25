@@ -155,6 +155,9 @@ def smooth(sections, k=2):
             d["c"] = cr(V(s0["c"]), V(s1["c"]), V(s2["c"]), V(s3["c"]), t)
             for key in ("a", "b"):
                 d[key] = max(1e-4, cr(s0[key], s1[key], s2[key], s3[key], t))
+            for key in ("a0", "a1"):  # arcs des coques (shell)
+                if key in s1 and key in s2:
+                    d[key] = s1[key] + (s2[key] - s1[key]) * t
             r1 = s1.get("r", min(s1["a"], s1["b"]) * 0.5)
             r2 = s2.get("r", min(s2["a"], s2["b"]) * 0.5)
             d["r"] = r1 + (r2 - r1) * t

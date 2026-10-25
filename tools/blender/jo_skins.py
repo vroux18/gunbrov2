@@ -38,8 +38,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from jo import *  # noqa
 
-STEEL = "#C5CEDB"
-STEEL_D = "#7E8AA0"
+STEEL = "#AEB8CA"
+STEEL_D = "#6F7A90"
 GOLD = "#F2B33D"
 GOLD_D = "#C9861E"
 CAPE = "#D9222C"
