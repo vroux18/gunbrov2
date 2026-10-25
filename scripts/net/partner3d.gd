@@ -2,7 +2,7 @@ extends Node3D
 ## Mode duo : rendu 3D de la Jo du partenaire (même modèle sculpté que Jo, posé dans la vue 3D de view3d.gd),
 ## son anneau au sol, son nom au-dessus de la tête, et le cercle de relève quand elle est à terre.
 ## Suit un héros 2D (hero.gd) dont la position vient du réseau (ou de la simulation chez l'hôte).
-## La Jo de l'invité porte une autre palette (jo2.gdshader) sur les deux écrans, pour qu'on se reconnaisse.
+## La Jo de l'invité porte une autre palette (Rig3D.jo_mat(true) : teintes tournées) sur les deux écrans, pour qu'on se reconnaisse.
 
 const Rig3D = preload("res://scripts/rig3d.gd")
 const Models = preload("res://scripts/models.gd")
@@ -25,7 +25,6 @@ var _t := 0.0
 var _mesh_n := 0
 var _jo2 := false
 
-static var _jo2_mat: ShaderMaterial = null
 
 ## `jo2` : palette de l'invité. `name` : affiché au-dessus de la tête. `marker_only` : pas de modèle (la Jo
 ## locale est déjà rendue par view3d.gd), seulement le cercle de relève et le message quand elle est à terre.
@@ -95,24 +94,15 @@ func _ring(shader: Shader, size: float, c: Color, width: float, fill: float) -> 
 
 ## Palette de la Jo de l'invité, sur toutes les masses du modèle (équipement compris), lumières exceptées.
 static func recolor(r: Rig3D) -> int:
-	if _jo2_mat == null:
-		_jo2_mat = ShaderMaterial.new()
-		_jo2_mat.shader = load("res://scripts/net/jo2.gdshader")
-		var ol := StandardMaterial3D.new()
-		ol.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		ol.cull_mode = BaseMaterial3D.CULL_FRONT
-		ol.grow = true
-		ol.grow_amount = 0.009
-		ol.albedo_color = JO2_COL.lightened(0.25)
-		ol.disable_receive_shadows = true
-		_jo2_mat.next_pass = ol
-	var n := 0
-	for mi in Models.meshes(r.model):
-		var m: MeshInstance3D = mi
-		if not ("_glow" in String(m.name) + String(m.get_parent().name)):
-			m.material_override = _jo2_mat
-			n += 1
-	return n
+	# Jo en BD (shaders/jo_comic.gdshader) : son matériau partagé « invité » (teintes tournées, même encre),
+	# gardé par le rig pour ses changements de tenue et d'équipement
+	r._hero_mat = Rig3D.jo_mat(true)
+	r._hero_material()
+	for g in r._gear:
+		for mi in Models.meshes(g):
+			if not ("_glow" in String(mi.name) + String(mi.get_parent().name)):
+				(mi as MeshInstance3D).material_override = r._hero_mat
+	return r.meshes.size()
 
 func _process(dt: float) -> void:
 	_t += dt

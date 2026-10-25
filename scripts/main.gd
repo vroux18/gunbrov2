@@ -1374,6 +1374,12 @@ func _show_dev() -> void:
 		Dev.set_value("all_worlds", not bool(Dev.v["all_worlds"]))
 		_show_dev())
 	box.add_child(aw)
+	var tw := UI.button("JO EN BD (12 i/s) : " + ("OUI" if bool(Dev.v["jo_twos"]) else "NON"), 20, UI.ACCENT if bool(Dev.v["jo_twos"]) else UI.MUTED, 420)
+	tw.custom_minimum_size = Vector2(420, 64)
+	tw.pressed.connect(func():
+		Dev.set_value("jo_twos", not bool(Dev.v["jo_twos"]))
+		_show_dev())
+	box.add_child(tw)
 	box.add_child(summary)
 	var end_row := UI.hbox(10)
 	box.add_child(end_row)

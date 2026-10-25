@@ -4,10 +4,10 @@ extends Node
 ## compteur d'images par seconde. La vue (view3d.gd) lit ces valeurs à chaque image.
 
 const CFG := "user://dev.cfg"
-const VERSION := 3  # 2 : Jo à 1,15 ; 3 : Jo à 0,95
+const VERSION := 4  # 2 : Jo à 1,15 ; 3 : Jo à 0,95 ; 4 : nouvelle Jo (1,26 de haut) à 0,65 (~57 px en 1280x720)
 ## Valeurs par défaut (et bornes des curseurs du mode développeur). all_worlds : version de démo, le monde 2
 ## est ouvert sans finir le monde 1 (le mode développeur le referme).
-const DEFAULTS := {"cam_dist": 11.5, "cam_pitch": 56.0, "cam_fov": 38.0, "hero_scale": 0.95, "mob_scale": 1.0, "fps": 60, "show_fps": false, "dev": false, "all_worlds": true, "quality": 1, "sticks_free": true}
+const DEFAULTS := {"cam_dist": 11.5, "cam_pitch": 56.0, "cam_fov": 38.0, "hero_scale": 0.65, "mob_scale": 1.0, "fps": 60, "show_fps": false, "dev": false, "all_worlds": true, "quality": 1, "sticks_free": true, "jo_twos": true}
 const RANGES := {"cam_dist": [6.0, 24.0], "cam_pitch": [30.0, 85.0], "cam_fov": [24.0, 70.0], "hero_scale": [0.6, 2.2], "mob_scale": [0.6, 1.4]}
 ## Préréglages du menu pause (boutons VUE et ANGLE).
 const ZOOMS := [["PROCHE", 9.0], ["NORMALE", 11.5], ["LARGE", 14.0], ["TRÈS LARGE", 16.5]]

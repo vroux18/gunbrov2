@@ -6,9 +6,9 @@ extends Node3D
 const Models = preload("res://scripts/models.gd")
 const DUST_N := 24
 const JET_N := 40
-## Points d'émission dans le repère des parts (voir tools/chars/jo.py).
+## Points d'émission dans le repère des parts (voir tools/blender/jo.py).
 const NOZZLES := [Vector3(-0.1505, -0.01, -0.2), Vector3(0.1505, -0.01, -0.2)]  # repère « torso »
-const FOOT := Vector3(0.0, -0.33, 0.03)  # repère « leg_r » / « leg_l »
+const FOOT := Vector3(0.0, -0.33, 0.03)  # repère « leg_r » / « leg_l » (ou « shin_r » / « shin_l » : même hauteur)
 
 var rig: Node3D
 var _dust: MultiMeshInstance3D
@@ -89,6 +89,8 @@ func _process(dt: float) -> void:
 	var s := sin(float(rig.phase))
 	if running and signf(s) != signf(_last_s):
 		var leg := "leg_l" if s > 0.0 else "leg_r"
+		if rig.p("shin_r") != null:  # Jo à genoux (tools/blender/jo.py) : le pied est sous le tibia
+			leg = "shin_l" if s > 0.0 else "shin_r"
 		var p := _world(leg, FOOT)
 		p.y = 0.06
 		for i in range(2):
@@ -109,7 +111,7 @@ func _process(dt: float) -> void:
 	if _nozzle_mat != null:
 		var e := 1.7 + 2.6 * clampf(spd, 0.0, 1.0) * (0.85 + 0.15 * sin(rig.t * 40.0)) if live else 1.7
 		_nozzle_mat.albedo_color = Color(e, e, e)
-	if running:
+	if running and _nozzle_mat != null:  # seulement si le modèle a des réacteurs (part « torso_glow »)
 		_jet_acc += dt * 44.0 * clampf(spd, 0.0, 1.0)
 		var torso: Node3D = rig.p("torso")
 		var down := -torso.global_transform.basis.y.normalized() if torso != null else Vector3.DOWN

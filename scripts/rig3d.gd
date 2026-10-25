@@ -66,11 +66,32 @@ static func glow_mat(energy: float) -> StandardMaterial3D:
 	return m
 
 var _glow_energy := 3.0
+var _tint := Color(1, 1, 1)
+var _base_path := ""  # modèle passé à setup (Jo : jo.glb) ; une apparence peut en charger un autre
+var _model_path := ""
 
 func setup(path: String, tint: Color = Color(1, 1, 1), glow_energy: float = 3.0) -> void:
 	_glow_energy = glow_energy
+	_tint = tint
+	_base_path = path
+	_flash_mat = StandardMaterial3D.new()
+	_flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_flash_mat.albedo_color = Color(1, 1, 1, 0)
+	_load_model(path)
+
+## Charge (ou remplace) le modèle : parts, poses de repos, matériaux. Jo change de modèle avec son apparence
+## (apply_skin) : l'équipement est alors reposé sur les nouvelles parts.
+func _load_model(path: String) -> void:
+	if model != null:
+		remove_child(model)
+		model.queue_free()
+	_model_path = path
 	model = Models.scene(path).instantiate()
 	add_child(model)
+	parts.clear()
+	rest.clear()
 	for n in model.find_children("*", "Node3D", true, false):
 		var nd: Node3D = n
 		parts[String(nd.name)] = nd
@@ -78,13 +99,9 @@ func setup(path: String, tint: Color = Color(1, 1, 1), glow_energy: float = 3.0)
 	for mi in Models.meshes(model):
 		var m: MeshInstance3D = mi
 		var nm := String(m.name) + String(m.get_parent().name)
-		m.material_override = glow_mat(glow_energy) if "_glow" in nm else body_mat(tint)
+		m.material_override = glow_mat(_glow_energy) if "_glow" in nm else body_mat(_tint)
 	meshes = Models.meshes(model)
-	_flash_mat = StandardMaterial3D.new()
-	_flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	_flash_mat.albedo_color = Color(1, 1, 1, 0)
+	_flow_scan()
 
 ## Lumière teintée (équipement : couleur de rareté) — les pièces lumineuses de l'équipement sont blanches.
 static func tint_glow_mat(col: Color, energy: float) -> StandardMaterial3D:
@@ -106,20 +123,31 @@ const MUZZLE := {"": Vector3(0, -0.225, 0.058), "blaster_garde": Vector3(0, -0.2
 	"riveteuse": Vector3(0, -0.265, 0.061), "pistolet_neon": Vector3(0, -0.268, 0.058)}
 var _gear: Array = []
 var _gun_id := ""
-var _gun_meshes := {}  # MeshInstance3D -> Mesh d'origine (blaster de base)
-## Parts de Jo masquées par un objet (le casque remplace les lunettes relevées sur le crâne).
-const HIDES := {"casque_garde": ["goggles"], "casque_docker": ["goggles"]}
+var _gun_meshes := {}  # MeshInstance3D -> Mesh d'origine (blaster du modèle)
+var _items: Array = []  # équipement porté (reposé quand le modèle change avec l'apparence)
+## L'équipement est sculpté pour l'ancienne Jo (tools/chars/gear.py : coordonnées de l'ancien tools/chars/jo.py, tête ronde,
+## jambe d'une pièce) : sur la nouvelle Jo (genoux « shin_* »), chaque cible est ajustée : cible -> [part
+## d'accueil, Transform3D dans son repère]. L'arme garde son repère (MUZZLE inchangé).
+static var GEAR_FIT := {
+	"head": ["head", Transform3D(Basis.from_scale(Vector3(0.47, 0.47, 0.47)), Vector3(0, 0.037, 0.0))],
+	"torso": ["torso", Transform3D(Basis.from_scale(Vector3(0.94, 1.1, 0.74)), Vector3(0, 0.109, 0.0))],
+	"arm_r": ["arm_r", Transform3D(Basis.from_scale(Vector3(0.78, 1.3, 0.85)), Vector3(0, -0.015, 0))],
+	"arm_l": ["arm_l", Transform3D(Basis.from_scale(Vector3(0.78, 1.3, 0.85)), Vector3(0, -0.015, 0))],
+	"leg_r": ["shin_r", Transform3D(Basis.from_scale(Vector3(0.82, 0.98, 0.82)), Vector3.ZERO)],
+	"leg_l": ["shin_l", Transform3D(Basis.from_scale(Vector3(0.82, 0.98, 0.82)), Vector3.ZERO)],
+}
 
 ## Équipe les objets {id, rarity} : chaque objet est un GLB sculpté (tools/chars/gear.py) dont les parts
-## « cible__id » se rangent dans la part cible de Jo. Une arme remplace le blaster de base.
+## « cible__id » se rangent dans la part cible de Jo (ajustées par GEAR_FIT). Une arme remplace le blaster.
 func apply_items(items: Array) -> void:
+	_items = items.duplicate()
 	for g in _gear:
 		if is_instance_valid(g):
 			(g as Node).get_parent().remove_child(g)
 			(g as Node).queue_free()
 	_gear.clear()
 	var gun_id := ""
-	var hidden := {}
+	var fit := p("shin_r") != null
 	for it in items:
 		var id := String(it["id"])
 		var path := "res://assets/chars3d/gear_%s.glb" % id
@@ -129,38 +157,39 @@ func apply_items(items: Array) -> void:
 		var inst: Node3D = Models.scene(path).instantiate()
 		for n in inst.find_children("*__*", "Node3D", true, false):
 			var nd: Node3D = n
-			var target := p(String(nd.name).get_slice("__", 0))
+			var tname := String(nd.name).get_slice("__", 0)
+			var xf := Transform3D.IDENTITY
+			if fit and GEAR_FIT.has(tname):
+				xf = GEAR_FIT[tname][1]
+				tname = GEAR_FIT[tname][0]
+			var target := p(tname)
 			if target == null:
 				continue
 			nd.get_parent().remove_child(nd)
 			nd.owner = null
 			target.add_child(nd)
-			nd.transform = Transform3D.IDENTITY
+			nd.transform = xf
 			_gear.append(nd)
 			for mi in Models.meshes(nd):
 				if _hero_mat != null:
 					(mi as MeshInstance3D).layers |= HERO_LAYER
 				(mi as MeshInstance3D).material_override = tint_glow_mat(glow, 1.5) if "_glow" in String(mi.name) + String(mi.get_parent().name) else (_hero_mat if _hero_mat != null else body_mat(Color(1, 1, 1)))
 		inst.queue_free()
-		for nm in HIDES.get(id, []):
-			hidden[nm] = true
 		if id in MUZZLE:
 			gun_id = id
-	# arme de base masquée quand une arme est équipée
+	# arme du modèle masquée quand une arme est équipée
 	if _gun_meshes.is_empty():
 		for nm in ["gun", "gun_glow"]:
 			var gn := p(nm)
 			if gn is MeshInstance3D:
 				_gun_meshes[gn] = (gn as MeshInstance3D).mesh
 	for mi in _gun_meshes:
-		(mi as MeshInstance3D).mesh = _gun_meshes[mi] if gun_id == "" else null
+		if is_instance_valid(mi):
+			(mi as MeshInstance3D).mesh = _gun_meshes[mi] if gun_id == "" else null
 	_gun_id = gun_id
-	for names in HIDES.values():
-		for nm in names:
-			if p(nm) != null:
-				p(nm).visible = not hidden.has(nm)
 	meshes = Models.meshes(model)
-	apply_skin()
+	if not _swapping:
+		apply_skin()
 
 func p(name: String) -> Node3D:
 	return parts.get(name)
@@ -296,9 +325,6 @@ func _process(dt: float) -> void:
 	if not is_visible_in_tree():
 		return
 	t += dt
-	for n in _outfit_spin:  # halo de la tenue : tourne lentement et flotte
-		(n as Node3D).rotation.y = t * 0.8
-		(n as Node3D).position.y = 0.012 * sin(t * 2.2)
 	if _flash_t > 0.0:
 		_flash_t -= dt
 		var fa := clampf(_flash_t * 10.0, 0.0, 0.85)
@@ -318,6 +344,13 @@ func _process(dt: float) -> void:
 		animate_death(_die_t)
 		return
 	recoil = maxf(0.0, recoil - dt * 9.0)
+	if _is_jo and bool(Dev.v.get("jo_twos", false)):  # animation « en deux » (Spider-Verse) : pose changée 12 fois par seconde
+		_twos_acc += dt
+		if _twos_acc < 1.0 / 12.0 and not _twos_now:
+			return
+		dt = _twos_acc
+		_twos_acc = 0.0
+		_twos_now = false
 	animate(dt)
 	if _hr_ready:
 		_hr_apply(dt)
@@ -346,16 +379,19 @@ func _veil(dt: float) -> void:
 
 
 # ---------------------------------------------------------------- Jo : apparence (scripts/loot.gd)
-## Apparence équipée : palette {suit, accent, light, rainbow, hair?} remappée par shaders/skin_remap.*, et tenue
-## {outfit, hides} (pièces sculptées, voir _apply_outfit) ; vide = couleurs et matériaux d'origine, sans tenue.
-## Les modèles de Jo du joueur (Relais, partie) suivent, inscrits par follow_skin() ; la Jo d'un partenaire en
-## duo porte la sienne (set_own_skin).
+## Une apparence est une tenue complète : un modèle entier (« model » : assets/chars3d/<model>.glb, sculpté par
+## tools/blender/jo_skins.py) avec les mêmes parts que jo.glb, chargé à la place du modèle de base. En attendant sa
+## tenue, une apparence peut n'être qu'une palette (« colors » : couleur de jo.glb -> couleur), appliquée aux
+## couleurs par sommet (maillages recolorés une fois et gardés en cache) : toujours le même matériau.
+## Les modèles de Jo du joueur (Relais, partie) suivent l'apparence équipée, inscrits par follow_skin() ; la Jo
+## d'un partenaire en duo et les vignettes portent la leur (set_own_skin, show_palette).
 static var hero_skin: Dictionary = {}
 static var _skin_rigs: Array = []  # WeakRef des modèles de Jo
-static var _skin_mats := {}
-var _skin_orig := {}  # MeshInstance3D -> matériau d'origine
-## Apparence propre à ce modèle (Jo du partenaire en duo) : remplace l'apparence équipée, sans inscription.
+static var _recolor_cache := {}  # "apparence|maillage" -> ArrayMesh recoloré
+## Apparence propre à ce modèle (Jo du partenaire en duo, vignette) : remplace l'apparence équipée.
 var own_skin = null
+var _swapping := false
+var _orig_mesh := {}  # MeshInstance3D -> maillage du GLB (avant palette)
 
 static func set_hero_skin(pal: Dictionary) -> void:
 	hero_skin = pal
@@ -376,165 +412,129 @@ func set_own_skin(pal: Dictionary) -> void:
 	apply_skin()
 
 ## Vignette d'apparence (écran APPARENCES, scripts/ui/boxes_thumbs.gd) : ce modèle seul prend l'apparence `pal`
-## (vide : couleurs d'origine), tenue comprise, sans suivre l'apparence équipée ni toucher aux autres Jo.
+## (vide : Jo de base), sans suivre l'apparence équipée ni toucher aux autres Jo.
 func show_palette(pal: Dictionary) -> void:
 	set_own_skin(pal)
 
 func apply_skin() -> void:
-	if model == null:
+	if model == null or _swapping:
 		return
 	if own_skin == null and not _skin_rigs.any(func(w): return (w as WeakRef).get_ref() == self):
+		_apply_zones()
 		return
 	var pal: Dictionary = own_skin if own_skin != null else hero_skin
-	_apply_outfit(pal)
-	var keep := {}
+	var path := _base_path
+	if String(pal.get("model", "")) != "":
+		var mp := "res://assets/chars3d/%s.glb" % String(pal["model"])
+		if ResourceLoader.exists(mp):
+			path = mp
+	if path != _model_path:
+		_swap_model(path)
+	_recolor(pal)
+	_apply_zones()
+
+## Change de modèle (tenue) en gardant tout le reste : matériau de Jo, calque, équipement, pose courante.
+func _swap_model(path: String) -> void:
+	_swapping = true
+	var keep_rot := model.rotation
+	var keep_pos := model.position
+	var keep_scale := model.scale
+	_load_model(path)
+	model.rotation = keep_rot
+	model.position = keep_pos
+	model.scale = keep_scale
+	_gun_meshes.clear()
+	_orig_mesh.clear()
+	_gear.clear()
+	_hr_ready = false
+	_hr_saved.clear()
+	if _hero_mat != null:
+		_hero_material()
+	apply_items(_items)
+	_swapping = false
+
+## Palette d'une apparence sans tenue : couleurs par sommet remplacées (tolérance : couleurs en aplats exacts).
+func _recolor(pal: Dictionary) -> void:
+	var cols: Dictionary = pal.get("colors", {})
+	var key0 := String(pal.get("id", ""))
 	for mi in Models.meshes(model):
 		var m: MeshInstance3D = mi
-		if not (m.material_override is ShaderMaterial and m.material_override.has_meta("skin")):
-			_skin_orig[m] = m.material_override
-		keep[m] = _skin_orig.get(m)
-		var orig = keep[m]
-		var nm := String(m.name)
-		var hair := nm == "hair" or "_hair" in nm
-		if not pal.is_empty() and orig is ShaderMaterial and (orig as ShaderMaterial).shader == _char_shader:
-			m.material_override = _skin_body_mat(pal, orig, nm == "head", hair)
+		if _gear.has(m) or _gear.has(m.get_parent()):
 			continue
-		if pal.is_empty() or not (orig is StandardMaterial3D):
-			m.material_override = orig
-			continue
-		var glow := (orig as StandardMaterial3D).shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED
-		m.material_override = _skin_mat(pal, orig, glow, nm == "head")
-	_skin_orig = keep
+		if not _orig_mesh.has(m):
+			if m.mesh == null:
+				continue
+			_orig_mesh[m] = m.mesh
+		var src: Mesh = _orig_mesh[m]
+		var dst: Mesh = src
+		if not cols.is_empty() and src is ArrayMesh:
+			var k := key0 + "|" + str(src.get_instance_id())
+			if not _recolor_cache.has(k):
+				_recolor_cache[k] = _recolored(src as ArrayMesh, cols)
+			dst = _recolor_cache[k]
+		if _gun_meshes.has(m):
+			_gun_meshes[m] = dst
+			if m.mesh == null:
+				continue
+		m.mesh = dst
 
-static func _set_skin_params(sm: ShaderMaterial, pal: Dictionary, suit_on: bool, hair: bool) -> void:
-	sm.set_meta("skin", true)
-	for k in [["suit", "suit"], ["accent", "accent"], ["light", "lit_col"]]:
-		var c: Color = pal[k[0]]
-		sm.set_shader_parameter(k[1], Vector3(c.r, c.g, c.b))
-	sm.set_shader_parameter("rainbow", 1.0 if bool(pal.get("rainbow", false)) else 0.0)
-	sm.set_shader_parameter("suit_on", 1.0 if suit_on else 0.0)
-	var hc = pal.get("hair")
-	sm.set_shader_parameter("hair_on", 1.0 if hair and hc is Color else 0.0)
-	if hair and hc is Color:
-		sm.set_shader_parameter("hair_col", Vector3(hc.r, hc.g, hc.b))
+static func _recolored(src: ArrayMesh, cols: Dictionary) -> ArrayMesh:
+	var pairs := []
+	for k in cols:
+		pairs.append([Color(k), cols[k] as Color])
+	var out := ArrayMesh.new()
+	for si in range(src.get_surface_count()):
+		var arr := src.surface_get_arrays(si)
+		var c = arr[Mesh.ARRAY_COLOR]
+		if c is PackedColorArray:
+			var pc: PackedColorArray = c
+			for i in range(pc.size()):
+				var v := pc[i]
+				for pr in pairs:
+					var a: Color = pr[0]
+					if absf(v.r - a.r) + absf(v.g - a.g) + absf(v.b - a.b) < 0.02:
+						pc[i] = pr[1]
+						break
+			arr[Mesh.ARRAY_COLOR] = pc
+		out.add_surface_from_arrays(src.surface_get_primitive_type(si), arr)
+	return out
 
-## Corps au rendu premium (shaders/character.gdshader) : même matériau, remappage des couleurs activé. Un
-## matériau par apparence et par matériau d'origine (partagé entre les pièces), plus un pour la tête (reflets des
-## yeux gardés blancs) et un pour les cheveux.
-static func _skin_body_mat(pal: Dictionary, orig: ShaderMaterial, head: bool, hair: bool) -> ShaderMaterial:
-	var key := "body|%s|%d|%d|%d" % [String(pal.get("id", "")), int(head), int(hair), orig.get_instance_id()]
-	if _skin_mats.has(key):
-		return _skin_mats[key]
-	var sm := orig.duplicate() as ShaderMaterial
-	sm.set_shader_parameter("skin_on", 1.0)
-	_set_skin_params(sm, pal, not head, hair)
-	_skin_mats[key] = sm
-	return sm
-
-static func _skin_mat(pal: Dictionary, orig: StandardMaterial3D, glow: bool, head: bool) -> ShaderMaterial:
-	var key := "%s|%d|%d|%d" % [String(pal.get("id", "")), int(glow), int(head), orig.get_instance_id()]
-	if _skin_mats.has(key):
-		return _skin_mats[key]
-	var sm := ShaderMaterial.new()
-	sm.shader = preload("res://shaders/skin_remap_glow.gdshader") if glow else preload("res://shaders/skin_remap.gdshader")
-	_set_skin_params(sm, pal, not (glow or head), false)
-	if glow:
-		var a := orig.albedo_color  # en Compatibility, la teinte passe telle quelle (sortie sRGB)
-		sm.set_shader_parameter("tint", Vector3(a.r, a.g, a.b))
-	sm.next_pass = orig.next_pass  # liseré de Jo en jeu
-	_skin_mats[key] = sm
-	return sm
-
-# ---------------------------------------------------------------- Jo : tenue de l'apparence
-## Pièces sculptées de la tenue (tools/chars/tenues.py -> assets/chars3d/tenue_<id>.glb) : parts
-## « cible__zone[_suffixe] » rangées dans la part cible de Jo, comme l'équipement, avec le matériau de Jo
-## (_hero_mat, calque HERO_LAYER en partie) remappé par l'apparence. « _glow » : lumineux ; « _hair » : cheveux ;
-## « _spin » : tourne (halo).
-## Règle avec l'équipement : l'objet porté l'emporte. Il masque, sur la part où il se pose, les pièces de tenue de
-## sa zone (_gear_zones, d'après la forme de l'objet, donc valable pour les objets à venir) :
-##   tête    couvre-chef (casque, serre-tête : masque les lunettes ou monte au-dessus du crâne) -> coiffe et visière ;
-##           autre objet de tête (visière) -> visière seulement
+# ---------------------------------------------------------------- Jo : tenue et équipement porté
+## Les pièces de la tenue que l'équipement peut remplacer sont des parts du modèle nommées par zone
+## (tools/blender/jo.py) : « coiffe… », « visage… », « col… », « dos… », « epaule_r… », « epaule_l… »,
+## « jambe_r… », « jambe_l… » (avec leurs « _glow » et leurs pans flottants « _f1 »…).
+## Règle : l'objet porté l'emporte. Il masque les pièces de tenue de sa zone (_gear_zones, d'après la forme de
+## l'objet dans le repère de l'ancienne Jo, donc valable pour les objets à venir) :
+##   tête    couvre-chef (casque, serre-tête : monte au-dessus du crâne) -> coiffe et visage ; visière -> visage
 ##   bras    objet posé sur l'épaule (module, antenne, pince) -> épaulette de ce bras ; une manche ne masque rien
-##   torse   devant ou autour du cou (plastron, veste, gilet, écharpe) -> col ; dans le dos (gadget) -> ce qui couvre
-##           le sac (cape) ; gadget large (petites ailes) -> aussi les ailes de la tenue
-##   jambes  -> pièces des jambes
-## Les autres zones (dessus du sac, halo) restent toujours.
-## La palette « hides » liste les parts de Jo que la coiffe recouvre (cheveux, lunettes) : masquées seulement
-## quand la coiffe est portée (sous un casque, les cheveux et le casque reprennent leur place).
-## Couleurs : les pièces de tenue suivent la palette de l'apparence (sculptées aux couleurs de Jo). L'équipement
-## aussi, par le même remappage (apply_skin) : ses parties blanches, orange et turquoise prennent les couleurs de
-## l'apparence pour aller avec la tenue ; ses métaux, ses sombres et sa lumière de rareté ne bougent pas.
-var _outfit_id := ""
-var _outfit: Array = []
-var _outfit_spin: Array = []
-const BASE_HIDEABLE := ["hair", "goggles"]
+##   torse   devant ou autour du cou (plastron, veste, gilet, écharpe) -> col ; dans le dos (gadget) -> dos (cape,
+##           sacoche)
+##   jambes  objet qui descend jusqu'au pied (bottes, patins) -> chaussures de cette jambe (jambe_*)
+## Le reste de la tenue (torse, manches, jambes, logo imprimé) ne bouge jamais : c'est la silhouette de l'apparence.
+const OUTFIT_ZONES := ["coiffe", "visage", "col", "dos", "epaule_r", "epaule_l", "jambe_r", "jambe_l"]
 
-func _apply_outfit(pal: Dictionary) -> void:
-	var id := String(pal.get("outfit", ""))
-	if id != _outfit_id:
-		for n in _outfit:
-			if is_instance_valid(n):
-				(n as Node).get_parent().remove_child(n)
-				(n as Node).queue_free()
-		_outfit.clear()
-		_outfit_spin.clear()
-		_outfit_id = id
-		var path := "res://assets/chars3d/tenue_%s.glb" % id
-		if id != "" and ResourceLoader.exists(path):
-			var inst: Node3D = Models.scene(path).instantiate()
-			for n in inst.find_children("*__*", "Node3D", true, false):
-				var nd: Node3D = n
-				var target := p(String(nd.name).get_slice("__", 0))
-				if target == null:
-					continue
-				var orig := String(nd.name)
-				nd.get_parent().remove_child(nd)
-				nd.owner = null
-				# zone notée à part, nom préfixé : un objet porté peut avoir le même nom (« torso__ailes »)
-				nd.set_meta("zone", orig.get_slice("__", 0) + "__" + orig.get_slice("__", 1).get_slice("_", 0))
-				nd.name = "tenue_" + orig
-				target.add_child(nd)
-				nd.transform = Transform3D.IDENTITY
-				_outfit.append(nd)
-				if "_spin" in orig:
-					_outfit_spin.append(nd)
-				for mi in Models.meshes(nd):
-					var m: MeshInstance3D = mi
-					if _hero_mat != null:
-						m.layers |= HERO_LAYER
-					var glow := "_glow" in String(m.name) + String(m.get_parent().name)
-					m.material_override = glow_mat(_glow_energy) if glow else (_hero_mat if _hero_mat != null else body_mat(Color(1, 1, 1)))
-			inst.queue_free()
+static func zone_of(part_name: String) -> String:
+	for z in OUTFIT_ZONES:
+		if part_name == z or part_name.begins_with(z + "_"):
+			return z
+	return ""
+
+func _apply_zones() -> void:
+	if model == null:
+		return
 	var blocked := _gear_zones()
-	var coiffe := false
-	for n in _outfit:
-		var key := String((n as Node).get_meta("zone", ""))
-		(n as Node3D).visible = not blocked.has(key)
-		if key == "head__coiffe" and (n as Node3D).visible:
-			coiffe = true
-	# parts de Jo masquées : par l'équipement (HIDES) ou par la coiffe de la tenue
-	var hidden := {}
-	if coiffe:
-		for nm in pal.get("hides", []):
-			hidden[String(nm)] = true
-	for g in _gear:
-		if is_instance_valid(g):
-			for nm in HIDES.get(_gear_name(g).get_slice("__", 1).trim_suffix("_glow"), []):
-				hidden[nm] = true
-	var names := BASE_HIDEABLE.duplicate()
-	for v in HIDES.values():
-		names.append_array(v)
-	for nm in names:
-		if p(nm) != null:
-			p(nm).visible = not hidden.has(nm)
+	for nm in parts:
+		var z := zone_of(String(nm))
+		if z != "":
+			(parts[nm] as Node3D).visible = not blocked.has(z)
 	meshes = Models.meshes(model)
 
 ## Nom « cible__id » d'une part d'objet porté (sans le « @…@n » qu'ajoute Godot à un nom en double).
 static func _gear_name(g: Node) -> String:
 	return String(g.name).trim_prefix("@").get_slice("@", 0)
 
-## Zones de tenue occupées par l'équipement porté : « part__zone » -> true (voir la règle plus haut). Les
-## boîtes sont dans le repère de la part cible (origine au pivot : cou, épaule, hanches).
+## Zones de tenue occupées par l'équipement porté (voir la règle plus haut). Les boîtes sont celles du maillage
+## de l'objet, dans le repère de la part cible de l'ancienne Jo (origine au pivot : cou, épaule, hanches).
 func _gear_zones() -> Dictionary:
 	var out := {}
 	for g in _gear:
@@ -542,25 +542,23 @@ func _gear_zones() -> Dictionary:
 			continue
 		var nm := _gear_name(g)
 		var tgt := nm.get_slice("__", 0)
-		var gid := nm.get_slice("__", 1).trim_suffix("_glow")
 		var box: AABB = (g as MeshInstance3D).get_aabb()
 		match tgt:
 			"head":
-				out["head__visage"] = true
-				if "goggles" in HIDES.get(gid, []) or box.end.y > 0.4:  # couvre-chef
-					out["head__coiffe"] = true
+				out["visage"] = true
+				if box.end.y > 0.38:  # couvre-chef
+					out["coiffe"] = true
 			"torso":
-				if box.get_center().z < -0.2:  # gadget posé sur le sac
-					out["torso__dos"] = true
-					if box.size.x > 0.4:
-						out["torso__ailes"] = true
+				if box.get_center().z < -0.2:  # gadget dans le dos
+					out["dos"] = true
 				else:
-					out["torso__torse"] = true
+					out["col"] = true
 			"arm_l", "arm_r":
 				if box.end.y > 0.07:  # sur l'épaule (une manche de veste reste plus bas)
-					out[tgt + "__epaule"] = true
+					out["epaule_" + tgt.right(1)] = true
 			"leg_l", "leg_r":
-				out[tgt + "__jambes"] = true
+				if box.position.y < -0.27:  # descend jusqu'au pied
+					out["jambe_" + tgt.right(1)] = true
 	return out
 
 # ---------------------------------------------------------------- Jo : locomotion, coup reçu, victoire, repos
@@ -633,6 +631,7 @@ func shot(strength: float = 1.0) -> bool:
 	var peak := exp(-z / s * atan2(s, z))
 	_jo_kick_v += w / peak * strength * clampf(1.0 - 0.6 * _jo_kick, 0.25, 1.0)
 	jo_heat = minf(1.5, jo_heat + HEAT_PER_SHOT)
+	_twos_now = true  # animation en deux : le recul part tout de suite
 	return true
 
 func _jo_tick_kick(dt: float) -> void:
@@ -667,42 +666,110 @@ func gesture(i: int) -> void:
 	_jo_gest = i
 	_jo_gest_t = 0.0
 
-## Réglages propres à l'héroïne en jeu : matériau à elle avec un liseré (coque inversée), silhouette « rayons X »
-## quand un ennemi ou une caisse passe devant elle (tampon de stencil, sur les masses seulement : tête, torse,
-## jambes), voile de coup teinté.
-const XRAY_PARTS := ["torso", "head", "leg_r", "leg_l"]
-## Le matériau de Jo est une copie de body_mat() (shaders/character.gdshader) ; son liseré turquoise
-## remplace le contour sombre commun (next_pass) : un seul contour, pas deux.
+## Réglages propres à l'héroïne (partie, Relais, vignettes) : matériau BD partagé (jo_mat), calque HERO_LAYER,
+## voile de coup teinté.
 var _hero_mat: ShaderMaterial = null
+## Jo de l'invité en duo : partner3d.recolor() lui donne jo_mat(true) ; make_hero rend le matériau normal.
+var _guest := false
 ## Calque de rendu propre à Jo : sa lumière d'appoint (view3d.gd) n'éclaire qu'elle.
 const HERO_LAYER := 1 << 19
-func make_hero(outline: Color, width: float, hurt: Color) -> void:
-	_hero_mat = body_mat(Color(1, 1, 1)).duplicate() as ShaderMaterial
-	# Jo ressort de la mêlée : couleurs plus vives et plus claires que les ennemis, côté ombre moins sombre
-	_hero_mat.set_shader_parameter("exposure", 1.0)
-	_hero_mat.set_shader_parameter("saturation", 1.12)
-	_hero_mat.set_shader_parameter("white_cap", 0.9)
-	_hero_mat.set_shader_parameter("shade_amt", 0.5)
-	var xray_mat := _hero_mat
-	if width > 0.0:
-		var ol := StandardMaterial3D.new()
-		ol.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		ol.cull_mode = BaseMaterial3D.CULL_FRONT
-		ol.grow = true
-		ol.grow_amount = width
-		ol.albedo_color = outline
-		ol.disable_receive_shadows = true
-		_hero_mat.next_pass = ol
-		# silhouette « rayons X » (STENCIL_MODE_XRAY) retirée : sur le sol du hangar elle teintait Jo en
-		# permanence, même à découvert, et lui ôtait ses couleurs
+## Matériau « bande dessinée » de Jo (shaders/jo_comic.gdshader + contour d'encre jo_ink.gdshader) : un seul,
+## partagé par toutes les Jo et toutes leurs tenues ; un second pour la Jo de l'invité en duo (teintes tournées).
+static var _jo_mats := {}
+static func jo_mat(guest: bool = false) -> ShaderMaterial:
+	if _jo_mats.has(guest):
+		return _jo_mats[guest]
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/jo_comic.gdshader")
+	m.set_shader_parameter("guest", 1.0 if guest else 0.0)
+	var ink := ShaderMaterial.new()
+	ink.shader = load("res://shaders/jo_ink.gdshader")
+	m.next_pass = ink
+	_jo_mats[guest] = m
+	return m
+
+## `outline` et `width` : gardés pour les appelants, le contour est désormais l'encre noire du matériau de Jo.
+func make_hero(_outline: Color, _width: float, hurt: Color) -> void:
+	_hero_mat = jo_mat(_guest)
+	_is_jo = true
+	_hero_material()
+	flash_color = hurt
+	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
+	apply_skin()
+
+func _hero_material() -> void:
 	for mi in Models.meshes(model):
 		var m: MeshInstance3D = mi
 		m.layers |= HERO_LAYER
 		if not ("_glow" in String(m.name) + String(m.get_parent().name)):
-			m.material_override = xray_mat if String(m.name) in XRAY_PARTS else _hero_mat
-	flash_color = hurt
-	_flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
-	apply_skin()
+			m.material_override = _hero_mat
+
+## Animation « en deux » (Jo à 12 i/s dans un jeu à 60, comme le film) : réglage Dev « jo_twos ».
+var _is_jo := false
+var _twos_acc := 0.0
+var _twos_now := false
+
+# ---------------------------------------------------------------- Jo : genoux et pièces qui flottent
+## Pans flottants du modèle (parts « <nom>_f1 », « <nom>_f2 »… en chaîne, tools/blender/jo.py chain()) :
+## écharpe ou bandeau, cape, plumet, pointe de chapeau. Ils se couchent dans le vent de la course (à
+## l'opposé du déplacement), ondulent, et chaque maillon ajoute au précédent.
+var _flows := []  # [{nodes: [Node3D], dir: Vector3 (sens de repos du pan, repère du modèle)}]
+var _flow_w := Vector3.ZERO  # vent ressenti (repère du modèle), lissé
+
+func _flow_scan() -> void:
+	_flows.clear()
+	var heads := {}
+	for nm in parts:
+		var s := String(nm)
+		if s.ends_with("_f1"):
+			heads[s.trim_suffix("_f1")] = true
+	for pre in heads:
+		var nodes := []
+		var i := 1
+		while parts.has("%s_f%d" % [pre, i]):
+			nodes.append(parts["%s_f%d" % [pre, i]])
+			i += 1
+		var d := _model_pos(nodes[nodes.size() - 1]) - _model_pos(nodes[0]) if nodes.size() > 1 else Vector3(0, -1, -0.5)
+		if d.length() < 0.001:
+			d = Vector3(0, -1, -0.5)
+		# une cape (zone dos) est lourde : elle se soulève moins qu'un ruban ou un plumet
+		_flows.append({"nodes": nodes, "dir": d.normalized(), "gain": 0.4 if String(pre).begins_with("dos") else 1.0})
+
+func _model_pos(n: Node3D) -> Vector3:
+	var xf := Transform3D.IDENTITY
+	var c: Node = n
+	while c != null and c != model:
+		xf = (c as Node3D).transform * xf
+		c = c.get_parent()
+	return xf.origin
+
+func _jo_flow(dt: float, lv: Vector3, amp: float) -> void:
+	# vent : à l'opposé du déplacement, plus un souffle vers l'arrière quand on court
+	var wind := Vector3(-lv.x, 0.0, -lv.z) * 1.15 + Vector3(0, 0, -0.25 * amp)
+	_flow_w = _flow_w.lerp(wind, clampf(dt * 7.0, 0.0, 1.0))
+	for f in _flows:
+		var d: Vector3 = f["dir"]
+		var nodes: Array = f["nodes"]
+		for i in range(nodes.size()):
+			var n: Node3D = nodes[i]
+			var flutter := Vector3(sin(t * 9.0 + i * 1.4), 0.0, cos(t * 7.0 + i * 1.1) * 0.5) * (0.06 + 0.16 * amp)
+			var idle := Vector3(sin(t * 1.3 + i * 0.8), 0.0, 0.0) * 0.05
+			var w := _flow_w + flutter + idle
+			var ax := d.cross(w)
+			var r: Transform3D = rest[String(n.name)]
+			if ax.length() < 0.0001:
+				n.transform = r
+				continue
+			var ang := clampf(w.length() * (0.55 + 0.2 * i) * float(f["gain"]), 0.0, 0.85)
+			n.transform = Transform3D(Basis(ax.normalized(), ang) * r.basis, r.origin)
+
+## Genoux (parts « shin_* ») : la jambe qui revient vers l'avant plie le genou, celle d'appui reste tendue.
+func _jo_knees(c: float, amp: float, run: float) -> void:
+	if p("shin_r") == null:
+		return
+	var bend := 1.15 * amp
+	_pose("shin_r", Vector3(maxf(0.0, -c) * bend + 0.12 * run, 0, 0))
+	_pose("shin_l", Vector3(maxf(0.0, c) * bend + 0.12 * run, 0, 0))
 
 func _jo_reset() -> void:
 	_jo_vel = Vector3.ZERO
@@ -807,7 +874,7 @@ func animate(dt: float) -> void:
 	# --- torse : penché dans le sens de la course, torsion de la marche, respiration et appui au repos
 	var twist := _jo_hips * 0.3 + s * 0.12 * amp * (1.0 - shooting * 0.7)
 	var sway := sin(t * 0.9) * idle_k
-	var t_rot := Vector3(0.17 * run * mdir.y - 0.38 * hk - 0.1 * ck, twist + 0.22 * hk * _jo_hit_side, -0.1 * run * mdir.x + c * 0.04 * amp + 0.03 * sway + 0.18 * hk * _jo_hit_side)
+	var t_rot := Vector3(0.26 * run * mdir.y - 0.38 * hk - 0.1 * ck, twist + 0.22 * hk * _jo_hit_side, -0.1 * run * mdir.x + c * 0.04 * amp + 0.03 * sway + 0.18 * hk * _jo_hit_side)
 	var t_off := Vector3(0.006 * sway, absf(c) * 0.035 * amp + breathe - 0.025 * hk, -0.02 * hk)
 	if _jo_gest == 3:
 		t_rot.x -= 0.14 * ge
@@ -853,7 +920,7 @@ func animate(dt: float) -> void:
 			arm_l = arm_l.lerp(Vector3(-2.85, 0.2, 0.62 + 0.32 * sin(gt * 11.0)), ge)
 			h_rot += Vector3(-0.08, 0.15, -0.12) * ge
 		2:  # main à l'oreillette : écoute la radio du Relais
-			arm_r = arm_r.lerp(Vector3(-2.95, 0.15, -0.32), ge)
+			arm_r = arm_r.lerp(Vector3(-2.5, 0.1, -0.78), ge)  # bras long de la nouvelle Jo : main au niveau de la tempe
 			h_rot += Vector3(0.05, -0.2, 0.2 + 0.04 * sin(gt * 7.0)) * ge
 		3:  # s'étire, bras au ciel
 			var k := sin(clampf(gt / GEST_T, 0.0, 1.0) * PI)
@@ -871,3 +938,5 @@ func animate(dt: float) -> void:
 	_pose("arm_r", arm_r)
 	_pose("arm_l", arm_l)
 	_pose("gun", gun_rot, gun_off)
+	_jo_knees(c, amp, run)
+	_jo_flow(dt, lv, amp)

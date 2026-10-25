@@ -67,7 +67,8 @@ static func build(v: Node) -> Node3D:
 	var rh := Rig3D.new()
 	root.add_child(rh)
 	rh.setup(v.JO_MODEL, Color(1, 1, 1), 1.7)
-	rh.scale = Vector3.ONE * 2.4
+	rh.make_hero(Color(0, 0, 0), 0.0, Color(1.0, 0.22, 0.28))  # matériau BD de Jo
+	rh.scale = Vector3.ONE * 2.1  # Jo de 1,26 (tools/blender/jo.py)
 	rh.position = Vector3(0, 0, 0.6)
 	rh.rotation.y = 0.35
 	root.set_meta("hero", rh)
