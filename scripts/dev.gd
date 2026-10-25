@@ -122,8 +122,9 @@ func _process(dt: float) -> void:
 	if _label.visible:
 		_label.text = "%d i/s · %d appels · %dk tri" % [Engine.get_frames_per_second(), Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000.0)]
 
-## « --perfstats » : en partie (ou dans une scène d'outil, sans état), toutes les 2 s, moyenne du temps par image, appels de dessin, objets et
-## primitives (dans la sortie standard), cadence libre. Pour comparer deux versions sur la même machine.
+## « --perfstats » : en partie (ou dans une scène d'outil, tools/), toutes les 2 s, moyenne du temps par image,
+## appels de dessin, objets et primitives (sortie standard), cadence libre. Pour comparer deux versions sur la même
+## machine.
 var _perf_stats := "--perfstats" in OS.get_cmdline_user_args()
 var _ps_t := 0.0
 var _ps_n := 0
@@ -132,7 +133,7 @@ var _ps_pr := 0.0
 var _ps_ob := 0.0
 func _perf_tick(dt: float) -> void:
 	var sc := get_tree().current_scene
-	if get_tree().paused or sc == null or not (_in_run or sc.get("state") == null):
+	if get_tree().paused or sc == null or not (_in_run or sc.scene_file_path.begins_with("res://tools/")):
 		return
 	Engine.max_fps = 0
 	_ps_t += dt

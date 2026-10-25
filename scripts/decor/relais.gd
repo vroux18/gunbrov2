@@ -407,13 +407,14 @@ static func _beam_mat() -> StandardMaterial3D:
 
 ## Robots de la base : le mécano à l'établi, le drone d'entretien en patrouille.
 static func _bots(root: Node3D, st: Dictionary) -> void:
-	var mec := _inst(root, D + "mecano.glb", _xf(BENCH + Vector3(0.1, 0, -0.78).rotated(Vector3.UP, BENCH_ROT), BENCH_ROT - 0.25, 1.1))
+	# robots : personnages, en style BD comme Jo et les ennemis (Rig3D.char_mat) ; le décor garde son rendu
+	var mec := _inst(root, D + "mecano.glb", _xf(BENCH + Vector3(0.1, 0, -0.78).rotated(Vector3.UP, BENCH_ROT), BENCH_ROT - 0.25, 1.1), Color(1, 1, 1), 1.8, true)
 	st["mecano"] = mec
 	st["mecano_parts"] = _named(mec)
 	var msh := Models.shadow_blob(0.9)
 	msh.position = mec.position + Vector3(0, 0.01, 0)
 	root.add_child(msh)
-	var dr := _inst(root, D + "drone_relais.glb", _xf(PATROL[0][0], 0.0, 1.25))
+	var dr := _inst(root, D + "drone_relais.glb", _xf(PATROL[0][0], 0.0, 1.25), Color(1, 1, 1), 1.8, true)
 	st["drone"] = dr
 	st["drone_parts"] = _named(dr)
 	var dsh := Models.shadow_blob(0.6)
@@ -754,15 +755,16 @@ static func _tick_drone(st: Dictionary, t: float, dt: float) -> void:
 	dsh.scale = Vector3.ONE * clampf(1.4 - (pos.y - ground) * 0.2, 0.5, 1.2)
 
 # ---------------------------------------------------------------- objets sculptés
-## Instance d'un GLB sculpté, matériaux posés (couleurs par sommet ; « _glow » lumineux).
-static func _inst(parent: Node3D, path: String, xf: Transform3D, tint: Color = Color(1, 1, 1), glow: float = 1.8) -> Node3D:
+## Instance d'un GLB sculpté, matériaux posés (couleurs par sommet ; « _glow » lumineux). `character` : un
+## personnage (robots), rendu comme les ennemis (style BD si le réglage Dev « comic » est actif).
+static func _inst(parent: Node3D, path: String, xf: Transform3D, tint: Color = Color(1, 1, 1), glow: float = 1.8, character := false) -> Node3D:
 	var n: Node3D = Models.scene(path).instantiate()
 	n.transform = xf
 	parent.add_child(n)
 	for mi in Models.meshes(n):
 		var m: MeshInstance3D = mi
 		var nm := String(m.name) + String(m.get_parent().name)
-		m.material_override = Rig3D.glow_mat(glow) if "_glow" in nm else Rig3D.body_mat(tint)
+		m.material_override = Rig3D.glow_mat(glow) if "_glow" in nm else (Rig3D.char_mat(tint) if character else Rig3D.body_mat(tint))
 		if "_glow" in nm:
 			m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return n
