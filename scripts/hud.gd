@@ -117,6 +117,61 @@ func flash(text: String, t: float = 2.2, col: Color = Color.WHITE) -> void:
 	_message_t = t
 	_message_life = t
 
+## Bandeau de déblocage, sous l'annonce du pouvoir pris : « PALIER II OUVERT · MOUVEMENT » et les pictogrammes
+## des nouveaux pouvoirs possibles, ou « ÉVOLUTION PRÊTE : … » en doré. Quelques nœuds créés une fois, effacés
+## au bout de 2,8 s ; `slot` : rang quand plusieurs s'ouvrent d'un coup (empilés). Appelé par main.gd.
+func unlock_banner(text: String, col: Color, icons: Array, sub: String = "", gold: bool = false, slot: int = 0) -> void:
+	var pan := PanelContainer.new()
+	var st := UI.flat(Color("#2A1B06", 0.92) if gold else Color(UI.INK, 0.88), col, 16, 3)
+	st.content_margin_left = 22
+	st.content_margin_right = 18
+	st.content_margin_top = 8
+	st.content_margin_bottom = 10
+	st.shadow_color = Color(col, 0.35) if gold else Color(0, 0, 0, 0.4)
+	st.shadow_size = 14 if gold else 8
+	pan.add_theme_stylebox_override("panel", st)
+	pan.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var h := UI.hbox(12)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pan.add_child(h)
+	var tv := UI.vbox(0)
+	tv.alignment = BoxContainer.ALIGNMENT_CENTER
+	tv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_child(tv)
+	var t := UI.title(text, 28, UI.GOLD.lightened(0.2) if gold else col.lightened(0.3), Color(col, 0.6) if not gold else UI.ORANGE)
+	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tv.add_child(t)
+	if sub != "":
+		var sl := UI.label(sub, 21, UI.TEXT)
+		sl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tv.add_child(sl)
+	for id in icons:
+		var ring := Panel.new()
+		ring.custom_minimum_size = Vector2(54, 54)
+		ring.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		ring.add_theme_stylebox_override("panel", UI.flat(Color(col, 0.2), col, 27, 3))
+		ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var ic := Icon.new(String(id), col.lightened(0.25), 36.0)
+		ic.position = Vector2(9, 9)
+		ring.add_child(ic)
+		h.add_child(ring)
+	add_child(pan)
+	pan.reset_size()
+	var vs := _c.size
+	pan.position = Vector2((vs.x - pan.size.x) * 0.5, vs.y * 0.3 + 46.0 + slot * (pan.size.y + 10.0))
+	pan.pivot_offset = pan.size * 0.5
+	pan.modulate.a = 0.0
+	pan.scale = Vector2.ONE * 0.7
+	var tw := pan.create_tween()
+	tw.tween_interval(0.2 + 0.3 * slot)
+	tw.set_parallel(true)
+	tw.tween_property(pan, "modulate:a", 1.0, 0.15)
+	tw.tween_property(pan, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.set_parallel(false)
+	tw.tween_interval(2.6)
+	tw.tween_property(pan, "modulate:a", 0.0, 0.3)
+	tw.tween_callback(pan.queue_free)
+
 func _process(dt: float) -> void:
 	_t += dt
 	_intro = maxf(0.0, _intro - dt * 2.2)

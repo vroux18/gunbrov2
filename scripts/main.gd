@@ -15,6 +15,7 @@ const View3D = preload("res://scripts/view3d.gd")
 const Mob3D = preload("res://scripts/mob3d.gd")
 const Fx = preload("res://scripts/ui/fx.gd")
 const CardScript = preload("res://scripts/ui/card.gd")
+const BuildView = preload("res://scripts/ui/build_view.gd")
 const EnemyCardScript = preload("res://scripts/ui/enemy_card.gd")
 const TutorialScript = preload("res://scripts/ui/tutorial.gd")
 const EndScreenScript = preload("res://scripts/ui/end_screen.gd")
@@ -1052,14 +1053,20 @@ func _power_cards(deal: Array, bonus: bool, n: int) -> void:
 	if has_evo:
 		sub = "Une évolution est prête !"
 	var head := _deal_overlay(title, sub, UI.GOLD if (bonus or has_evo) else UI.ACCENT)
+	# où en est chaque branche : pastilles vers le prochain palier (scripts/ui/build_view.gd)
+	var bar := BuildView.branch_bar(hero)
+	bar.position = Vector2((vs.x - bar.size.x) * 0.5, head + 2.0)
+	overlay.add_child(bar)
+	Fx.rise_in(bar, 0.25)
+	var top := head + 60.0
 	var gap := 30.0 if deal.size() <= 3 else 18.0
-	var cs := Vector2(264, 356)
-	if vs.y < 700.0:
-		cs = Vector2(240, 324)
+	# cartes hautes : l'effet, puis ce que le choix apporte (palier, évolution) en bas de la carte
+	var avail := vs.y - top - (82.0 if _rerolls > 0 else 14.0) - 18.0
+	var cs := Vector2(264, clampf(avail, 330.0, 410.0))
 	var room_w := (vs.x - 70.0 - gap * (deal.size() - 1)) / deal.size()
 	if room_w < cs.x:
-		cs = cs * (room_w / cs.x)
-	var cy := head + (vs.y - head) * 0.5 - (22.0 if _rerolls > 0 else 6.0)
+		cs.x = room_w
+	var cy := top + cs.y * 0.5 + maxf(0.0, avail - cs.y) * 0.5
 	var cards: Array = []
 	for i in range(deal.size()):
 		var entry: Dictionary = deal[i]
@@ -1067,9 +1074,9 @@ func _power_cards(deal: Array, bonus: bool, n: int) -> void:
 		var is_evo: bool = entry["evo"]
 		var id := String(p["id"])
 		var level: int = 1 if is_evo else hero.lv(id) + 1
-		var sz := cs * (1.07 if is_evo else 1.0)
+		var sz := cs * (Vector2(1.07, 1.04) if is_evo else Vector2.ONE)
 		var b: Button = CardScript.new()
-		b.setup_power(p, level, is_evo, sz)
+		b.setup_power(p, level, is_evo, sz, [] if is_evo else BuildView.card_gain(hero, p, level))
 		overlay.add_child(b)
 		cards.append(b)
 		# éventail : les cartes du bord descendent un peu et penchent vers l'extérieur
@@ -1081,7 +1088,9 @@ func _power_cards(deal: Array, bonus: bool, n: int) -> void:
 			var ov := overlay
 			for o in cards:
 				(o as Button).disabled = true
+			var before := BuildView.snapshot(hero)
 			hero.add_power(id)
+			var opened := BuildView.unlocks(before, BuildView.snapshot(hero))
 			if bonus:
 				_pending_bonus = maxi(0, _pending_bonus - 1)
 			elif _duo_guest():
@@ -1102,6 +1111,7 @@ func _power_cards(deal: Array, bonus: bool, n: int) -> void:
 					if not is_evo and int(p["max"]) > 1:
 						label += " " + Data.roman(level)
 					hud.flash(label, 1.6 if is_evo else 1.4, Data.EVO_COL if is_evo else Data.branch(String(p["b"]))["col"])
+					_announce_unlocks(opened)
 					_resume()
 					view.power_fx()
 					if is_evo:
@@ -1116,6 +1126,21 @@ func _power_cards(deal: Array, bonus: bool, n: int) -> void:
 			_power_cards(_deal_powers(n), bonus, n))
 		overlay.add_child(rr)
 		Fx.rise_in(rr, 0.9, 0.3, 0.6)
+
+## Après un choix : bandeau court pour chaque palier qui vient de s'ouvrir (avec les pictogrammes des nouveaux
+## pouvoirs possibles) et chaque évolution devenue prête (doré). Chez l'invité du duo aussi : `hero` est son Jo.
+func _announce_unlocks(opened: Array) -> void:
+	var i := 0
+	for u in opened:
+		if String(u["kind"]) == "tier":
+			var br := Data.branch(String(u["b"]))
+			hud.unlock_banner("PALIER %s OUVERT · %s" % [Data.roman(int(u["tier"])), String(br["name"]).to_upper()],
+				br["col"], BuildView.tier_icons(String(u["b"]), int(u["tier"])), "Nouveaux pouvoirs possibles :", false, i)
+		else:
+			var ev := Data.evolution(String(u["id"]))
+			hud.unlock_banner("ÉVOLUTION PRÊTE : %s" % String(ev["name"]).to_upper(), Data.EVO_COL, [String(ev["icon"])],
+				"Elle peut sortir dès le prochain choix", true, i)
+		i += 1
 
 ## Fond des overlays à cartes : voile, halo coloré au centre, titre tamponné, sous-titre. Renvoie le bas du titre.
 func _deal_overlay(title: String, subtitle: String, col: Color) -> float:
@@ -1305,6 +1330,29 @@ func _show_pause() -> void:
 	box.add_child(q)
 	Fx.rise_in(r, 0.05)
 	Fx.rise_in(q, 0.12)
+	_pause_build()
+
+## Pause : rappel du build de part et d'autre du menu (scripts/ui/build_view.gd) ; à gauche les pouvoirs pris,
+## groupés par branche avec leur niveau et le palier ouvert ; à droite les évolutions en préparation (« 1/2 »).
+## Rien de cliquable : le robot et le doigt ne touchent que les boutons du menu.
+func _pause_build() -> void:
+	var vs := get_viewport().get_visible_rect().size
+	var ins := UI.safe_insets(get_viewport())
+	var side := (vs.x - 420.0) * 0.5 - 16.0
+	var w := minf(400.0, side - float(ins["left"]))
+	if w < 260.0:
+		return
+	var top := 112.0
+	var max_h := vs.y - top - float(ins["bottom"]) - 8.0
+	var bp := BuildView.build_panel(hero, w, max_h)
+	bp.position = Vector2(float(ins["left"]), top)
+	overlay.add_child(bp)
+	var ep := BuildView.evo_panel(hero, w, max_h)
+	overlay.add_child(ep)
+	ep.reset_size()
+	ep.position = Vector2(vs.x - float(ins["right"]) - ep.size.x, top)
+	Fx.slide_in(bp, Vector2(-60, 0), 0.08, 0.3)
+	Fx.slide_in(ep, Vector2(60, 0), 0.12, 0.3)
 
 ## Mode développeur : panneau à droite, sans voile, la partie reste visible derrière (en pause) pour régler
 ## la caméra et les tailles à l'œil ; cadence 60 / 120 i/s et compteur. Les valeurs s'affichent pour être notées.

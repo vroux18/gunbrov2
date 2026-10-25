@@ -49,7 +49,7 @@ func build(m: Node, fresh: bool = true) -> void:
 			_tab = a.trim_prefix("--branch=")
 	if _tab != "evo" and not Data.BRANCHES.has(_tab):
 		_tab = String(Data.BRANCH_ORDER[0])
-	bandeau(self, "POUVOIRS", "Les pouvoirs que tu peux obtenir en partie.", UI.ORANGE, func(): main.show_base(), profile)
+	bandeau(self, "POUVOIRS", "2 cartes d'une branche ouvrent son palier II, 4 son palier III.", UI.ORANGE, func(): main.show_base(), profile)
 	_build_tabs()
 	_body = Control.new()
 	_body.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -219,7 +219,7 @@ func _body_w() -> float:
 	return _vs().x - float(_ins["left"]) - float(_ins["right"])
 
 # ---------------------------------------------------------------- branche
-const TIER_TEXT := ["", "Disponible dès le début de la partie.", "S'ouvre après 2 cartes de cette branche.", "S'ouvre après 4 cartes de cette branche."]
+const TIER_TEXT := ["", "Disponible dès le début de la partie.", "S'ouvre après 2 cartes prises dans cette branche.", "S'ouvre après 4 cartes prises dans cette branche."]
 
 func _fill_branch(bid: String, anim: bool) -> void:
 	var br := Data.branch(bid)
