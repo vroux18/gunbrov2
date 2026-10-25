@@ -46,6 +46,9 @@ func setup(view_node: Node3D, h: Node2D, jo2: bool, name_text: String, only_mark
 			recolor(rig)
 		add_child(Models.shadow_blob(1.1))
 		ring = _ring(shader, 1.5, col, 0.12, 0.0)
+		# ses tirs : même recul et même flamme que Jo (view3d._on_fired -> _jo_shot)
+		if "partners" in view:
+			view.partners.append(self)
 	revive_ring = _ring(shader, 2.9, Color(1.0, 0.85, 0.3, 0.9), 0.07, 0.35)
 	revive_ring.visible = false
 	label = Label3D.new()
@@ -159,6 +162,10 @@ func _sync_marker() -> void:
 		m.set_shader_parameter("fill", 0.45 if revive > 0.0 else 0.12)
 		revive_ring.scale = Vector3.ONE * (1.0 + 0.04 * sin(_t * 6.0))
 	label.position.y = 0.6 if hero2d.dead else 1.95
+
+func _exit_tree() -> void:
+	if view != null and is_instance_valid(view) and "partners" in view:
+		view.partners.erase(self)
 
 func set_text(t: String) -> void:
 	if label != null:

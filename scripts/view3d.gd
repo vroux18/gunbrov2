@@ -33,6 +33,23 @@ const CAM_FOV := 38.0
 ## Recul, inclinaison et champ de la caméra de jeu, tailles de Jo et des ennemis : réglages du joueur
 ## (menu pause, mode développeur), dans l'autoload Dev (scripts/dev.gd).
 
+## Ressenti du tir côté caméra : doux et borné (pas de mal de mer sur téléphone). Mettre à 0 pour couper.
+const CAM_KICK := 0.05        # recul de caméra par tir de Jo (m), à l'opposé du tir (× « cam » de l'arme, rig3d.GUN_FEEL)
+const CAM_KICK_MAX := 0.12    # recul cumulé maximal en rafale (m)
+const CAM_KICK_BACK := 12.0   # vitesse de retour (1/s)
+const SHAKE_DIR_MAX := 0.25   # tremblement directionnel (gros coups) : amplitude maximale (m)
+const SHAKE_DIR_FREQ := 24.0  # pulsation (rad/s) : premier aller en ~0,07 s
+const SHAKE_DIR_DECAY := 10.0 # amortissement (1/s)
+const SHAKE_AMP := 0.35       # tremblement général (add_shake) : amplitude à pleine force (m)
+const SHAKE_FREQ := 19.0      # rapidité du tremblement général (bruit lissé, pas de saut d'une image à l'autre)
+## Tirs dessinés (tirs de Jo : fins, étirés selon la vitesse, tête lumineuse ; les tirs ennemis restent plus gros,
+## halo large et palpitant, pour rester lisibles au milieu des effets de Jo)
+const SHOT_REF_SPEED := 780.0  # vitesse (px/s) d'un tir de Jo d'étirement 1
+const SHOT_STRETCH := 1.0      # étirement des tirs de Jo selon leur vitesse
+const SHOT_LAUNCH := 0.06      # s : un tir sort court de la bouche et s'allonge
+const SHOT_HALO := 0.32        # opacité du halo des tirs de Jo (les tirs ennemis : 0,8)
+const WALL_LIGHT_GAP := 0.08   # s minimum entre deux éclats de lumière d'impact sur le décor
+
 var arena: Node
 var hero2d: Node2D
 var joy: Node
@@ -75,6 +92,13 @@ var _font: Font
 
 var cam_target := Vector3.ZERO
 var shake := 0.0
+var _cam_kick := Vector3.ZERO  # recul de caméra des tirs de Jo
+var _dshake := Vector3.ZERO  # tremblement directionnel : direction × amplitude
+var _dshake_t := 10.0
+var _shake_seed := Vector3(0.0, 1.7, 3.1)
+var _wall_light_t := 0.0
+## Jo des partenaires en duo (scripts/net/partner3d.gd, inscrites par elles-mêmes) : leur recul et leur flamme.
+var partners: Array = []
 var t := 0.0
 var _flash_lights: Array = []
 var _batch := {}  # Mesh -> Array[Transform3D] : décor statique regroupé en MultiMesh au montage
@@ -694,10 +718,18 @@ func _place_camera(dt: float) -> void:
 	var sh := Vector3.ZERO
 	if shake > 0.0:
 		shake = maxf(0.0, shake - dt * 2.5)
-		var a := shake * shake * 0.35
-		sh = Vector3(randf_range(-a, a), randf_range(-a, a), randf_range(-a, a))
-	cam.position = cam_target + off + sh
-	cam.look_at(cam_target + sh * 0.5, Vector3.UP)
+		# bruit lissé (sinus de fréquences sans rapport) : tremble sans sauter d'une image à l'autre
+		var a := shake * shake * SHAKE_AMP
+		var u := t * SHAKE_FREQ
+		sh = Vector3(sin(u + _shake_seed.x) * 0.6 + sin(u * 2.31 + 1.3) * 0.4, sin(u * 1.13 + _shake_seed.y) * 0.6 + sin(u * 2.73) * 0.4, sin(u * 0.87 + _shake_seed.z) * 0.6 + sin(u * 1.97 + 2.1) * 0.4) * a
+	# tremblement directionnel : un aller-retour amorti le long du coup
+	if _dshake_t < 1.0:
+		_dshake_t += dt
+		sh += _dshake * sin(_dshake_t * SHAKE_DIR_FREQ) * exp(-_dshake_t * SHAKE_DIR_DECAY)
+	# recul des tirs : translation pure (l'horizon ne tourne pas), revient vite
+	_cam_kick = _cam_kick.lerp(Vector3.ZERO, clampf(dt * CAM_KICK_BACK, 0.0, 1.0))
+	cam.position = cam_target + off + sh + _cam_kick
+	cam.look_at(cam_target + sh * 0.5 + _cam_kick, Vector3.UP)
 	cam.make_current()
 
 ## Réglage changé (menu pause, mode développeur) : appliqué tout de suite, même en pause.
@@ -717,6 +749,21 @@ func hit_stop(real_s: float, scale: float) -> void:
 
 func add_shake(v: float) -> void:
 	shake = minf(1.0, shake + v)
+	if shake <= v + 0.01:
+		_shake_seed = Vector3(randf() * TAU, randf() * TAU, randf() * TAU)
+
+## Tremblement bref dans une direction (gros coups : arme lourde, explosion proche) ; `dir` dans le plan du sol.
+func add_shake_dir(dir: Vector3, v: float) -> void:
+	var d := Vector3(dir.x, 0.0, dir.z)
+	if d.length() < 0.001 or v <= 0.0:
+		return
+	var cur := _dshake * sin(_dshake_t * SHAKE_DIR_FREQ) * exp(-_dshake_t * SHAKE_DIR_DECAY) if _dshake_t < 1.0 else Vector3.ZERO
+	_dshake = (cur + d.normalized() * v).limit_length(SHAKE_DIR_MAX)
+	_dshake_t = 0.0
+
+## Recul de caméra d'un tir de Jo (à l'opposé du tir), borné.
+func cam_kick(dir: Vector3, k: float) -> void:
+	_cam_kick = (_cam_kick - Vector3(dir.x, 0.0, dir.z).normalized() * CAM_KICK * k).limit_length(CAM_KICK_MAX)
 
 func _sync_hero(dt: float) -> void:
 	hero_root.position = p3(hero2d.position)
@@ -815,16 +862,22 @@ func _sync_bullets() -> void:
 		var dx := v.x / l if l > 0.0 else 0.0
 		var dz := v.y / l if l > 0.0 else 1.0
 		if b.hero_shot:
-			# trait de Jo : capsule fine, halo discret, longue traînée (plus longue si le tir transperce)
+			# trait de Jo : capsule fine étirée selon la vitesse (sort courte de la bouche et s'allonge), tête
+			# lumineuse au bout, légère vibration de largeur, longue traînée (plus longue si le tir transperce)
 			var pos := Vector3(b.position.x * K, 0.55, b.position.y * K)
-			var sx := r * 1.7
-			var sy := r * 2.3
-			mm.set_instance_transform(i, Transform3D(Vector3(dz * sx, 0.0, -dx * sx), Vector3(dx * sy, 0.0, dz * sy), Vector3(0.0, -sx, 0.0), pos))
+			var launch := clampf((1.4 - b.life) / SHOT_LAUNCH, 0.35, 1.0)
+			var str_k := clampf(l / SHOT_REF_SPEED, 0.7, 1.6) * SHOT_STRETCH * launch
+			var sx := r * 1.55 * (1.0 + 0.09 * sin(t * 47.0 + float(i) * 1.7))
+			var sy := r * 2.7 * str_k
+			# la capsule (3 de long à l'échelle 1) recule derrière la tête : l'avant reste à la position du tir
+			var back := sy * 1.5 - r * 1.1
+			var cpos := pos - Vector3(dx, 0.0, dz) * back
+			mm.set_instance_transform(i, Transform3D(Vector3(dz * sx, 0.0, -dx * sx), Vector3(dx * sy, 0.0, dz * sy), Vector3(0.0, -sx, 0.0), cpos))
 			mm.set_instance_color(i, c)
-			var hs := r * 6.5
-			hm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3(hs, hs, hs)), pos))
-			hm.set_instance_color(i, Color(c, 0.4))
-			fxs.trail_add(pos, v3, c, r * 2.4, 0.075 if b.pierce == 0 else 0.12, Color(c.r * 0.5, c.g * 0.6, c.b, 1.0))
+			var hs := r * (5.0 + 1.5 * (1.0 - launch))
+			hm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3(hs, hs, hs)), pos + Vector3(dx, 0.0, dz) * r * 0.4))
+			hm.set_instance_color(i, Color(c.lerp(Color.WHITE, 0.35), SHOT_HALO))
+			fxs.trail_add(pos, v3, c, r * 2.2, (0.075 if b.pierce == 0 else 0.12) * clampf(str_k, 0.3, 1.3), Color(c.r * 0.5, c.g * 0.6, c.b, 1.0))
 		else:
 			# tir ennemi : orbe plus rond et plus gros, halo large qui palpite, traînée courte,
 			# pour rester lisible au milieu des effets
@@ -1281,12 +1334,37 @@ func _on_fired(pos: Vector2, vel: Vector2, hero_shot: bool, color: Color, radius
 	if not active:
 		return
 	var d := Vector3(vel.x, 0.0, vel.y).normalized()
-	if hero_shot and (pos - hero2d.position).length() < 60.0:
-		hero_light.light_energy = 2.4
-		hero_light.visible = true
-		fxs.muzzle(hero.muzzle_position(), d, color, radius > 6.0)
-	else:
-		fxs.enemy_muzzle(p3(pos, 0.55 if hero_shot else 0.6), d, color)
+	if hero_shot:
+		# tireuse : Jo, ou la Jo d'un partenaire en duo (la plus proche du départ du tir)
+		var best: Node = null
+		var bd := (pos - hero2d.position).length()
+		for pt in partners:
+			if is_instance_valid(pt) and (pt as Node3D).visible and pt.rig != null:
+				var dd: float = (pos - (pt.hero2d as Node2D).position).length()
+				if dd < bd:
+					bd = dd
+					best = pt
+		if bd < 60.0:
+			if best == null:
+				_jo_shot(hero, d, color, radius > 6.0, true)
+				hero_light.light_energy = 2.4
+				hero_light.visible = true
+			else:
+				_jo_shot(best.rig, d, color, radius > 6.0, false)
+			return
+	fxs.enemy_muzzle(p3(pos, 0.55 if hero_shot else 0.6), d, color)
+
+## Tir d'une Jo (la nôtre ou celle du partenaire) : recul du bras et du buste (un par salve), flamme de l'arme
+## portée, douille, fumée de canon en rafale ; la nôtre fait aussi reculer la caméra.
+func _jo_shot(r: Rig3D, d: Vector3, col: Color, big: bool, local: bool) -> void:
+	var first := r.shot(1.25 if big else 1.0)
+	var gf: Dictionary = r.gun_feel()
+	fxs.shot_muzzle(r.muzzle_position(), d, col, gf["fx"], big, r.jo_heat, first)
+	if first and local:
+		cam_kick(d, float(gf["cam"]) * (1.3 if big else 1.0))
+		var hv: float = gf["heavy"]
+		if hv > 0.0:
+			add_shake_dir(-d, hv)
 
 func _on_enemy_hit(e: Node2D, pos: Vector2, dmg: float, crit: bool) -> void:
 	if not active:
@@ -1309,7 +1387,56 @@ var _shield_pos := Vector2(-1, -1)
 func _on_blocked(pos: Vector2, color: Color) -> void:
 	if not active or pos == _shield_pos:
 		return
-	fxs.wall_hit(p3(pos, 0.55), color)
+	# mur ou caisse : on retrouve la face touchée (normale, point sur la face) ; ailleurs (tir coupé par un
+	# pouvoir, parade) : l'éclat simple d'avant
+	var hit := _wall_face(pos)
+	if hit.is_empty():
+		fxs.wall_hit(p3(pos, 0.55), color)
+		return
+	var n: Vector3 = hit[0]
+	var at: Vector3 = hit[1]
+	fxs.wall_impact(at, n, color, hit[2])
+	if t - _wall_light_t > WALL_LIGHT_GAP:
+		_wall_light_t = t
+		_flash_light(at + n * 0.35 + Vector3(0, 0.3, 0), color.lerp(Color(1.0, 0.85, 0.6), 0.4), 0.9, 2.2)
+
+## Hauteur des impacts sur le décor : sous le haut des plus petites caisses (0,45 m), la marque reste sur la face.
+const WALL_HIT_Y := 0.4
+
+## Face du décor touchée en `pos` (px) : [normale, point d'impact sur la face, marque possible] ; vide si `pos`
+## n'est ni hors des murs ni dans une caisse. Les murs du bord n'ont pas de marque (pas de surface à cet endroit
+## dans tous les mondes).
+func _wall_face(pos: Vector2) -> Array:
+	var W: float = arena.W
+	var H: float = arena.H
+	var wl: float = arena.WALL
+	var top: float = arena.TOP
+	if pos.x < wl:
+		return [Vector3.RIGHT, p3(Vector2(wl, pos.y), WALL_HIT_Y), false]
+	if pos.x > W - wl:
+		return [Vector3.LEFT, p3(Vector2(W - wl, pos.y), WALL_HIT_Y), false]
+	if pos.y < top:
+		return [Vector3.BACK, p3(Vector2(pos.x, top), WALL_HIT_Y), false]
+	if pos.y > H - wl:
+		return [Vector3.FORWARD, p3(Vector2(pos.x, H - wl), WALL_HIT_Y), false]
+	for o in arena.obstacles:
+		var r: Rect2 = o
+		if not r.grow(1.0).has_point(pos):
+			continue
+		# côté d'entrée : la plus petite pénétration
+		var dl := pos.x - r.position.x
+		var dr := r.end.x - pos.x
+		var du := pos.y - r.position.y
+		var dd := r.end.y - pos.y
+		var m := minf(minf(dl, dr), minf(du, dd))
+		if m == dl:
+			return [Vector3.LEFT, p3(Vector2(r.position.x, pos.y), WALL_HIT_Y), true]
+		if m == dr:
+			return [Vector3.RIGHT, p3(Vector2(r.end.x, pos.y), WALL_HIT_Y), true]
+		if m == du:
+			return [Vector3.FORWARD, p3(Vector2(pos.x, r.position.y), WALL_HIT_Y), true]
+		return [Vector3.BACK, p3(Vector2(pos.x, r.end.y), WALL_HIT_Y), true]
+	return []
 
 ## Tir de Jo arrêté par le bouclier d'un Rempart : onde hexagonale et ricochet (pas de chiffre de dégâts).
 func _on_shield_blocked(e: Node2D, pos: Vector2, vel: Vector2) -> void:
