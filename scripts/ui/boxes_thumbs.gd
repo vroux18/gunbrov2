@@ -79,12 +79,13 @@ func _build() -> void:
 		var a: AABB = m.global_transform * m.get_aabb()
 		ab = a if first else ab.merge(a)
 		first = false
-	# de la tête aux genoux : Jo grande dans la vignette, combinaison, épaulières et lumières bien visibles
+	# de la tête aux genoux, avec de la place au-dessus de la tête de Jo (cadrage commun, pris sur jo.glb) pour
+	# les grands couvre-chefs des tenues (chapeau pointu, couronne, tuba, bord de chapeau de paille)
 	var h := maxf(ab.size.y, 0.5)
-	var c := Vector3(ab.get_center().x, ab.end.y - h * 0.38, ab.get_center().z)
+	var c := Vector3(ab.get_center().x, ab.end.y - h * 0.35, ab.get_center().z)
 	var cam := Camera3D.new()
 	cam.fov = 24.0
-	var dist := h * 0.4 / tan(deg_to_rad(cam.fov * 0.5))
+	var dist := h * 0.48 / tan(deg_to_rad(cam.fov * 0.5))
 	var cp := c + Vector3(0, h * 0.14, dist)
 	cam.transform = Transform3D(Basis.looking_at(c - cp, Vector3.UP), cp)
 	_vp.add_child(cam)

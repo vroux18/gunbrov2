@@ -731,7 +731,7 @@ D_GLOW = "#7AF2FF"
 
 
 def plongeuse():
-    """Plongeuse : combinaison néoprène noire à grands panneaux turquoise (épaules, flancs, jambes), ceinture de
+    """Plongeuse : combinaison néoprène bicolore (turquoise, col, flancs et bras noirs), ceinture de
     lest, masque rose relevé sur le front et tuba qui dépasse au-dessus de la tête, grosse bouteille jaune dans
     le dos (robinet, détendeur, manomètre lumineux, tuyau jusqu'à l'épaule), ordinateur de plongée lumineux au
     poignet, bottillons et grandes palmes roses."""
@@ -754,15 +754,15 @@ def plongeuse():
     c.add(loft(smooth([S(p, 0.011, 0.011, 0.005) for p in sn], 2), D_TURQ, nc=2))
     c.add(loft([S((0.091, 1.322, -0.026), 0.016, 0.016, 0.006), S((0.084, 1.345, -0.024), 0.016, 0.016, 0.006)], D_PINK, nc=2))
     c.add(box((0.1, 1.12, 0.012), (0.008, 0.012, 0.012), 0.004, D_PINK))  # attache du tuba
-    # combinaison : noire, épaules et flancs turquoise, fermeture dans le dos
+    # combinaison : turquoise, col et flancs noirs, fermeture rose dans le dos
     tg = torso(m, [(0.5, 0.06, 0.05, 0.0, None), (0.525, 0.1, 0.07, 0.0, None), (0.57, 0.106, 0.073, 0.0, None),
                    (0.64, 0.094, 0.065, 0.002, None), (0.72, 0.099, 0.069, 0.006, None), (0.8, 0.119, 0.077, 0.01, None),
                    (0.855, 0.132, 0.075, 0.004, None), (0.888, 0.128, 0.067, 0.0, None), (0.912, 0.084, 0.055, -0.004, None),
-                   (0.95, 0.046, 0.044, -0.004, None), (0.975, 0.044, 0.042, -0.004, None)], D_NEO)
-    P(m, "torso").geo.paint(lambda c, n: (c.y > 0.82 and c.y - 0.82 > 0.06 - abs(c.x) * 0.5) or (abs(c.x) > 0.085 and 0.6 < c.y < 0.84), D_TURQ)
+                   (0.95, 0.046, 0.044, -0.004, None), (0.975, 0.044, 0.042, -0.004, None)], D_TURQ)
+    P(m, "torso").geo.paint(lambda c, n: (c.y > 0.82 and c.y - 0.82 > 0.06 - abs(c.x) * 0.5) or (abs(c.x) > 0.085 and 0.6 < c.y < 0.84), D_NEO)
     t = P(m, "torso")
     seam(t, tg, [(0, 0.95, 0), (0, 0.66, 0)], (0, 0, 1), col=D_PINK, w=0.005)
-    seam(t, tg, [(0, 0.86, 0), (0, 0.64, 0)], (0, 0, -1), col=D_TURQ, w=0.006)
+    seam(t, tg, [(0, 0.86, 0), (0, 0.64, 0)], (0, 0, -1), col=D_NEO, w=0.006)
     # ceinture de lest : sangle, plombs, boucle
     t.add(loft([S((0, 0.585, 0), 0.114, 0.082), S((0, 0.61, 0), 0.11, 0.079)], "#2C3448", nc=2))
     t.add(box((0, 0.598, 0.084), (0.022, 0.018, 0.008), 0.004, "#C7CDD8"))
@@ -802,11 +802,11 @@ def plongeuse():
     a = P(m, "arm_l")
     a.add(box((0.19, 0.59, 0.07), (0.022, 0.02, 0.008), 0.005, D_NEO, up=(0, 1, 0), ref=(1, 0, 0)))
     P(m, "arm_l_glow").add(box((0.19, 0.59, 0.079), (0.016, 0.014, 0.002), 0.002, D_GLOW))
-    # jambes : néoprène, bande turquoise sur l'extérieur, bottillons et palmes roses
-    legs(m, D_NEO, None, None, None, knee="#2C3448")
+    # jambes : turquoise, bande noire sur l'extérieur, bottillons et palmes roses
+    legs(m, D_TURQ, None, None, None, knee="#2C3448")
     for side, sx in sides():
         for nm in ("leg_", "shin_"):
-            P(m, nm + side).geo.paint(lambda c, n, sx=sx: c.x * sx > 0.07 + 0.026 and c.y > 0.14, D_TURQ)
+            P(m, nm + side).geo.paint(lambda c, n, sx=sx: c.x * sx > 0.07 + 0.026 and c.y > 0.14, D_NEO)
         b = P(m, "jambe_" + side)
         x = sx * 0.077
         b.add(loft(smooth([S((x, 0.05, -0.05), 0.034, 0.03), S((x, 0.05, -0.02), 0.04, 0.042), S((x, 0.044, 0.05), 0.04, 0.03),
