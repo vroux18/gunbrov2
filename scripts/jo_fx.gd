@@ -109,7 +109,7 @@ func _process(dt: float) -> void:
 	if _nozzle_mat != null:
 		var e := 1.7 + 2.6 * clampf(spd, 0.0, 1.0) * (0.85 + 0.15 * sin(rig.t * 40.0)) if live else 1.7
 		_nozzle_mat.albedo_color = Color(e, e, e)
-	if running:
+	if running and _nozzle_mat != null:  # seulement si le modèle a des réacteurs (part « torso_glow »)
 		_jet_acc += dt * 44.0 * clampf(spd, 0.0, 1.0)
 		var torso: Node3D = rig.p("torso")
 		var down := -torso.global_transform.basis.y.normalized() if torso != null else Vector3.DOWN

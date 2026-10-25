@@ -518,27 +518,29 @@ const XRAY_PARTS := ["torso", "head", "leg_r", "leg_l"]
 ## Le matériau de Jo est une copie de body_mat() (shaders/character.gdshader) ; son liseré turquoise
 ## remplace le contour sombre commun (next_pass) : un seul contour, pas deux.
 var _hero_mat: ShaderMaterial = null
+## Jo de l'invité en duo (partner3d.gd) : matériau aux teintes tournées, à poser avant make_hero.
+var _guest := false
 ## Calque de rendu propre à Jo : sa lumière d'appoint (view3d.gd) n'éclaire qu'elle.
 const HERO_LAYER := 1 << 19
-func make_hero(outline: Color, width: float, hurt: Color) -> void:
-	_hero_mat = body_mat(Color(1, 1, 1)).duplicate() as ShaderMaterial
-	# Jo ressort de la mêlée : couleurs plus vives et plus claires que les ennemis, côté ombre moins sombre
-	_hero_mat.set_shader_parameter("exposure", 1.0)
-	_hero_mat.set_shader_parameter("saturation", 1.12)
-	_hero_mat.set_shader_parameter("white_cap", 0.9)
-	_hero_mat.set_shader_parameter("shade_amt", 0.5)
+## Matériau « bande dessinée » de Jo (shaders/jo_comic.gdshader + contour d'encre jo_ink.gdshader) : un seul,
+## partagé par toutes les Jo et toutes leurs tenues ; un second pour la Jo de l'invité en duo (teintes tournées).
+static var _jo_mats := {}
+static func jo_mat(guest: bool = false) -> ShaderMaterial:
+	if _jo_mats.has(guest):
+		return _jo_mats[guest]
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/jo_comic.gdshader")
+	m.set_shader_parameter("guest", 1.0 if guest else 0.0)
+	var ink := ShaderMaterial.new()
+	ink.shader = load("res://shaders/jo_ink.gdshader")
+	m.next_pass = ink
+	_jo_mats[guest] = m
+	return m
+
+## `outline` et `width` : gardés pour les appelants, le contour est désormais l'encre noire du matériau de Jo.
+func make_hero(_outline: Color, _width: float, hurt: Color) -> void:
+	_hero_mat = jo_mat(_guest)
 	var xray_mat := _hero_mat
-	if width > 0.0:
-		var ol := StandardMaterial3D.new()
-		ol.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		ol.cull_mode = BaseMaterial3D.CULL_FRONT
-		ol.grow = true
-		ol.grow_amount = width
-		ol.albedo_color = outline
-		ol.disable_receive_shadows = true
-		_hero_mat.next_pass = ol
-		# silhouette « rayons X » (STENCIL_MODE_XRAY) retirée : sur le sol du hangar elle teintait Jo en
-		# permanence, même à découvert, et lui ôtait ses couleurs
 	for mi in Models.meshes(model):
 		var m: MeshInstance3D = mi
 		m.layers |= HERO_LAYER
