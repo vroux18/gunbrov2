@@ -24,6 +24,17 @@ const NEON_PINK := Color("#FF3CAC")
 const NEON_BLUE := Color("#3C8CFF")
 const SHIELD_COS := 0.42  # demi-angle du bouclier du rempart : ~65°
 
+## Recul sous les tirs (knockback) : chaque tir qui porte pousse l'ennemi dans son sens, d'autant plus fort
+## que le coup est gros et l'ennemi léger ; la poussée s'amortit dans `push` (≈ 0,15 s, voir tick).
+## Déplacement d'un coup ≈ poussée / 8 : un tir de 10 sur une Sentinelle ≈ 14 px, sur un Colosse ≈ 2 px.
+const KNOCK_PER_DMG := 8.0  # px/s de poussée par point de dégâts, pour une masse de 1
+const KNOCK_HIT_MAX := 170.0  # plafond d'un seul coup (px/s)
+const KNOCK_MAX := 230.0  # plafond de la poussée des tirs cumulés (px/s) : une rafale ne repousse pas sans fin
+const KNOCK_CHARGE := 0.2  # en pleine charge (ou en la préparant) : l'élan l'emporte, la ligne de charge tient
+const KNOCK_ELITE := 1.6  # masse ×1,6 pour une élite
+const MASS := {"drone": 0.7, "roller": 0.8, "bomber": 0.9, "copter": 0.9, "trooper": 1.0, "sniper": 1.0, "hacker": 1.0,
+	"mortar": 1.7, "shield": 2.2, "brute": 4.5, "bouncer": 4.5, "boss": 30.0, "boss2": 30.0}
+
 var kind := "drone"
 var elite := false
 var hp := 20.0
@@ -95,6 +106,18 @@ func hit(d: float) -> void:
 	if hp <= 0.0:
 		dead = true
 		arena.on_enemy_died(self)
+
+## Recul d'un tir qui porte : `dir` sens du tir, `d` dégâts (réglages KNOCK_* en tête de fichier).
+func knock(dir: Vector2, d: float) -> void:
+	if dead or dir.length_squared() < 0.0001:
+		return
+	var u := dir.normalized()
+	var k := minf(KNOCK_PER_DMG * d / (float(MASS.get(kind, 1.0)) * (KNOCK_ELITE if elite else 1.0)), KNOCK_HIT_MAX)
+	if state == "charge" or (state == "tell" and kind in ["brute", "shield", "roller", "boss"]):
+		k *= KNOCK_CHARGE
+	var along := maxf(0.0, push.dot(u))
+	if along < KNOCK_MAX:
+		push += u * minf(k, KNOCK_MAX - along)
 
 func tick(dt: float) -> void:
 	if dead or hero == null:
