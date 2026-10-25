@@ -40,10 +40,13 @@ const DUP_TICKETS := [30, 80, 200, 500]
 ## suit / accent / light servent aussi au dessin 2D de la carte (scripts/ui/boxes_art.gd).
 ## Correspondance avec les anciennes apparences (les ids et la sauvegarde ne changent pas) :
 ##   eclat (Éclat d'or, légendaire) -> Chevalière d'or (jo_chevalier) ; nebuleuse (Nébuleuse, épique) -> Mage
-##   Nébuleuse (jo_magicienne) ; neon (Cité Néon, épique) -> Ronin Néon (jo_samourai) ; les autres : palette.
+##   Nébuleuse (jo_magicienne) ; neon (Cité Néon, épique) -> Ronin Néon (jo_samourai).
 ##   Deuxième lot (tools/blender/jo_skins_2.py) : cargo -> Pirate de l'espace (jo_pirate) ; glacier -> Exploratrice
 ##   polaire (jo_polaire) ; ardoise -> Mécano (jo_mecano) ; menthe -> Jardinière (jo_jardiniere) ; corail (rare) ->
 ##   Princesse de bal (jo_princesse) ; lagon (rare) -> Plongeuse (jo_plongeuse).
+##   Lot B (tools/blender/jo_skins_3.py) : agrume (rare) -> Cow-girl (jo_cowgirl) ; sentinelle (rare) -> Méca (jo_meca) ;
+##   lavande (rare) -> Idole pop (jo_idole) ; braise (épique) -> Pompière (jo_pompiere) ; aurore (épique) -> Fée des
+##   aurores (jo_fee) ; prisme (légendaire) -> Astronaute cosmique (jo_astronaute).
 const SKINS := [
 	{"id": "passeuse", "name": "Passeuse", "tier": 0, "suit": Color("#F4F4F1"), "accent": Color("#F0262E"), "light": Color("#9FF6FF")},
 	{"id": "cargo", "name": "Pirate de l'espace", "tier": 0, "suit": Color("#B3243A"), "accent": Color("#F2B33D"), "light": Color("#7AF2FF"), "model": "jo_pirate"},
@@ -52,15 +55,15 @@ const SKINS := [
 	{"id": "menthe", "name": "Jardinière", "tier": 0, "suit": Color("#3FBF88"), "accent": Color("#F2CE6A"), "light": Color("#B8FF6A"), "model": "jo_jardiniere"},
 	{"id": "corail", "name": "Princesse de bal", "tier": 1, "suit": Color("#F2475E"), "accent": Color("#F2B33D"), "light": Color("#FF7AD0"), "model": "jo_princesse"},
 	{"id": "lagon", "name": "Plongeuse", "tier": 1, "suit": Color("#1C2232"), "accent": Color("#14C8E0"), "light": Color("#FFD23A"), "model": "jo_plongeuse"},
-	{"id": "sentinelle", "name": "Sentinelle", "tier": 1, "suit": Color("#C8CEDC"), "accent": Color("#2C3350"), "light": Color("#FF4D6D")},
-	{"id": "agrume", "name": "Agrume", "tier": 1, "suit": Color("#FFF5D2"), "accent": Color("#FFBE0B"), "light": Color("#7CFF4D"), "hair": Color("#B5521C")},
-	{"id": "lavande", "name": "Lavande", "tier": 1, "suit": Color("#EEE6FF"), "accent": Color("#8A5CFF"), "light": Color("#5CF0FF"), "hair": Color("#4B3A9E")},
+	{"id": "sentinelle", "name": "Méca", "tier": 1, "suit": Color("#EEF2F7"), "accent": Color("#FF7A1A"), "light": Color("#6FF3FF"), "model": "jo_meca"},
+	{"id": "agrume", "name": "Cow-girl", "tier": 1, "suit": Color("#FFB619"), "accent": Color("#D27E2C"), "light": Color("#7CFF4D"), "model": "jo_cowgirl"},
+	{"id": "lavande", "name": "Idole pop", "tier": 1, "suit": Color("#6B3BE6"), "accent": Color("#FF8FD2"), "light": Color("#36DDF0"), "model": "jo_idole"},
 	{"id": "nebuleuse", "name": "Mage Nébuleuse", "tier": 2, "suit": Color("#3A2A78"), "accent": Color("#FFC23D"), "light": Color("#7AE7FF"), "model": "jo_magicienne"},
 	{"id": "neon", "name": "Ronin Néon", "tier": 2, "suit": Color("#222840"), "accent": Color("#FF3CAC"), "light": Color("#2EE6FF"), "model": "jo_samourai"},
-	{"id": "braise", "name": "Braise", "tier": 2, "suit": Color("#3C2C2C"), "accent": Color("#FF5A1F"), "light": Color("#FFD34D"), "hair": Color("#B3241A")},
-	{"id": "aurore", "name": "Aurore", "tier": 2, "suit": Color("#FFF0F8"), "accent": Color("#FF7AD0"), "light": Color("#8AF0FF"), "hair": Color("#FF9A7A")},
+	{"id": "braise", "name": "Pompière", "tier": 2, "suit": Color("#E0B04A"), "accent": Color("#E4261A"), "light": Color("#E8FF5A"), "model": "jo_pompiere"},
+	{"id": "aurore", "name": "Fée des aurores", "tier": 2, "suit": Color("#FFF4FB"), "accent": Color("#FF6FC4"), "light": Color("#8AF0FF"), "model": "jo_fee"},
 	{"id": "eclat", "name": "Chevalière d'or", "tier": 3, "suit": Color("#E8EDF4"), "accent": Color("#F2B33D"), "light": Color("#FFF2B8"), "model": "jo_chevalier"},
-	{"id": "prisme", "name": "Prisme", "tier": 3, "suit": Color("#1E2234"), "accent": Color("#F4F1EA"), "light": Color("#FFFFFF"), "rainbow": true, "hair": Color("#DDE3FF")},
+	{"id": "prisme", "name": "Astronaute cosmique", "tier": 3, "suit": Color("#F2F0EA"), "accent": Color("#1E2234"), "light": Color("#FFFFFF"), "rainbow": true, "model": "jo_astronaute"},
 ]
 ## Couleurs de jo.glb (tools/blender/jo.py) que remplace une palette provisoire.
 const JO_WHITE := "#F4F4F1"

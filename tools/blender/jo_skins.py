@@ -349,6 +349,9 @@ import jo_skins_2  # noqa: E402
 BUILDS.update({"jo_pirate": jo_skins_2.pirate, "jo_polaire": jo_skins_2.polaire, "jo_mecano": jo_skins_2.mecano,
                "jo_jardiniere": jo_skins_2.jardiniere, "jo_princesse": jo_skins_2.princesse,
                "jo_plongeuse": jo_skins_2.plongeuse})
+# lot B : tools/blender/jo_skins_3.py
+from jo_skins_3 import BUILDS_B  # noqa: E402
+BUILDS.update(BUILDS_B)
 
 
 if __name__ == "__main__":
