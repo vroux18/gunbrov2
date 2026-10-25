@@ -100,6 +100,8 @@ var _glow_shader: Shader
 var _ring_shader: Shader
 var _dmg_labels: Array = []
 var _font: Font
+## Effets BD des impacts (onomatopées, traits de vitesse) : scripts/fx/bd_fx.gd, réglage Dev « bd_fx ».
+var bdfx: Node3D
 
 var cam_target := Vector3.ZERO
 var shake := 0.0
@@ -138,6 +140,8 @@ func build(arena_node: Node, hero_node: Node2D, joy_node: Node) -> void:
 	arena.doors_opened.connect(_on_doors_opened)
 	arena.shockwave_started.connect(_on_shockwave)
 	hero2d.damaged.connect(_on_hero_damaged)
+	# effets BD : traits de vitesse pendant la ruée (scripts/fx/bd_fx.gd)
+	hero2d.dashed.connect(func(_from: Vector2, dir: Vector2): bdfx.dash(hero, Vector3(dir.x, 0.0, dir.y), float(hero2d.dash_len)))
 
 static func p3(v: Vector2, h: float = 0.0) -> Vector3:
 	return Vector3(v.x * K, h, v.y * K)
@@ -624,6 +628,9 @@ func _build_pools() -> void:
 		l.outline_render_priority = 9
 		add_child(l)
 		_dmg_labels.append({"node": l, "t": 0.0, "life": 0.0, "vel": Vector3.ZERO, "id": 0, "sum": 0.0, "crit": false, "pop": 1.0, "s0": 0.35, "shk": 0.0, "base": Vector3.ZERO})
+	bdfx = preload("res://scripts/fx/bd_fx.gd").new()
+	add_child(bdfx)
+	bdfx.setup(_font)
 
 # ---------------------------------------------------------------- partie
 func start_room() -> void:
@@ -643,6 +650,7 @@ func stop() -> void:
 	_clear_dynamic()
 
 func _clear_dynamic() -> void:
+	bdfx.clear()
 	for k in mobs.keys():
 		(mobs[k] as Node).queue_free()
 	mobs.clear()
@@ -692,6 +700,7 @@ func _process(dt: float) -> void:
 	pfx.tick(dt)
 	_tick_fx(dt)
 	_tick_labels(dt)
+	bdfx.tick(dt)
 	_tick_pads(dt)
 	_tick_doors()
 	_place_camera(dt)
@@ -1430,6 +1439,7 @@ func _on_enemy_hit(e: Node2D, pos: Vector2, dmg: float, crit: bool) -> void:
 	_damage_number(p3(e.position), dmg, crit, id, d)
 	if crit:
 		add_shake(SHAKE_CRIT)
+		bdfx.crit(p3(e.position))
 	if dmg >= float(hero2d.dmg) * HITSTOP_BIG_MUL:
 		_minor_hit_stop(HITSTOP_BIG)
 	elif crit:
@@ -1516,6 +1526,8 @@ func _on_enemy_killed(e: Node2D) -> void:
 		m.start_death()
 		dying.append(m)
 	fxs.death("boss" if e.kind.begins_with("boss") else e.kind, pos, dir, e.elite)
+	if e.elite or e.kind.begins_with("boss"):
+		bdfx.kill(pos, e.kind.begins_with("boss"))
 	# pièces, boulons, étincelles et onde (fx3d.gd) ; le boss explose pour de bon après son chapelet (1,35 s)
 	fxs.death_burst(e.kind, pos, dir, e.elite, 1.35 if e.kind.begins_with("boss") else 0.0)
 	var acc: Color = Fx3D.ACCENT.get(e.kind, Fx3D.DEATH_ACC.get(e.kind, RED))
