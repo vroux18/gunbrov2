@@ -29,6 +29,35 @@ const ORANGE := Color("#FF7A2F")
 const K := 1.0 / 64.0
 const VIS := 1.35  # les visuels débordent un peu de la hitbox : plus lisibles sur téléphone
 
+# ---------------------------------------------------------------- réglages : coups reçus et morts
+## Coup reçu : éclat blanc net (tenu ~2 images puis éteint), écrasement dans l'axe de la balle, le corps
+## bascule dans le sens de la balle puis revient sur un ressort (la tête plus fort : rig3d.gd HR_*).
+const HIT_FLASH := 0.07  # durée de l'éclat (s)
+const HIT_FLASH_CRIT := 0.12
+const HIT_FLASH_PEAK := 0.8  # opacité du blanc (additif)
+const HIT_DMG_REF := 14.0  # dégâts d'un coup « plein » (réaction de 1)
+const HIT_CRIT := 1.6  # un critique réagit ×1,6
+const HIT_SQUASH := 0.16  # écrasement dans l'axe du coup (part de la taille), étirement en travers moitié moins
+const HIT_SQUASH_T := 0.11  # durée de l'écrasement (s)
+const HIT_LEAN := 0.2  # bascule du corps (rad) pour une réaction de 1
+const HIT_SHOVE := 0.07  # recul visuel du corps (m) pour une réaction de 1, en plus du recul simulé
+const HIT_SPRING := 24.0  # raideur du ressort du corps (rad/s)
+const HIT_DAMP := 0.4  # amortissement (sous 1 : dépasse et rebondit)
+## Masse visuelle : les gros encaissent sans broncher, les Sentinelles valsent.
+const HIT_MASS := {"drone": 0.65, "roller": 0.75, "bomber": 0.8, "copter": 0.85, "trooper": 1.0, "sniper": 1.0, "hacker": 1.0,
+	"mortar": 1.5, "shield": 1.8, "brute": 3.0, "bouncer": 3.0, "boss": 6.0, "boss2": 6.0}
+## Mort : le corps est éjecté dans le sens du dernier coup. [vitesse (m/s), saut (m/s), pivote pour tomber dans le
+## sens du coup (ceux dont la chute part vers l'avant ; la Vigie tombe déjà en arrière)]
+const DEATH_FLING := {"trooper": [4.2, 2.6, true], "sniper": [4.6, 2.6, false], "hacker": [4.2, 2.4, true], "roller": [5.5, 2.8, true],
+	"copter": [2.6, 0.0, false], "mortar": [2.4, 1.5, false], "shield": [2.0, 1.2, false], "brute": [1.1, 0.0, false],
+	"bouncer": [1.1, 0.0, false], "boss": [0.3, 0.0, false], "boss2": [0.3, 0.0, false]}
+const DEATH_DRONE_DIST := 1.2  # la Sentinelle part en vrille sur cette distance (m)
+const DEATH_DRAG := 6.0  # freinage de l'éjection (1/s) : distance ≈ vitesse / 6
+const DEATH_GRAV := 22.0  # gravité du saut (m/s²)
+const DEATH_BOUNCE := 0.35  # rebond au premier contact
+const DEATH_TILT := 0.4  # le corps penche en arrière pendant le vol (rad)
+const DEATH_ELITE := 0.7  # une élite, plus lourde, part moins loin
+
 var kind := "drone"
 var elite := false
 var body: Node3D  # partie qui tourne vers la cible
@@ -50,8 +79,18 @@ var _beam: MeshInstance3D = null  # gyro : faisceau du projecteur au sol
 var _beam_mat: StandardMaterial3D = null
 var yaw := 0.0
 var dying := 0.0  # > 0 : animation de mort en cours
-var death_dir := Vector3.ZERO  # sens du coup fatal (posé par view3d) : la Sentinelle part en vrille par là
+var death_dir := Vector3.ZERO  # sens du coup fatal (posé par view3d) : le corps est éjecté par là
 var ground_y := 0.0
+var _hx := Vector3.ZERO  # ressort du corps (bascule et recul visuel), horizontal
+var _hv := Vector3.ZERO
+var _sq := 0.0  # écrasement en cours (0..1)
+var _sq_dir := Vector3(0, 0, 1)
+var _blink := 1.0  # pirate : échelle de l'éclipse
+var _fl_v := Vector3.ZERO  # éjection de mort : vitesse horizontale
+var _fl_vy := 0.0
+var _fl_y := 0.0
+var _fl_yaw0 := 0.0
+var _fl_yaw1 := 0.0
 
 static var _ring_shader: Shader = null
 
@@ -413,6 +452,24 @@ func _build_boss(r: float) -> void:
 # ---------------------------------------------------------------- animation
 var _punch := 0.0
 
+## Coup reçu : `dir` sens de la balle (monde, horizontal), `dmg` dégâts. Éclat, écrasement, bascule et ressort
+## (réglages HIT_* en tête de fichier) ; la tête et les pièces du modèle sculpté réagissent dans rig3d.gd.
+## Rend la force de la réaction (0..~1,6), pour doser les étincelles.
+func hit(dir: Vector3, dmg: float, crit: bool) -> float:
+	var d := Vector3(dir.x, 0.0, dir.z)
+	d = d.normalized() if d.length_squared() > 0.0001 else Vector3(0, 0, 1)
+	var amt := clampf(dmg / HIT_DMG_REF, 0.35, 1.0) * (HIT_CRIT if crit else 1.0) / float(HIT_MASS.get(kind, 1.0)) * (0.8 if elite else 1.0)
+	amt = minf(amt, 1.6)
+	_hv += d * amt * HIT_SPRING * 1.3
+	_sq = maxf(_sq, minf(amt, 1.0))
+	_sq_dir = d
+	if rig != null:
+		rig.hit_flash(HIT_FLASH_CRIT if crit else HIT_FLASH, HIT_FLASH_PEAK, crit)
+		rig.hit_react(Basis(Vector3.UP, -yaw) * d, amt)  # repère du modèle : celui du corps, tourné de yaw
+		return amt
+	flash()
+	return amt
+
 func flash() -> void:
 	_flash_t = 0.09
 	_punch = 1.0
@@ -432,10 +489,7 @@ func sync(e: Node2D, dt: float) -> void:
 	if f.length() > 0.01:
 		var target := atan2(f.x, f.y)
 		yaw = lerp_angle(yaw, target, clampf(dt * 12.0, 0.0, 1.0))
-	body.rotation.y = yaw
-	# petit sursaut à l'impact
-	_punch = maxf(0.0, _punch - dt * 9.0)
-	body.scale = Vector3(1.0 + _punch * 0.12, 1.0 - _punch * 0.08, 1.0 + _punch * 0.12)
+	_tick_hit(dt)
 	var st: String = e.state
 	if st != _last_state:
 		if rig != null and (_last_state == "aim" or (_last_state == "tell" and kind in ["mortar", "hacker"])):
@@ -534,7 +588,8 @@ func sync(e: Node2D, dt: float) -> void:
 		_beam_mat.albedo_color = Color(c, a)
 	if kind == "hacker":
 		# éclipse de la téléportation : le pirate se résorbe, puis réapparaît ailleurs
-		body.scale = Vector3.ONE * (maxf(0.05, 1.0 - _state_el / 0.15) if st == "blink" else 1.0)
+		_blink = maxf(0.05, 1.0 - _state_el / 0.15) if st == "blink" else 1.0
+	_body_xf()
 	if _elite_ring != null:
 		_elite_ring.rotation.y = t * 1.5
 	if _flash_t > 0.0:
@@ -543,6 +598,40 @@ func sync(e: Node2D, dt: float) -> void:
 		if _flash_t <= 0.0:
 			for mi in _meshes:
 				(mi as MeshInstance3D).material_overlay = null
+
+## Ressort du corps (bascule, recul) et écrasement, avancés d'une image.
+func _tick_hit(dt: float) -> void:
+	_punch = maxf(0.0, _punch - dt * 9.0)
+	_sq = maxf(0.0, _sq - dt / HIT_SQUASH_T)
+	if _hx.length_squared() < 0.000001 and _hv.length_squared() < 0.0001:
+		_hx = Vector3.ZERO
+		_hv = Vector3.ZERO
+		return
+	var sd := minf(dt, 0.05) * 0.5
+	for i in range(2):
+		_hv += (-HIT_SPRING * HIT_SPRING * _hx - 2.0 * HIT_DAMP * HIT_SPRING * _hv) * sd
+		_hx += _hv * sd
+
+## Pose du corps : cap, bascule dans le sens du coup (le pied reste au sol), écrasement dans l'axe du coup,
+## petit sursaut des anciens modèles, éclipse du pirate.
+func _body_xf() -> void:
+	var b := Basis(Vector3.UP, yaw)
+	if _sq > 0.0:
+		# a·I + (c − a)·d·dᵀ : écrasé (c) dans l'axe du coup, étiré (a) en travers
+		var s := _sq * _sq * HIT_SQUASH
+		var a := 1.0 + s * 0.5
+		var c := 1.0 - s
+		var d := _sq_dir
+		var m := Basis(Vector3(a, 0, 0) + d * ((c - a) * d.x), Vector3(0, a, 0) + d * ((c - a) * d.y), Vector3(0, 0, a) + d * ((c - a) * d.z))
+		b = m * b
+	var xl := _hx.length()
+	if xl > 0.0005:
+		b = Basis(Vector3.UP.cross(_hx / xl), minf(xl, 1.6) * HIT_LEAN) * b
+	if _punch > 0.0:
+		b = Basis.from_scale(Vector3(1.0 + _punch * 0.12, 1.0 - _punch * 0.08, 1.0 + _punch * 0.12)) * b
+	if _blink != 1.0:
+		b = b.scaled(Vector3.ONE * _blink)
+	body.transform = Transform3D(b, _hx * HIT_SHOVE)
 
 ## Mort : le garde s'effondre, les machines s'affaissent ; le rendu supprime le nœud à la fin.
 ## Faisceau du projecteur du gyro : un cône posé au sol (même ouverture et portée que la simulation).
@@ -607,13 +696,53 @@ func start_death() -> void:
 		actor.die()
 	if rig != null:
 		rig.die()
+	# éjection dans le sens du dernier coup (réglages DEATH_* en tête de fichier)
+	_sq = 0.0
+	_hx = Vector3.ZERO
+	_hv = Vector3.ZERO
+	_blink = 1.0
+	_fl_yaw0 = yaw
+	_fl_yaw1 = yaw
+	var fl: Array = DEATH_FLING.get(kind, [0.0, 0.0, false])
+	var d := Vector3(death_dir.x, 0.0, death_dir.z)
+	if d.length_squared() > 0.0001 and kind != "drone":
+		d = d.normalized()
+		var k := DEATH_ELITE if elite else 1.0
+		_fl_v = d * float(fl[0]) * k
+		_fl_vy = float(fl[1]) * k
+		if bool(fl[2]):
+			# il pivote sous le choc et s'effondre dans le sens du coup (sa chute part vers l'avant du modèle)
+			_fl_yaw1 = yaw + wrapf(atan2(d.x, d.z) - yaw, -PI, PI)
+	_body_xf()
+
+## Éjection du corps : glisse en freinant, petit saut et un rebond, penche en arrière pendant le vol,
+## pivote vers le sens du coup. Vrai tant qu'elle pilote le corps.
+func _fling(dt: float) -> void:
+	if _fl_v.length_squared() < 0.0001 and _fl_y <= 0.0 and _fl_vy <= 0.0 and _fl_yaw1 == _fl_yaw0:
+		return
+	position += _fl_v * dt
+	_fl_v *= exp(-DEATH_DRAG * dt)
+	if _fl_vy != 0.0 or _fl_y > 0.0:
+		_fl_vy -= DEATH_GRAV * dt
+		_fl_y += _fl_vy * dt
+		if _fl_y <= 0.0:
+			_fl_y = 0.0
+			_fl_vy = -_fl_vy * DEATH_BOUNCE if -_fl_vy > 1.0 else 0.0
+	position.y = ground_y + _fl_y
+	var k := 1.0 - pow(1.0 - clampf(dying / 0.3, 0.0, 1.0), 3.0)
+	var b := Basis(Vector3.UP, lerpf(_fl_yaw0, _fl_yaw1, k))
+	var sp := _fl_v.length()
+	if sp > 0.05:
+		var tilt := DEATH_TILT * clampf(sp / 4.0, 0.0, 1.0) * (1.0 if _fl_y > 0.0 else 0.4)
+		b = Basis(Vector3.UP.cross(_fl_v / sp), tilt) * b
+	body.transform = Transform3D(b, Vector3.ZERO)
 
 ## Sentinelle abattue : petit sursaut, puis chute en vrille (spirale qui se resserre) jusqu'au sol vers 0,5 s.
 func _drone_fall(dt: float) -> void:
 	var k := clampf(dying / 0.5, 0.0, 1.0)
 	var d := death_dir if death_dir.length() > 0.01 else Vector3(0, 0, 1)
 	var sw := Vector3(sin(dying * 16.0), 0.0, cos(dying * 16.0) - 1.0) * 0.22 * (1.0 - k)
-	body.position = d * 0.9 * (1.0 - (1.0 - k) * (1.0 - k)) + sw + Vector3(0, 0.45 * sin(PI * k), 0)
+	body.position = d * DEATH_DRONE_DIST * (1.0 - (1.0 - k) * (1.0 - k)) + sw + Vector3(0, 0.45 * sin(PI * k), 0)
 	body.rotation.y += dt * 20.0 * (1.0 - k * 0.8)
 	body.rotation.z = lerpf(body.rotation.z, 0.7, clampf(dt * 8.0, 0.0, 1.0))
 
@@ -624,6 +753,8 @@ func tick_death(dt: float) -> bool:
 		var dt_end: float = DEATH_T.get(kind, 1.0)
 		if kind == "drone":
 			_drone_fall(dt)
+		else:
+			_fling(dt)
 		if dying > dt_end - 0.35:
 			body.scale = Vector3.ONE * maxf(0.01, (dt_end - dying) / 0.35)
 		return dying > dt_end

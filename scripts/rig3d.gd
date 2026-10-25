@@ -182,6 +182,93 @@ func die() -> void:
 	dead = true
 	_die_t = 0.0
 
+# ---------------------------------------------------------------- coups reçus (mobs seulement ; Jo a hit())
+## Mob touché (scripts/mob3d.gd) : éclat blanc net et court, tête qui part en arrière dans le sens de la balle
+## puis revient sur un ressort (elle dépasse un peu), pièces qui vibrent un instant. Réglages :
+const HR_HEAD := 0.45  # bascule max de la tête (rad) pour un coup plein
+const HR_ROOT := 0.08  # bascule de la pièce principale (le corps entier bascule déjà dans mob3d)
+const HR_SPRING := 30.0  # raideur du ressort (rad/s) : plus haut, retour plus sec
+const HR_DAMP := 0.35  # amortissement : sous 1, la tête dépasse sa pose et rebondit
+const HR_VIB := 0.14  # vibration des pièces (rad)
+const HR_VIB_T := 0.16  # durée de la vibration (s)
+const HF_HOLD := 0.034  # éclat : plein blanc tenu ~2 images, puis chute rapide
+const HF_GAP := 0.03  # sous un feu nourri, noir minimal entre deux éclats (le modèle reste lisible)
+var _hr_x := Vector3.ZERO  # déplacement du ressort (repère du modèle, horizontal)
+var _hr_v := Vector3.ZERO
+var _hr_vib := 0.0
+var _hr_ready := false
+var _hr_head: Node3D = null
+var _hr_root: Array = []
+var _hr_loose: Array = []
+var _hr_saved: Array = []  # [nœud, transform] d'avant la réaction : rendus avant la pose suivante
+var _hf_dur := 0.0
+var _hf_peak := 0.0
+
+## Éclat de coup : `peak` (0..1) tenu HF_HOLD puis éteint en `dur` ; `force` (critique) passe outre le noir.
+func hit_flash(dur: float, peak: float, force: bool = false) -> void:
+	if _hf_dur > 0.0 and _flash_t > 0.0 and not force and (_hf_dur - _flash_t) < HF_HOLD + HF_GAP:
+		return
+	_hf_dur = dur
+	_hf_peak = peak
+	_flash_t = 0.0
+	flash(dur)
+
+## Coup reçu : `dir` sens de la balle dans le repère du modèle, `amount` ~0..1,5 (dégâts, masse, critique).
+func hit_react(dir: Vector3, amount: float) -> void:
+	if dead:
+		return
+	if not _hr_ready:
+		_hr_ready = true
+		for nm in parts:
+			var n: Node3D = parts[nm]
+			if "_glow" in String(nm):
+				continue
+			if n.get_parent() == model:
+				_hr_root.append(n)
+			elif String(nm) == "head":
+				_hr_head = n
+			else:
+				_hr_loose.append(n)
+	var d := Vector3(dir.x, 0.0, dir.z)
+	if d.length_squared() < 0.0001:
+		d = Vector3(0, 0, -1)
+	_hr_v += d.normalized() * amount * HR_SPRING * 1.3
+	_hr_vib = maxf(_hr_vib, minf(amount * 1.3, 1.0))
+
+func _hr_restore() -> void:
+	for s in _hr_saved:
+		if is_instance_valid(s[0]):
+			(s[0] as Node3D).transform = s[1]
+	_hr_saved.clear()
+
+func _hr_turn(n: Node3D, b: Basis) -> void:
+	_hr_saved.append([n, n.transform])
+	n.transform.basis = b * n.transform.basis
+
+## Après la pose de l'image : ressort de la tête et du corps, vibration des pièces.
+func _hr_apply(dt: float) -> void:
+	if _hr_vib <= 0.0 and _hr_x.length_squared() < 0.000001 and _hr_v.length_squared() < 0.0001:
+		return
+	var sd := minf(dt, 0.05) * 0.5
+	for i in range(2):
+		_hr_v += (-HR_SPRING * HR_SPRING * _hr_x - 2.0 * HR_DAMP * HR_SPRING * _hr_v) * sd
+		_hr_x += _hr_v * sd
+	_hr_vib = maxf(0.0, _hr_vib - dt / HR_VIB_T)
+	var xl := _hr_x.length()
+	if xl > 0.0005:
+		var ax := Vector3.UP.cross(_hr_x / xl)
+		if _hr_head != null:
+			_hr_turn(_hr_head, Basis(ax, minf(xl, 1.5) * HR_HEAD))
+		for n in _hr_root:
+			_hr_turn(n, Basis(ax, minf(xl, 1.5) * HR_ROOT))
+	if _hr_vib > 0.0:
+		var a := HR_VIB * _hr_vib * _hr_vib
+		var i := 0
+		for n in _hr_loose:
+			var ph := t * 70.0 + i * 1.7
+			_hr_turn(n, Basis.from_euler(Vector3(sin(ph), sin(ph * 1.3 + 0.5), sin(ph * 0.7 + 1.1)) * a))
+			i += 1
+
 func revive() -> void:
 	dead = false
 	_die_t = 0.0
@@ -214,18 +301,26 @@ func _process(dt: float) -> void:
 		(n as Node3D).position.y = 0.012 * sin(t * 2.2)
 	if _flash_t > 0.0:
 		_flash_t -= dt
-		_flash_mat.albedo_color = Color(flash_color.r, flash_color.g, flash_color.b, clampf(_flash_t * 10.0, 0.0, 0.85))
+		var fa := clampf(_flash_t * 10.0, 0.0, 0.85)
+		if _hf_dur > 0.0:  # coup reçu par un mob (hit_flash) : plein blanc bref, puis chute rapide
+			fa = _hf_peak if _hf_dur - _flash_t < HF_HOLD else _hf_peak * clampf(_flash_t / maxf(_hf_dur - HF_HOLD, 0.001), 0.0, 1.0)
+		_flash_mat.albedo_color = Color(flash_color.r, flash_color.g, flash_color.b, fa)
 		if _flash_t <= 0.0:
 			_overlay(null)
 			_veiled = false
+			_hf_dur = 0.0
 	if _flash_t <= 0.0 and (invuln > 0.0 or _veiled):
 		_veil(dt)
+	if not _hr_saved.is_empty():
+		_hr_restore()
 	if dead:
 		_die_t += dt
 		animate_death(_die_t)
 		return
 	recoil = maxf(0.0, recoil - dt * 9.0)
 	animate(dt)
+	if _hr_ready:
+		_hr_apply(dt)
 
 func _overlay(m: Material) -> void:
 	for mi in meshes:
@@ -495,6 +590,67 @@ const GEST_T := 2.0
 func set_move(v: Vector3) -> void:
 	move_vel = v
 
+# ---------------------------------------------------------------- Jo : recul du tir
+## Ressenti du tir par arme portée (clé : id d'arme de MUZZLE). Le recul est un ressort : coup sec (pic en
+## ~0,04 s) puis retour souple avec un léger rebond. Champs : « arm » bras et canon qui se cabrent (rad),
+## « push » arme qui recule dans la main (m), « torso » buste qui part en arrière (rad), « w » raideur du
+## ressort (rad/s, plus bas = retour plus lent, arme lourde), « fx » style de flamme (fx3d.shot_muzzle),
+## « slide » tout le corps glisse en arrière (m), « cam » recul de caméra (× view3d.CAM_KICK), « heavy »
+## tremblement directionnel bref de la caméra. Caméra haute : ce qui se lit le mieux est ce qui recule dans le
+## plan du sol (arme, buste, corps) ; le bras qui se cabre se voit surtout de profil.
+const GUN_FEEL := {
+	"": {"arm": 0.2, "push": 0.07, "torso": 0.07, "slide": 0.02, "w": 32.0, "fx": "blaster", "cam": 1.0, "heavy": 0.0},
+	"blaster_garde": {"arm": 0.24, "push": 0.08, "torso": 0.09, "slide": 0.025, "w": 29.0, "fx": "garde", "cam": 1.15, "heavy": 0.0},
+	"fusil_impulsion": {"arm": 0.14, "push": 0.1, "torso": 0.12, "slide": 0.035, "w": 26.0, "fx": "impulsion", "cam": 1.25, "heavy": 0.04},
+	"riveteuse": {"arm": 0.3, "push": 0.11, "torso": 0.17, "slide": 0.05, "w": 21.0, "fx": "rivet", "cam": 1.5, "heavy": 0.07},
+	"pistolet_neon": {"arm": 0.18, "push": 0.055, "torso": 0.05, "slide": 0.012, "w": 36.0, "fx": "rayon", "cam": 0.8, "heavy": 0.0},
+}
+const KICK_GAIN := 1.0   # force globale du recul de Jo (bras, arme, buste)
+const KICK_DAMP := 0.5   # amortissement du ressort (0,3 : rebondit ; 0,8 : mou, sans rebond)
+const KICK_MAX := 1.35   # le recul cumulé d'une rafale ne dépasse pas ce multiple d'un tir seul
+const HEAT_PER_SHOT := 0.12  # chauffe du canon par tir (fumée en rafale continue au-delà de 0,5)
+const HEAT_COOL := 0.7       # refroidissement par seconde
+var _jo_kick := 0.0  # recul courant (1 = pic d'un tir seul)
+var _jo_kick_v := 0.0
+var _jo_shot_frame := -1
+var jo_heat := 0.0  # chauffe du canon (0 à 1,5)
+
+func gun_feel() -> Dictionary:
+	return GUN_FEEL.get(_gun_id, GUN_FEEL[""])
+
+## Tir de Jo : un coup de recul par salve (les tirs d'une même image n'en donnent qu'un). Vrai pour le premier
+## tir de la salve (flamme complète, douille), faux pour les suivants (flamme seule).
+func shot(strength: float = 1.0) -> bool:
+	var f := Engine.get_process_frames()
+	if f == _jo_shot_frame:
+		return false
+	_jo_shot_frame = f
+	var w: float = gun_feel()["w"]
+	# impulsion qui donne un pic de 1 (ressort amorti), réduite quand le bras est déjà relevé : une rafale
+	# reste bornée au lieu de cumuler
+	var z := KICK_DAMP
+	var s := sqrt(1.0 - z * z)
+	var peak := exp(-z / s * atan2(s, z))
+	_jo_kick_v += w / peak * strength * clampf(1.0 - 0.6 * _jo_kick, 0.25, 1.0)
+	jo_heat = minf(1.5, jo_heat + HEAT_PER_SHOT)
+	return true
+
+func _jo_tick_kick(dt: float) -> void:
+	jo_heat = maxf(0.0, jo_heat - dt * HEAT_COOL)
+	if _jo_kick == 0.0 and _jo_kick_v == 0.0:
+		return
+	var w: float = gun_feel()["w"]
+	# pas fixes (stable même à 30 i/s avec un ressort raide)
+	var n := maxi(1, ceili(dt / 0.008))
+	var h := dt / n
+	for i in range(n):
+		_jo_kick_v += (-w * w * _jo_kick - 2.0 * KICK_DAMP * w * _jo_kick_v) * h
+		_jo_kick += _jo_kick_v * h
+	_jo_kick = clampf(_jo_kick, -0.4, KICK_MAX)
+	if absf(_jo_kick) < 0.001 and absf(_jo_kick_v) < 0.01:
+		_jo_kick = 0.0
+		_jo_kick_v = 0.0
+
 ## Coup reçu : le buste part en arrière, la tête claque, le corps s'écrase un instant.
 func hit(side: float = 0.0) -> void:
 	_jo_hit_t = 1.0
@@ -557,6 +713,9 @@ func _jo_reset() -> void:
 	_jo_hit_t = 0.0
 	_jo_cheer_t = -1.0
 	_jo_gest = -1
+	_jo_kick = 0.0
+	_jo_kick_v = 0.0
+	jo_heat = 0.0
 	model.scale = Vector3.ONE
 
 ## Chute de Jo : bascule en arrière, bras levés.
@@ -570,6 +729,10 @@ func animate_death(dt_total: float) -> void:
 
 ## Animation bipède par défaut (Jo ; les mobs ont chacun la leur dans scripts/mobs/).
 func animate(dt: float) -> void:
+	# --- recul du tir (ressort), réglages de l'arme portée
+	_jo_tick_kick(dt)
+	var gf := gun_feel()
+	var kk := _jo_kick * KICK_GAIN * shooting
 	# --- inertie : le corps rattrape le déplacement voulu, l'accélération le fait pencher
 	var prev := _jo_vel
 	_jo_vel = _jo_vel.lerp(move_vel, clampf(dt * 8.0, 0.0, 1.0))
@@ -641,7 +804,7 @@ func animate(dt: float) -> void:
 		var u := clampf((_jo_cheer_t - 0.04) / 0.5, 0.0, 1.0)
 		model.rotation.y = TAU * smoothstep(0.0, 1.0, u) * (1.0 - amp)
 	var hop := 0.1 * sin(clampf((_jo_cheer_t - 0.04) / 0.5, 0.0, 1.0) * PI) * (1.0 - amp) if _jo_cheer_t >= 0.0 else 0.0
-	model.position = Vector3(0, hop, -0.07 * hk)
+	model.position = Vector3(0, hop, -0.07 * hk - float(gf["slide"]) * kk)
 	model.scale = Vector3(1.0 + 0.09 * hk, 1.0 - 0.11 * hk, 1.0 + 0.09 * hk)
 	# --- torse : penché dans le sens de la course, torsion de la marche, respiration et appui au repos
 	var twist := _jo_hips * 0.3 + s * 0.12 * amp * (1.0 - shooting * 0.7)
@@ -650,6 +813,10 @@ func animate(dt: float) -> void:
 	var t_off := Vector3(0.006 * sway, absf(c) * 0.035 * amp + breathe - 0.025 * hk, -0.02 * hk)
 	if _jo_gest == 3:
 		t_rot.x -= 0.14 * ge
+	# recul : le buste part en arrière et l'épaule de l'arme recule (armes lourdes surtout)
+	t_rot.x -= float(gf["torso"]) * kk
+	t_rot.y += float(gf["torso"]) * 0.6 * kk
+	t_off.z -= 0.012 * kk
 	_pose("torso", t_rot, t_off)
 	# --- jambes : orientées comme les hanches (le buste peut viser ailleurs), restent d'aplomb
 	var tb: Basis = (rest["torso"] as Transform3D).basis * Basis.from_euler(t_rot)
@@ -668,14 +835,17 @@ func animate(dt: float) -> void:
 	# --- tête : regarde la visée malgré la torsion, hochement, regard qui flâne au repos
 	var h_rot := Vector3(-c * 0.05 * amp - 0.1 * run + _jo_look.y - 0.32 * hk - 0.22 * ck, -s * 0.1 * amp - twist + _jo_look.x, -0.15 * hk * _jo_hit_side + 0.12 * ck * sin(_jo_cheer_t * 6.0))
 	# --- bras : balancier en course, visée à deux mains quand on tire
-	var aim_r := Vector3(-PI * 0.5 + recoil * 0.35, -twist, 0.05)
-	var aim_l := Vector3(-PI * 0.44, -0.55 - twist, -0.35)
+	# visée : le recul cabre le bras de l'arme (canon qui monte), la main d'appui suit un peu
+	var aim_r := Vector3(-PI * 0.5 + recoil * 0.35 - float(gf["arm"]) * kk, -twist, 0.05)
+	var aim_l := Vector3(-PI * 0.44 - float(gf["arm"]) * 0.6 * kk, -0.55 - twist, -0.35)
 	var sw := s * 0.7 * amp * _jo_step.y
 	var swing_r := Vector3(-sw + 0.05 * sway, 0, 0.08 + 0.12 * run)
 	var swing_l := Vector3(sw - 0.05 * sway, 0, -0.08 - 0.12 * run)
 	var arm_r := swing_r.lerp(aim_r, shooting)
 	var arm_l := swing_l.lerp(aim_l, shooting)
-	var gun_rot := Vector3.ZERO
+	# l'arme se cabre encore un peu dans la main et recule vers l'épaule (+y du bras : vers l'arrière)
+	var gun_rot := Vector3(-float(gf["arm"]) * 0.45 * kk, 0, 0)
+	var gun_off := Vector3(0, float(gf["push"]) * kk, 0)
 	match _jo_gest:
 		0:  # regarde son blaster, le fait pivoter
 			arm_r = arm_r.lerp(Vector3(-1.35, 0.75, 0.25), ge)
@@ -702,4 +872,4 @@ func animate(dt: float) -> void:
 	_pose("head", h_rot)
 	_pose("arm_r", arm_r)
 	_pose("arm_l", arm_l)
-	_pose("gun", gun_rot)
+	_pose("gun", gun_rot, gun_off)

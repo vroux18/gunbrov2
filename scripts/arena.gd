@@ -881,6 +881,7 @@ func _bullet_hit(b, e: Node2D) -> bool:
 	if e.freeze_t > 0.0 and hero.has_evo("blizzard"):
 		d *= 2.0
 	enemy_hit.emit(e, b.position, d, b.crit)
+	e.knock(b.vel, d)  # recul (réglages KNOCK_* dans enemy.gd)
 	e.hit(d)
 	sfx.play("hit", randf_range(0.8, 1.2), -10.0)
 	if b.elem != 0 and not e.dead:

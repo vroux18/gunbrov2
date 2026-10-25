@@ -41,6 +41,7 @@ var debris: FxPool # éclats de coque (prismes éclairés)
 var decal: FxPool  # ondes, hexagones, lueurs au sol, sceaux
 var scorch: FxPool # brûlures au sol
 var trail: FxPool  # par image : traînées des projectiles et du butin
+var marks: FxPool  # marques d'impact sur les caisses (wall_impact)
 var _trail_n := 0
 var _later: Array = []  # [heure, Callable] : secousses et lumières d'une séquence
 var _drone_puff := {}   # id du Mob3D mourant -> prochaine bouffée de fumée
@@ -58,13 +59,14 @@ func setup(v: Node3D) -> void:
 	smoke = FxPool.new(self, quad, mix_sh, 320, {"tex": puff, "fade_in": 0.1, "fade_pow": 1.0, "rise": 0.9, "spin": 1.2, "shade": 0.85}, 0)
 	var prism := PrismMesh.new()
 	prism.size = Vector3(1, 1, 1)
-	debris = FxPool.new(self, prism, load("res://shaders/fx_debris.gdshader"), 320, {}, 0)
+	debris = FxPool.new(self, prism, load("res://shaders/fx_debris.gdshader"), 480, {}, 0)  # 480 : boulons des coups et des morts
 	# feu en fondu (pas additif) : les bouffées gardent leur forme ronde au lieu de saturer en blanc
 	fire = FxPool.new(self, quad, mix_sh, 256, {"tex": puff, "fade_pow": 1.8, "spin": 2.0, "energy": 1.0, "shade": 0.55}, 1)
 	trail = FxPool.new(self, quad, add_sh, 480, {"tex": radial, "energy": 1.0}, 1, true)
 	glow = FxPool.new(self, quad, add_sh, 1024, {"tex": radial, "energy": 1.0, "fade_pow": 1.2}, 2)
 	star = FxPool.new(self, quad, add_sh, 64, {"tex": load("res://assets/fx/star.png"), "energy": 1.0, "fade_pow": 1.5, "spin": 1.5}, 3)
 	flare = FxPool.new(self, quad, add_sh, 64, {"tex": load("res://assets/fx/muzzle.png"), "energy": 1.0, "fade_pow": 0.7, "streak": 0.0}, 3)
+	marks = FxPool.new(self, quad, load("res://shaders/fx_mark.gdshader"), WALL_MARKS, {}, -2)
 
 ## Vide tout (changement de salle) : on avance l'horloge, toutes les particules en cours sont mortes.
 func clear() -> void:
@@ -86,7 +88,7 @@ func tick(dt: float) -> void:
 			i += 1
 
 func _sync_time() -> void:
-	for p in [glow, star, flare, fire, smoke, debris, decal, scorch, trail]:
+	for p in [glow, star, flare, fire, smoke, debris, decal, scorch, trail, marks]:
 		(p as FxPool).set_time(now)
 
 func later(delay: float, cb: Callable) -> void:
@@ -464,6 +466,95 @@ func chest_burst(p: Vector3) -> void:
 	embers(g + UP * 0.6, 14, 1.5, Color(1.0, 0.85, 0.4), GOLD, 1.6, 0.5)
 	wave(g + UP * 0.06, UP, GOLD, 0.6, 4.0, 0.7, 0.0, 3, 0.0, 0.0, 2.0)
 
+# ---------------------------------------------------------------- coups et morts des ennemis (robots : pas de sang)
+## Réglages des coups reçus et des morts (view3d.gd appelle hit_enemy et death_burst).
+const HIT_BLUE := Color(0.45, 0.78, 1.0)  # étincelles électriques
+const HIT_ORANGE := Color(1.0, 0.58, 0.18)  # étincelles de métal chauffé
+const HIT_METAL := [Color("#C8CEDC"), Color("#9AA4B6"), Color("#5A6170"), Color("#3A4058")]
+const HIT_SPARKS := 5  # étincelles par coup (critique ×2)
+const HIT_BITS := 1  # éclats (boulon, plaquette) par coup ; critique 3
+const DEATH_BOLTS := 7  # boulons à la mort d'un petit ennemi (× sa taille)
+const DEATH_PLATES := 3  # plaques de coque (× sa taille)
+const DEATH_PART_LIFE := 2.1  # les pièces rebondissent puis restent au sol ~1,5 s avant de rétrécir
+## Taille de la mort par genre (pièces, étincelles, onde) ; élite ×1,35.
+const DEATH_SIZE := {"drone": 0.8, "roller": 0.9, "bomber": 0.7, "mortar": 1.3, "shield": 1.35, "brute": 1.9, "bouncer": 1.9, "boss": 2.8, "boss2": 2.8}
+## Genres du monde 2 (absents de PALETTE et ACCENT).
+const DEATH_PAL := {
+	"roller": [Color("#E8ECF4"), Color("#2C2A4A"), Color("#FF3CAC"), Color("#9AA4B6")],
+	"hacker": [Color("#C8CEDC"), Color("#23283C"), Color("#B6FF3C"), Color("#5A6170")],
+	"copter": [Color("#E8ECF4"), Color("#2C3350"), Color("#3C8CFF"), Color("#FF4D6D")],
+	"bouncer": [Color("#C8CEDC"), Color("#2C2A3A"), Color("#FF3CAC"), Color("#FF8A3C")],
+	"boss2": [Color("#C8CEDC"), Color("#2C2A4A"), Color("#FF3CAC"), Color("#3C8CFF"), Color("#FFC83A")],
+}
+const DEATH_ACC := {"roller": Color("#FF3CAC"), "hacker": Color("#B6FF3C"), "copter": Color("#3C8CFF"), "bouncer": Color("#FF5AB4"), "boss2": Color("#FF3CAC")}
+
+## Boulons (petits prismes allongés) et plaques (plats) projetés dans `d`, qui rebondissent au sol et y restent.
+func death_parts(pos: Vector3, d: Vector3, bolts: int, plates: int, spd: float, pal: Array, life: float, hot: float = 0.0, delay: float = 0.0, size: float = 1.0) -> void:
+	for i in range(bolts + plates):
+		var plate := i >= bolts
+		var side := Vector3(randf_range(-0.7, 0.7), 0.0, randf_range(-0.7, 0.7))
+		var v := (d * randf_range(0.6, 1.3) + side) * spd * randf_range(0.45, 1.0) + UP * randf_range(2.5, 5.5)
+		var spin := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)).normalized() * randf_range(10.0, 22.0)
+		var s := (randf_range(0.11, 0.17) if plate else randf_range(0.055, 0.08)) * size
+		var asp := randf_range(0.22, 0.35) if plate else randf_range(1.8, 2.6)
+		var c: Color = pal[i % pal.size()] if plate else HIT_METAL[i % HIT_METAL.size()]
+		var off := Vector3(randf_range(-0.12, 0.12), randf_range(-0.1, 0.1), randf_range(-0.12, 0.12))
+		debris.put(pos + off, v, Vector3(now + delay + randf() * 0.03, life * randf_range(0.8, 1.15), 16.0), Vector3(s, asp, 1.2), c, Color(spin.x, spin.y, spin.z, hot * randf_range(0.4, 1.0)))
+
+## Coup qui porte sur un ennemi : claque blanche, gerbe d'étincelles bleues et orangées et un éclat dans le
+## sens de la balle `d` (elles sortent de l'autre côté, relevées pour se lire d'en haut), petite éclaboussure
+## vers le tireur ; critique : étoile dorée, onde et gerbe dorée. `amt` : force de la réaction (mob3d.hit).
+func hit_enemy(p: Vector3, d: Vector3, crit: bool, amt: float) -> void:
+	var c := p - _cam_fwd() * 0.35  # devant la coque, pas dedans
+	var k := clampf(amt, 0.6, 1.5)
+	flash(c, Color(1, 1, 1), 0.42 * k, 0.045)
+	flash(c, HIT_BLUE, 0.7 * k, 0.08)
+	var fwd := (d + UP * 0.45).normalized()
+	var n := int(round(HIT_SPARKS * k)) * (2 if crit else 1)
+	sparks(c, fwd, n, 9.0, 0.45, Color(0.85, 0.95, 1.0), HIT_BLUE, 0.22, 10.0, 0.055, 0.03)
+	sparks(c, fwd, maxi(2, n / 2), 7.0, 0.6, Color(1, 0.95, 0.8), HIT_ORANGE, 0.26, 12.0, 0.05, 0.028)
+	sparks(c, (-d + UP * 0.7).normalized(), 2, 4.0, 0.5, Color(1, 1, 1), HIT_BLUE, 0.12, 6.0, 0.045, 0.02)
+	var bits := (3 if crit else HIT_BITS) + (1 if amt > 1.05 else 0)
+	death_parts(c, d, bits - bits / 2, bits / 2, 3.0, HIT_METAL, 0.8, 0.5, 0.0, 0.85)
+	if crit:
+		sparkle(c, Color(1.0, 0.82, 0.35), 1.6, 0.16)
+		wave(c, -_cam_fwd(), Color(1.0, 0.75, 0.3), 0.2, 1.4, 0.2, 0.18)
+		sparks(c, fwd, 8, 11.0, 0.6, Color(1, 0.95, 0.7), Color(1.0, 0.55, 0.15), 0.32, 9.0, 0.07, 0.035)
+
+## Mort d'un ennemi, en plus de death() (propre au genre) : claque blanche, boulons et plaques projetés dans le
+## sens du dernier coup `d` qui rebondissent et restent au sol, étincelles bleues et orangées, onde blanche et
+## poussière au ras du sol. Plus gros pour les élites et les gros ; `delay` : mort différée (boss).
+func death_burst(kind: String, pos: Vector3, d: Vector3, elite: bool, delay: float = 0.0) -> void:
+	var s: float = float(DEATH_SIZE.get(kind, 1.0)) * (1.35 if elite else 1.0)
+	var pal: Array = PALETTE.get(kind, DEATH_PAL.get(kind, PALETTE["trooper"]))
+	var acc: Color = ACCENT.get(kind, DEATH_ACC.get(kind, Color("#FF4D6D")))
+	if elite:
+		pal = pal + [GOLD]
+	if d.length_squared() < 0.0001:
+		d = Vector3(randf_range(-1, 1), 0.0, randf_range(-1, 1))
+	d = Vector3(d.x, 0.0, d.z).normalized()
+	var g := Vector3(pos.x, 0.0, pos.z)
+	var c := g + UP * (0.5 + 0.2 * s) - _cam_fwd() * 0.45
+	flash(c, WHITE_HOT, 1.1 * s, 0.06, delay)
+	death_parts(c, d, int(DEATH_BOLTS * s), int(DEATH_PLATES * s), 4.0 + s, pal, DEATH_PART_LIFE, 0.6, delay, minf(1.0 + (s - 1.0) * 0.3, 1.5))
+	sparks(c, (d + UP * 0.5).normalized(), int(10 * s), 11.0, 0.55, Color(0.85, 0.95, 1.0), HIT_BLUE, 0.4, 9.0, 0.07, 0.04, delay)
+	sparks(c, (d + UP * 0.7).normalized(), int(8 * s), 9.0, 0.8, Color(1, 0.95, 0.8), HIT_ORANGE, 0.45, 10.0, 0.07, 0.035, delay)
+	# onde au sol : anneau blanc net, poussière qui file au ras du sol (poussée vers le sens du coup)
+	wave(g + UP * 0.07, UP, Color(1, 1, 1), 0.3 * s, 2.4 * s, 0.22, 0.06, 0, 0.0, delay)
+	var nd := int(4 + 3 * s)
+	for i in range(nd):
+		var a := TAU * (float(i) + randf() * 0.5) / nd
+		var r := Vector3(cos(a), 0.0, sin(a))
+		_p(smoke, g + r * 0.3 * s + UP * 0.12, r * 2.0 * s + d * 0.8, randf_range(0.5, 0.7), 0.0, 0.22 * s, 0.6 * s, 4.0, Color(0.66, 0.64, 0.68, 0.5), Color(0.5, 0.5, 0.58), 0.0, delay)
+	if not PALETTE.has(kind):
+		# genres du monde 2 : death() n'a pour eux qu'un éclair, on y ajoute le feu et l'onde à leur couleur
+		flash(c, acc, 2.2 * s, 0.24, delay)
+		fireball(c, 0.45 * s, 5, delay)
+		smoke_puffs(c, 0.45 * s, 3, 1.0, delay + 0.1)
+		wave(g + UP * 0.05, UP, acc, 0.4 * s, 2.4 * s, 0.32, 0.14, 0, 0.0, delay)
+	if elite or s >= 1.8:
+		embers(c, int(6 * s), 2.0, Color(1.0, 0.7, 0.3), HIT_ORANGE, 1.0, 0.4 * s, delay)
+
 var _fwd := Vector3(0, -0.83, -0.56)
 var _fwd_t := -1.0
 
@@ -475,3 +566,97 @@ func _cam_fwd() -> Vector3:
 		if cam != null:
 			_fwd = -cam.global_transform.basis.z
 	return _fwd
+
+# ---------------------------------------------------------------- tirs de Jo et impacts sur le décor
+## Réglages : flamme de bouche, douilles, fumée de canon, impacts sur les murs et les caisses.
+const SHOT_FLARE := 1.0      # taille des flammes de bouche de Jo
+const SHOT_CASING := 1.0     # taille des douilles éjectées (0 : aucune)
+const SHOT_SMOKE := 0.3      # opacité de la fumée de canon en rafale (0 : aucune)
+const WALL_MARKS := 48       # marques d'impact gardées en même temps (anneau)
+const WALL_MARK_LIFE := 3.5  # s avant qu'une marque s'efface
+const WALL_SPARKS := 6       # étincelles par impact
+const WALL_MARK_SIZE := 0.3  # diamètre d'une marque (m)
+const WALL_MARK_OUT := 0.04  # décollement de la face (m) : les cornières des caisses dépassent un peu
+const BRASS := Color("#F2C14E")
+## Styles de flamme par arme (rig3d.GUN_FEEL « fx ») : « glow » couleur de la flamme et de l'éclair (mêlée à la
+## couleur du tir selon « mix » : 0 = couleur du tir, 1 = couleur de l'arme), longueur et largeur de la flamme,
+## douille (couleur, taille, allongement ; taille 0 : rien d'éjecté).
+const SHOT_STYLE := {
+	"blaster": {"glow": Color(0.6, 1.0, 0.95), "mix": 0.0, "len": 0.1, "w": 0.55, "case": BRASS, "cs": 0.05, "ca": 2.0},
+	"garde": {"glow": Color(1.0, 0.85, 0.5), "mix": 0.55, "len": 0.08, "w": 0.62, "case": BRASS, "cs": 0.055, "ca": 2.2},
+	"impulsion": {"glow": Color(0.55, 0.85, 1.0), "mix": 0.6, "len": 0.24, "w": 0.42, "case": Color(0, 0, 0), "cs": 0.0, "ca": 1.0},
+	"rivet": {"glow": Color(1.0, 0.5, 0.18), "mix": 0.75, "len": 0.05, "w": 0.8, "case": Color("#B8C0CE"), "cs": 0.055, "ca": 1.1},
+	"rayon": {"glow": Color(1.0, 0.35, 0.85), "mix": 0.7, "len": 0.06, "w": 0.42, "case": Color(0, 0, 0), "cs": 0.0, "ca": 1.0},
+}
+
+## Flamme de bouche de Jo selon l'arme portée. `first` : premier tir de la salve (flamme complète, douille,
+## fumée) ; sinon seulement la flamme dans l'axe de ce tir. `heat` : chauffe du canon (rig3d.jo_heat).
+func shot_muzzle(p: Vector3, d: Vector3, col: Color, style: String, big: bool, heat: float, first: bool) -> void:
+	var st: Dictionary = SHOT_STYLE.get(style, SHOT_STYLE["blaster"])
+	var k := (1.3 if big else 1.0) * SHOT_FLARE
+	var c := col.lerp(st["glow"], st["mix"])
+	var w: float = st["w"]
+	_p(flare, p + d * 0.05, d * 5.0, 0.065, 0.0, w * k, w * 0.55 * k, 0.0, Color(1.0, 0.98, 0.92), c, float(st["len"]) * k)
+	if not first:
+		return
+	var side := d.cross(UP).normalized()
+	# disque tourné vers la caméra (vu d'en haut, un disque dans l'axe du tir serait vu par la tranche)
+	var face := (d * 0.55 - _cam_fwd()).normalized()
+	flash(p, c, 0.9 * k, 0.06)
+	flash(p - d * 0.02, Color(1, 1, 0.95), 0.3 * k, 0.035)
+	match style:
+		"garde":
+			# frein de bouche : deux jets courts sur les côtés, étincelles chaudes
+			for sd in [side, -side]:
+				_p(flare, p + d * 0.03, (sd as Vector3) * 4.0 + d * 1.5, 0.06, 0.0, 0.34 * k, 0.16 * k, 0.0, Color(1, 0.95, 0.8), c, 0.06)
+			sparks(p, d, 3, 9.0, 0.4, Color(1, 0.95, 0.8), Color(1.0, 0.55, 0.2), 0.14, 6.0, 0.05, 0.025)
+		"impulsion":
+			# anneaux d'impulsion qui partent devant le canon
+			wave(p + d * 0.15, face, c.lerp(Color.WHITE, 0.3), 0.1 * k, 0.5 * k, 0.1, 0.2)
+			wave(p + d * 0.45, face, c, 0.06 * k, 0.36 * k, 0.09, 0.26, 0, 0.0, 0.025)
+		"rivet":
+			# gerbe d'étincelles orange qui retombent, petite bouffée à chaque coup
+			sparks(p, d + UP * 0.2, 6, 8.0, 0.6, Color(1, 0.9, 0.6), Color(1.0, 0.4, 0.1), 0.32, 14.0, 0.055, 0.03)
+			_p(smoke, p + d * 0.12, d * 1.2 + UP * 0.3, 0.45, 0.0, 0.1, 0.32, 3.0, Color(0.62, 0.6, 0.62, 0.3), Color(0.5, 0.52, 0.6))
+		"rayon":
+			# rayon : étoile rose et anneau, pas de douille
+			sparkle(p, c.lerp(Color.WHITE, 0.25), 1.0 * k, 0.08)
+			wave(p + d * 0.1, face, c, 0.08 * k, 0.5 * k, 0.12, 0.2)
+		_:
+			sparkle(p, c.lerp(Color.WHITE, 0.5), 0.55 * k, 0.05)
+			sparks(p, d, 2, 9.0, 0.35, Color(1, 1, 0.95), c, 0.12, 4.0, 0.05, 0.025)
+	var cs: float = float(st["cs"]) * SHOT_CASING
+	if cs > 0.0:
+		shot_casing(p - d * 0.15, d, st["case"], cs, st["ca"])
+	# rafale continue : le canon fume (filet clair qui monte), plus dense quand il chauffe
+	if heat > 0.5 and SHOT_SMOKE > 0.0:
+		var a := SHOT_SMOKE * clampf((heat - 0.5) * 1.5, 0.0, 1.0)
+		_p(smoke, p + d * 0.05 + UP * 0.05, Vector3(randf_range(-0.15, 0.15), 0.5, randf_range(-0.15, 0.15)) + d * 0.3, randf_range(0.6, 0.9), 0.0, 0.07, 0.3, 1.5, Color(0.8, 0.82, 0.88, a), Color(0.62, 0.64, 0.74), 0.0, 0.03)
+
+## Douille (ou rivet usé) éjectée sur le côté de l'arme : vole, rebondit une fois au sol, reste un instant, s'efface.
+func shot_casing(p: Vector3, d: Vector3, col: Color, size: float, asp: float) -> void:
+	var side := d.cross(UP).normalized()
+	var v := side * randf_range(1.6, 2.6) + UP * randf_range(2.0, 3.0) - d * randf_range(0.4, 0.9)
+	var spin := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)).normalized() * randf_range(16.0, 26.0)
+	debris.put(p, v, Vector3(now, randf_range(1.1, 1.4), 14.0), Vector3(size, asp, 0.6), col, Color(spin.x, spin.y, spin.z, 0.35))
+
+## Tir arrêté par un mur ou une caisse : étincelles renvoyées selon la normale `n`, éclat, poussière, éclats de
+## peinture et, sur une caisse (`mark`), une marque chaude qui refroidit puis s'efface.
+func wall_impact(p: Vector3, n: Vector3, col: Color, mark: bool, strong: bool = false) -> void:
+	var k := 1.3 if strong else 1.0
+	var q := p + n * 0.06
+	flash(q, Color(1, 1, 0.95), 0.36 * k, 0.04)
+	flash(q, col, 0.9 * k, 0.1)
+	sparkle(q, col.lerp(Color.WHITE, 0.6), 0.5 * k, 0.05)
+	sparks(q, n + UP * 0.35, WALL_SPARKS, 7.5 * k, 0.5, Color(1, 1, 0.92), col, 0.24, 11.0, 0.05, 0.03)
+	sparks(q, n + UP * 0.6, 2, 4.0, 0.7, Color(1, 0.85, 0.5), Color(1.0, 0.4, 0.1), 0.45, 9.0, 0.035, 0.02)
+	# poussière soufflée hors de l'impact, qui retombe lentement
+	_p(smoke, q, n * 0.9 + UP * 0.25, randf_range(0.45, 0.6), 0.0, 0.12 * k, 0.42 * k, 4.0, Color(0.6, 0.6, 0.66, 0.32), Color(0.45, 0.47, 0.56))
+	# éclats de peinture
+	for i in range(2):
+		var v := (n + Vector3(randf_range(-0.6, 0.6), randf_range(0.2, 0.9), randf_range(-0.6, 0.6))).normalized() * randf_range(2.0, 3.5)
+		var sp := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)).normalized() * 18.0
+		debris.put(q, v, Vector3(now, randf_range(0.5, 0.8), 12.0), Vector3(0.035, 0.35, 1.0), Color(0.3, 0.32, 0.4), Color(sp.x, sp.y, sp.z, 0.0))
+	if mark:
+		var hot := col.lerp(Color(1.0, 0.6, 0.25), 0.5)
+		marks.put(p + n * WALL_MARK_OUT, n, Vector3(now, WALL_MARK_LIFE, 0.0), Vector3(WALL_MARK_SIZE * k, 1.0, 0.0), Color(0.08, 0.08, 0.11, 0.85), Color(hot.r * 0.25, hot.g * 0.25, hot.b * 0.25, randf()))
