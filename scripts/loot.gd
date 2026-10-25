@@ -49,15 +49,15 @@ const SKINS := [
 	{"id": "menthe", "name": "Menthe", "tier": 0, "suit": Color("#E2FFF2"), "accent": Color("#22B585"), "light": Color("#B8FF6A")},
 	{"id": "corail", "name": "Corail", "tier": 1, "suit": Color("#FFE4DC"), "accent": Color("#FF5C6E"), "light": Color("#FFC94D"), "hair": Color("#6E1F3C")},
 	{"id": "lagon", "name": "Lagon", "tier": 1, "suit": Color("#DDF6FF"), "accent": Color("#00A0C6"), "light": Color("#FF8AE8")},
-	{"id": "sentinelle", "name": "Sentinelle", "tier": 1, "suit": Color("#C8CEDC"), "accent": Color("#2C3350"), "light": Color("#FF4D6D")},
-	{"id": "agrume", "name": "Agrume", "tier": 1, "suit": Color("#FFF5D2"), "accent": Color("#FFBE0B"), "light": Color("#7CFF4D"), "hair": Color("#B5521C")},
-	{"id": "lavande", "name": "Lavande", "tier": 1, "suit": Color("#EEE6FF"), "accent": Color("#8A5CFF"), "light": Color("#5CF0FF"), "hair": Color("#4B3A9E")},
+	{"id": "sentinelle", "name": "Méca", "tier": 1, "suit": Color("#EEF2F7"), "accent": Color("#FF7A1A"), "light": Color("#6FF3FF"), "model": "jo_meca"},
+	{"id": "agrume", "name": "Cow-girl", "tier": 1, "suit": Color("#FFB619"), "accent": Color("#D27E2C"), "light": Color("#7CFF4D"), "model": "jo_cowgirl"},
+	{"id": "lavande", "name": "Idole pop", "tier": 1, "suit": Color("#6B3BE6"), "accent": Color("#FF8FD2"), "light": Color("#36DDF0"), "model": "jo_idole"},
 	{"id": "nebuleuse", "name": "Mage Nébuleuse", "tier": 2, "suit": Color("#3A2A78"), "accent": Color("#FFC23D"), "light": Color("#7AE7FF"), "model": "jo_magicienne"},
 	{"id": "neon", "name": "Ronin Néon", "tier": 2, "suit": Color("#222840"), "accent": Color("#FF3CAC"), "light": Color("#2EE6FF"), "model": "jo_samourai"},
-	{"id": "braise", "name": "Braise", "tier": 2, "suit": Color("#3C2C2C"), "accent": Color("#FF5A1F"), "light": Color("#FFD34D"), "hair": Color("#B3241A")},
-	{"id": "aurore", "name": "Aurore", "tier": 2, "suit": Color("#FFF0F8"), "accent": Color("#FF7AD0"), "light": Color("#8AF0FF"), "hair": Color("#FF9A7A")},
+	{"id": "braise", "name": "Pompière", "tier": 2, "suit": Color("#E0B04A"), "accent": Color("#E4261A"), "light": Color("#E8FF5A"), "model": "jo_pompiere"},
+	{"id": "aurore", "name": "Fée des aurores", "tier": 2, "suit": Color("#FFF4FB"), "accent": Color("#FF6FC4"), "light": Color("#8AF0FF"), "model": "jo_fee"},
 	{"id": "eclat", "name": "Chevalière d'or", "tier": 3, "suit": Color("#E8EDF4"), "accent": Color("#F2B33D"), "light": Color("#FFF2B8"), "model": "jo_chevalier"},
-	{"id": "prisme", "name": "Prisme", "tier": 3, "suit": Color("#1E2234"), "accent": Color("#F4F1EA"), "light": Color("#FFFFFF"), "rainbow": true, "hair": Color("#DDE3FF")},
+	{"id": "prisme", "name": "Astronaute cosmique", "tier": 3, "suit": Color("#F2F0EA"), "accent": Color("#1E2234"), "light": Color("#FFFFFF"), "rainbow": true, "model": "jo_astronaute"},
 ]
 ## Couleurs de jo.glb (tools/blender/jo.py) que remplace une palette provisoire.
 const JO_WHITE := "#F4F4F1"
