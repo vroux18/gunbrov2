@@ -59,14 +59,17 @@ func _build() -> void:
 	key.light_energy = 1.2
 	key.rotation_degrees = Vector3(-38, 24, 0)
 	_vp.add_child(key)
-	var back := DirectionalLight3D.new()
+	# liseré froid par derrière : lumière ponctuelle (Jo n'a qu'un soleil : ses deux paliers de BD)
+	var back := OmniLight3D.new()
 	back.light_color = Color(0.65, 0.78, 1.0)
-	back.light_energy = 0.55
-	back.rotation_degrees = Vector3(-15, 200, 0)
+	back.light_energy = 1.2
+	back.omni_range = 6.0
+	back.position = Vector3(-1.5, 2.0, -2.5)
 	_vp.add_child(back)
 	_rig = Rig3D.new()
 	_vp.add_child(_rig)
 	_rig.setup(JO_MODEL, Color(1, 1, 1), 1.7)
+	_rig.make_hero(Color(0, 0, 0), 0.0, Color(1.0, 0.22, 0.28))  # matériau BD de Jo
 	_rig.rotation.y = 0.42
 	# cadrage en pied d'après la boîte englobante du modèle
 	var ab := AABB()

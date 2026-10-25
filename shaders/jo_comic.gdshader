@@ -5,7 +5,10 @@
 // Un seul matériau partagé par tous les modèles de Jo (tenues comprises) : les tenues ne changent que les
 // couleurs par sommet.
 shader_type spatial;
-render_mode cull_back, depth_draw_opaque;
+// Pas de lumière ambiante : l'aplat éclairé vaut la couleur du vêtement, l'ombre sa teinte froide tramée, quelle
+// que soit la scène (partie, Relais, vignettes). Le soleil (lumière directionnelle) donne les deux paliers ; les
+// lumières ponctuelles (lumière d'appoint HERO_LAYER, tirs, explosions) ajoutent un éclat par-dessus.
+render_mode cull_back, depth_draw_opaque, ambient_light_disabled;
 
 uniform float exposure = 1.0;
 uniform float saturation = 1.08;
@@ -15,6 +18,9 @@ uniform float step_soft = 0.025;
 // ombre : couleur de la surface multipliée par cette teinte froide (pas du noir)
 uniform vec3 shade_col : source_color = vec3(0.48, 0.47, 0.78);
 uniform float light_gain = 1.0;
+uniform float omni_gain = 0.35;
+// les blancs ne crament pas sous la lumière d'appoint
+uniform float white_cap = 0.9;
 // trame : taille des cellules en pixels (écran de 720 px de haut), points plus sombres que l'ombre
 uniform float dot_cell = 4.0;
 uniform float dot_size = 0.42;
@@ -77,6 +83,7 @@ void fragment() {
 	vec3 base = OUTPUT_IS_SRGB ? cs : srgb_to_linear(cs);
 	float l0 = dot(base, vec3(0.299, 0.587, 0.114));
 	base = max(mix(vec3(l0), base, saturation), vec3(0.0)) * exposure;
+	base *= mix(1.0, white_cap, smoothstep(0.6, 0.95, dot(base, vec3(0.299, 0.587, 0.114))));
 	ALBEDO = base;
 	// décalage de couleurs sur les bords
 	float fr = 1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0);
@@ -94,9 +101,11 @@ void light() {
 		float dark = clamp(-ndl * 1.4 + 0.25, 0.0, 1.0) * (1.0 - lit);
 		float dots = halftone(FRAGCOORD.xy, VIEWPORT_SIZE, dark);
 		vec3 sh = mix(shade_col, dot_col, dots);
-		DIFFUSE_LIGHT += lc * mix(sh, vec3(light_gain), lit);
+		// teinte du soleil sans son intensité : l'aplat éclairé garde la couleur du vêtement
+		vec3 lcn = LIGHT_COLOR / max(max(LIGHT_COLOR.r, max(LIGHT_COLOR.g, LIGHT_COLOR.b)), 1e-3);
+		DIFFUSE_LIGHT += mix(sh, lcn * light_gain, lit);
 	} else {
-		DIFFUSE_LIGHT += lc * lit;
+		DIFFUSE_LIGHT += lc * lit * omni_gain;
 	}
 	vec3 h = normalize(LIGHT + VIEW);
 	float s = pow(clamp(dot(NORMAL, h), 0.0, 1.0), spec_power);

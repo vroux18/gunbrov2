@@ -110,9 +110,10 @@ func _env() -> void:
 	sun.light_energy = 0.9
 	sun.shadow_enabled = true
 	add_child(sun)
-	var key := DirectionalLight3D.new()
-	key.rotation_degrees = Vector3(-30, 180, 0)
-	key.light_energy = 0.35
+	var key := OmniLight3D.new()  # comme la lumière d'appoint de Jo en partie
+	key.position = Vector3(0, 3.0, 4.0)
+	key.omni_range = 14.0
+	key.light_energy = 1.0
 	key.light_cull_mask = Rig3D.HERO_LAYER
 	add_child(key)
 	var floor := MeshInstance3D.new()

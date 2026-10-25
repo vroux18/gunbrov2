@@ -64,6 +64,27 @@ def sides():
     return (("r", -1.0), ("l", 1.0))
 
 
+def extra(m, name, host, parent=None):
+    """Part libre (ni du contrat ni de zone) portée par `host` : même pivot, enfant de `parent` (host par défaut)."""
+    return m.part(name, PIV[host], parent or host)
+
+
+def chain(m, prefix, pivots, parent):
+    """Pièces qui flottent (pans d'écharpe, cape, plumet, pointe de chapeau) : prefix_f1 enfant de `parent`,
+    prefix_f2 enfant de prefix_f1... Le rig (scripts/rig3d.gd, _jo_flow) les fait suivre le mouvement.
+    `prefix` commence par une zone (coiffe_, dos_) pour que l'équipement porté les masque avec leur zone."""
+    out = []
+    for i, pv in enumerate(pivots):
+        nm = "%s_f%d" % (prefix, i + 1)
+        out.append(m.part(nm, pv, parent if i == 0 else "%s_f%d" % (prefix, i)))
+    return out
+
+
+def ribbon(part, a, b, w0, w1, thick, col, side=(1, 0, 0)):
+    """Ruban plat de a à b (largeur w0 -> w1) : pan d'écharpe, de cape, de bandeau."""
+    part.add(loft([S(a, w0 * 0.5, thick * 0.5, thick * 0.4), S(b, w1 * 0.5, thick * 0.5, thick * 0.4)], col, nc=1, ref=side))
+
+
 def S(c, a, b, r=None, **kw):
     d = {"c": c, "a": a, "b": b, "r": r if r is not None else min(a, b) * 0.7}
     d.update(kw)
@@ -285,7 +306,8 @@ def legs(m, pants, shoe, sole, toe, short=None, knee=None, cuff=None, shoe_strip
         s.add(loft(smooth(ss, 2), pants, nc=3))
         if knee:
             s.add(box((sx * 0.075, 0.335, 0.036), (0.034, 0.038, 0.012), 0.01, knee, nc=2))
-        sneaker(s, sx, shoe, sole, toe, shoe_stripe, high, lace)
+        if shoe:  # chaussures : part de zone « jambe_* » (des bottes portées les remplacent)
+            sneaker(P(m, "jambe_" + side), sx, shoe, sole, toe, shoe_stripe, high, lace)
 
 
 def sneaker(part, sx, upper, sole, toe, stripe=None, high=False, lace=INK):
@@ -417,7 +439,98 @@ def concept_masque():
     return m
 
 
-BUILDS = {"concept_toits": concept_toits, "concept_capuche": concept_capuche, "concept_masque": concept_masque}
+# ------------------------------------------------------------------ Jo (modèle de base : concept B « Capuche »)
+HAIR = "#2A1E2A"
+LEGGING = "#4B515E"
+
+
+def bangs(m, col=HAIR):
+    """Frange en lames sous la capuche, et calotte (visible quand un casque remplace la capuche)."""
+    hp = P(m, "hair")
+    for x0, x1, y1, w in ((-0.052, -0.072, 1.04, 0.036), (-0.018, -0.036, 1.066, 0.04), (0.018, 0.004, 1.074, 0.04),
+                          (0.052, 0.046, 1.056, 0.034)):
+        pts = [(x0 * 0.6, 1.17, 0.06), (x0, 1.13, 0.09), (x1, y1, 0.098)]
+        hp.add(loft([S(pts[0], w * 0.5, 0.011, 0.004), S(pts[1], w * 0.42, 0.01, 0.004), S(pts[2], w * 0.06, 0.004, 0.001)], col, nc=1))
+    hp.add(shell([{"c": (0, 1.0, -0.016), "a": 0.086, "b": 0.094, "a0": 152, "a1": 388},
+                  {"c": (0, 1.06, -0.012), "a": 0.09, "b": 0.099, "a0": 150, "a1": 390},
+                  {"c": (0, 1.15, -0.014), "a": 0.08, "b": 0.092, "a0": 120, "a1": 420},
+                  {"c": (0, 1.205, -0.016), "a": 0.04, "b": 0.05, "a0": 90, "a1": 450}], 0.012, col))
+    return hp
+
+
+HOOD = [  # centre, a, b, demi-ouverture devant (degrés) : capuche ronde et basse, qui retombe sur la nuque
+    ((0, 0.915, -0.034), 0.112, 0.1, 38), ((0, 0.97, -0.026), 0.114, 0.112, 56), ((0, 1.04, -0.02), 0.11, 0.117, 66),
+    ((0, 1.11, -0.022), 0.104, 0.115, 64), ((0, 1.165, -0.026), 0.09, 0.104, 56), ((0, 1.205, -0.03), 0.065, 0.08, 44),
+    ((0, 1.228, -0.033), 0.033, 0.045, 26), ((0, 1.236, -0.035), 0.008, 0.012, 10)]
+
+
+def hood(m, col=WHITE, lining=RED, band=RED, tails=True):
+    """Capuche relevée, doublée de rouge, ceinte d'un bandeau rouge (d'en haut : l'anneau des Passeurs) noué
+    derrière, deux pans qui flottent (coiffe_f1..f3)."""
+    c = P(m, "coiffe")
+    hg = shell([{"c": cc, "a": a, "b": b, "a0": 90 + o, "a1": 450 - o} for cc, a, b, o in HOOD], 0.014, col, inner=lining, seg=32)
+    c.add(hg)
+    if band:
+        c.add(shell([{"c": (0, 1.088, -0.021), "a": 0.11, "b": 0.121, "a0": 90 + 68, "a1": 450 - 68},
+                     {"c": (0, 1.128, -0.026), "a": 0.104, "b": 0.12, "a0": 90 + 65, "a1": 450 - 65}], 0.012, band, seg=32))
+        c.add(box((0, 1.108, -0.15), (0.024, 0.022, 0.016), 0.008, band, nc=2))
+    if tails:
+        pv = [(0, 1.106, -0.158), (0, 1.045, -0.2), (0, 0.98, -0.232), (0, 0.915, -0.25)]
+        segs = chain(m, "coiffe", pv[:3], "coiffe")
+        for k, sx in ((1.0, 1), (0.85, -1)):
+            for i, sg in enumerate(segs):
+                a = Vector(pv[i]) + Vector((sx * (0.008 + 0.013 * i), 0, 0))
+                b = Vector(pv[i]) + (Vector(pv[i + 1]) - Vector(pv[i])) * k + Vector((sx * (0.008 + 0.013 * (i + 1)), 0, 0))
+                ribbon(sg, a, b, 0.024 - 0.002 * i, 0.022 - 0.002 * i - (0.012 if i == 2 else 0.0), 0.005, band)
+    return hg
+
+
+def hoodie(m, col=WHITE, rib=LGRAY, logo=RED, strings=RED, short=INK):
+    """Sweat ample : ourlet côtelé, poche kangourou, cordons, logo des Passeurs en grand dans le dos."""
+    tg = jacket(m, col, 0.545, rib, short, wide=1.16)
+    t = P(m, "torso")
+    t.add(box((0, 0.615, 0.083), (0.072, 0.04, 0.008), 0.006, "#E4E5E8"))
+    seam(t, tg, [(-0.075, 0.655, 0), (0.075, 0.655, 0)], (0, 0, -1), col=MGRAY, w=0.0022)
+    seam(t, tg, [(-0.11, 0.86, 0.0), (-0.12, 0.75, 0.0)], (1, 0, 0), col=LGRAY, w=0.002)
+    seam(t, tg, [(0.11, 0.86, 0.0), (0.12, 0.75, 0.0)], (-1, 0, 0), col=LGRAY, w=0.002)
+    for sx in (-1, 1):
+        t.add(loft([S((sx * 0.026, 0.9, 0.062), 0.004, 0.004), S((sx * 0.03, 0.82, 0.088), 0.004, 0.004),
+                    S((sx * 0.031, 0.79, 0.092), 0.0055, 0.0055)], strings, nc=1))
+    if logo:
+        back_logo(t, tg, 0.76, 0.074, logo)
+    return tg
+
+
+def sling(m, col=INK, accent=RED):
+    """Sacoche noire en bandoulière (zone « dos ») : sangle épaule gauche -> hanche droite, devant et derrière."""
+    d = P(m, "dos")
+    d.add(loft([S((0.118, 0.895, -0.05), 0.003, 0.013), S((0.03, 0.82, -0.098), 0.003, 0.013),
+                S((-0.11, 0.63, -0.084), 0.003, 0.013)], col, nc=1, ref=(0, 0, 1)))
+    d.add(loft([S((0.118, 0.895, 0.03), 0.003, 0.013), S((0.03, 0.82, 0.092), 0.003, 0.013),
+                S((-0.11, 0.63, 0.082), 0.003, 0.013)], col, nc=1, ref=(0, 0, 1)))
+    d.add(box((-0.135, 0.6, -0.025), (0.026, 0.046, 0.062), 0.012, col, nc=2))
+    d.add(box((-0.162, 0.6, -0.025), (0.003, 0.03, 0.04), 0.002, accent))
+    dg = P(m, "dos_glow")
+    dg.add(box((-0.1625, 0.62, -0.025), (0.0025, 0.004, 0.024), 0.001, GLOW))
+
+
+def jo():
+    """Jo, la Passeuse : sweat à capuche blanc ample, capuche relevée doublée de rouge et ceinte d'un bandeau
+    rouge noué dont les pans flottent, anneau des Passeurs dans le dos, sacoche noire, short noir sur legging
+    gris anthracite, baskets montantes blanches et rouges, gants noirs, blaster blanc à bande rouge."""
+    m = Model("jo")
+    head(m, mark=RED)
+    bangs(m)
+    hood(m)
+    hoodie(m)
+    sling(m)
+    arms(m, WHITE, INK, wide=1.22, cuff=LGRAY, cuff_y=0.56)
+    legs(m, LEGGING, WHITE, WHITE, RED, short=INK, shoe_stripe=RED, high=True)
+    blaster(m)
+    return m
+
+
+BUILDS = {"jo": jo, "concept_toits": concept_toits, "concept_capuche": concept_capuche, "concept_masque": concept_masque}
 
 
 if __name__ == "__main__":

@@ -6,10 +6,6 @@
 shader_type spatial;
 render_mode cull_back, depth_draw_opaque;
 
-// apparences de Jo (scripts/loot.gd) : remappage des couleurs, actif seulement si skin_on = 1
-#include "res://shaders/skin_remap.gdshaderinc"
-uniform float skin_on = 0.0;
-
 uniform vec4 tint : source_color = vec4(1.0);
 // éclat propre à un personnage (Jo : plus vive que les ennemis)
 uniform float exposure = 1.0;
@@ -45,9 +41,6 @@ vec3 srgb_to_linear(vec3 c) {
 }
 
 void vertex() {
-	if (skin_on > 0.5) {
-		COLOR.rgb = skin_remap(COLOR.rgb, VERTEX, TIME);
-	}
 	w_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 }
 

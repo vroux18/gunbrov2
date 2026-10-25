@@ -256,6 +256,31 @@ def disc(c, nrm, R0, R1, t, color="#FFFFFF", seg=32, arc=(0.0, 360.0)):
     return g
 
 
+def star(c, nrm, R, r, t, color="#FFFFFF", n=5, spin=0.0):
+    """Étoile plate à n branches (rayons R / r), épaisseur t, posée selon la normale nrm."""
+    nn, u, w = _frame(nrm)
+    c = V(c)
+    g = Geo()
+    pts = []
+    for i in range(2 * n):
+        a = math.radians(spin) + math.pi * i / n + math.pi / 2
+        rr = R if i % 2 == 0 else r
+        pts.append(u * math.cos(a) * rr + w * math.sin(a) * rr)
+    for k, off in enumerate((-t * 0.5, t * 0.5)):
+        g.v.append(c + nn * off)
+        for p in pts:
+            g.v.append(c + nn * off + p)
+    m = len(pts)
+    col = hexcol(color)
+    for i in range(m):
+        j = (i + 1) % m
+        g.f.append((0, 1 + j, 1 + i))  # dessous
+        g.f.append((m + 1, m + 2 + i, m + 2 + j))  # dessus
+        g.f.append((1 + i, 1 + j, m + 2 + j, m + 2 + i))
+        g.col += [col] * 3
+    return g
+
+
 def strip(points, width, thick, color="#FFFFFF", side=(1, 0, 0), widths=None, nc=1):
     """Bande plate (écharpe, sangle, mèche plate) le long d'une ligne de points ; `side` : sens de la largeur."""
     secs = []
@@ -283,7 +308,10 @@ def shell(sections, thick, color="#FFFFFF", inner=None, seg=20, caps=True):
         for i in range(cnt):
             th = math.radians(s["a0"] + (s["a1"] - s["a0"]) * i / seg)
             d = Vector((math.cos(th), 0.0, math.sin(th)))
-            p = c + Vector((d.x * s["a"], 0.0, d.z * s["b"]))
+            wv = 1.0
+            if "wave" in s:  # plis : rayon modulé le long de l'arc (amplitude, nombre de plis sur 360°)
+                wv += s["wave"][0] * math.sin(th * s["wave"][1])
+            p = c + Vector((d.x * s["a"] * wv, 0.0, d.z * s["b"] * wv))
             nrm = Vector((d.x / max(s["a"], 1e-4), 0.0, d.z / max(s["b"], 1e-4))).normalized()
             g.v.append(p + nrm * thick * 0.5)
             out_i.append(len(g.v) - 1)

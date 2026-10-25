@@ -31,29 +31,41 @@ const TIER_BOXES := [["bronze", "argent", "or"], ["argent", "or", "legendaire"],
 ## Un doublon rapporte des tickets selon sa rareté.
 const DUP_TICKETS := [30, 80, 200, 500]
 
-## Apparences de Jo : combinaison (blanc), accent (orange), lumière (turquoise), cheveux (« hair », sinon bleu
-## nuit) ; voir shaders/skin_remap.*. Chaque apparence porte sa tenue (« outfit » : assets/chars3d/tenue_<id>.glb,
-## sculptée par tools/chars/tenues.py, posée par Rig3D._apply_outfit) : un petit accessoire pour les communes, une
-## vraie silhouette (coiffe, épaulettes, cape, ailes, halo) à partir des rares. « hides » : parts de Jo que la
-## coiffe recouvre (cheveux, lunettes relevées). L'équipement porté l'emporte sur la tenue (règle : Rig3D).
+## Apparences de Jo. Une apparence est une TENUE COMPLÈTE : « model » = assets/chars3d/<model>.glb, un modèle entier
+## de Jo (mêmes parts que jo.glb) sculpté par tools/blender/jo_skins.py (voir l'en-tête de ce fichier pour en
+## ajouter une), chargé par Rig3D.apply_skin à la place de jo.glb.
+## Les apparences pas encore converties n'ont qu'une palette provisoire : leurs couleurs (« suit » : blanc du
+## sweat, « accent » : rouge, « light » : lumières, « hair » : cheveux) remplacent celles de jo.glb (Rig3D._recolor,
+## sans matériau en plus). À remplacer chacune par une tenue (« model ») : c'est le travail qui reste.
+## suit / accent / light servent aussi au dessin 2D de la carte (scripts/ui/boxes_art.gd).
+## Correspondance avec les anciennes apparences (les ids et la sauvegarde ne changent pas) :
+##   eclat (Éclat d'or, légendaire) -> Chevalière d'or (jo_chevalier) ; nebuleuse (Nébuleuse, épique) -> Mage
+##   Nébuleuse (jo_magicienne) ; neon (Cité Néon, épique) -> Ronin Néon (jo_samourai) ; les autres : palette.
 const SKINS := [
-	{"id": "passeuse", "name": "Passeuse", "tier": 0, "suit": Color("#F4F1EA"), "accent": Color("#FF7A2F"), "light": Color("#3CF2D8")},
-	{"id": "cargo", "name": "Cargo", "tier": 0, "suit": Color("#E6D7AE"), "accent": Color("#5E8A3C"), "light": Color("#F2E14C"), "outfit": "cargo"},
-	{"id": "glacier", "name": "Glacier", "tier": 0, "suit": Color("#EAF4FF"), "accent": Color("#3E86FF"), "light": Color("#9FE8FF"), "outfit": "glacier"},
-	{"id": "ardoise", "name": "Ardoise", "tier": 0, "suit": Color("#6A7488"), "accent": Color("#FFB347"), "light": Color("#FFE08A"), "outfit": "ardoise"},
-	{"id": "menthe", "name": "Menthe", "tier": 0, "suit": Color("#E2FFF2"), "accent": Color("#22B585"), "light": Color("#B8FF6A"), "outfit": "menthe"},
-	{"id": "corail", "name": "Corail", "tier": 1, "suit": Color("#FFE4DC"), "accent": Color("#FF5C6E"), "light": Color("#FFC94D"), "outfit": "corail", "hair": Color("#6E1F3C")},
-	{"id": "lagon", "name": "Lagon", "tier": 1, "suit": Color("#DDF6FF"), "accent": Color("#00A0C6"), "light": Color("#FF8AE8"), "outfit": "lagon", "hides": ["goggles"]},
-	{"id": "sentinelle", "name": "Sentinelle", "tier": 1, "suit": Color("#C8CEDC"), "accent": Color("#2C3350"), "light": Color("#FF4D6D"), "outfit": "sentinelle", "hides": ["hair", "goggles"]},
-	{"id": "agrume", "name": "Agrume", "tier": 1, "suit": Color("#FFF5D2"), "accent": Color("#FFBE0B"), "light": Color("#7CFF4D"), "outfit": "agrume", "hides": ["goggles"], "hair": Color("#B5521C")},
-	{"id": "lavande", "name": "Lavande", "tier": 1, "suit": Color("#EEE6FF"), "accent": Color("#8A5CFF"), "light": Color("#5CF0FF"), "outfit": "lavande", "hides": ["goggles"], "hair": Color("#4B3A9E")},
-	{"id": "nebuleuse", "name": "Nébuleuse", "tier": 2, "suit": Color("#3A2A78"), "accent": Color("#FF3CAC"), "light": Color("#7AE7FF"), "outfit": "nebuleuse", "hides": ["hair", "goggles"]},
-	{"id": "neon", "name": "Cité Néon", "tier": 2, "suit": Color("#222840"), "accent": Color("#2EE6FF"), "light": Color("#FF3CAC"), "outfit": "neon", "hides": ["goggles"], "hair": Color("#E0309A")},
-	{"id": "braise", "name": "Braise", "tier": 2, "suit": Color("#3C2C2C"), "accent": Color("#FF5A1F"), "light": Color("#FFD34D"), "outfit": "braise", "hair": Color("#B3241A")},
-	{"id": "aurore", "name": "Aurore", "tier": 2, "suit": Color("#FFF0F8"), "accent": Color("#FF7AD0"), "light": Color("#8AF0FF"), "outfit": "aurore", "hair": Color("#FF9A7A")},
-	{"id": "eclat", "name": "Éclat d'or", "tier": 3, "suit": Color("#F2BE3A"), "accent": Color("#FFF4DC"), "light": Color("#FFFFFF"), "outfit": "eclat", "hides": ["goggles"], "hair": Color("#FFF0C0")},
-	{"id": "prisme", "name": "Prisme", "tier": 3, "suit": Color("#1E2234"), "accent": Color("#F4F1EA"), "light": Color("#FFFFFF"), "rainbow": true, "outfit": "prisme", "hides": ["goggles"], "hair": Color("#DDE3FF")},
+	{"id": "passeuse", "name": "Passeuse", "tier": 0, "suit": Color("#F4F4F1"), "accent": Color("#F0262E"), "light": Color("#9FF6FF")},
+	{"id": "cargo", "name": "Cargo", "tier": 0, "suit": Color("#E6D7AE"), "accent": Color("#5E8A3C"), "light": Color("#F2E14C")},
+	{"id": "glacier", "name": "Glacier", "tier": 0, "suit": Color("#EAF4FF"), "accent": Color("#3E86FF"), "light": Color("#9FE8FF")},
+	{"id": "ardoise", "name": "Ardoise", "tier": 0, "suit": Color("#6A7488"), "accent": Color("#FFB347"), "light": Color("#FFE08A")},
+	{"id": "menthe", "name": "Menthe", "tier": 0, "suit": Color("#E2FFF2"), "accent": Color("#22B585"), "light": Color("#B8FF6A")},
+	{"id": "corail", "name": "Corail", "tier": 1, "suit": Color("#FFE4DC"), "accent": Color("#FF5C6E"), "light": Color("#FFC94D"), "hair": Color("#6E1F3C")},
+	{"id": "lagon", "name": "Lagon", "tier": 1, "suit": Color("#DDF6FF"), "accent": Color("#00A0C6"), "light": Color("#FF8AE8")},
+	{"id": "sentinelle", "name": "Sentinelle", "tier": 1, "suit": Color("#C8CEDC"), "accent": Color("#2C3350"), "light": Color("#FF4D6D")},
+	{"id": "agrume", "name": "Agrume", "tier": 1, "suit": Color("#FFF5D2"), "accent": Color("#FFBE0B"), "light": Color("#7CFF4D"), "hair": Color("#B5521C")},
+	{"id": "lavande", "name": "Lavande", "tier": 1, "suit": Color("#EEE6FF"), "accent": Color("#8A5CFF"), "light": Color("#5CF0FF"), "hair": Color("#4B3A9E")},
+	{"id": "nebuleuse", "name": "Mage Nébuleuse", "tier": 2, "suit": Color("#3A2A78"), "accent": Color("#FFC23D"), "light": Color("#7AE7FF"), "model": "jo_magicienne"},
+	{"id": "neon", "name": "Ronin Néon", "tier": 2, "suit": Color("#222840"), "accent": Color("#FF3CAC"), "light": Color("#2EE6FF"), "model": "jo_samourai"},
+	{"id": "braise", "name": "Braise", "tier": 2, "suit": Color("#3C2C2C"), "accent": Color("#FF5A1F"), "light": Color("#FFD34D"), "hair": Color("#B3241A")},
+	{"id": "aurore", "name": "Aurore", "tier": 2, "suit": Color("#FFF0F8"), "accent": Color("#FF7AD0"), "light": Color("#8AF0FF"), "hair": Color("#FF9A7A")},
+	{"id": "eclat", "name": "Chevalière d'or", "tier": 3, "suit": Color("#E8EDF4"), "accent": Color("#F2B33D"), "light": Color("#FFF2B8"), "model": "jo_chevalier"},
+	{"id": "prisme", "name": "Prisme", "tier": 3, "suit": Color("#1E2234"), "accent": Color("#F4F1EA"), "light": Color("#FFFFFF"), "rainbow": true, "hair": Color("#DDE3FF")},
 ]
+## Couleurs de jo.glb (tools/blender/jo.py) que remplace une palette provisoire.
+const JO_WHITE := "#F4F4F1"
+const JO_RIB := "#C9CED6"
+const JO_POCKET := "#E4E5E8"
+const JO_RED := "#F0262E"
+const JO_GLOW := "#9FF6FF"
+const JO_HAIR := "#2A1E2A"
 
 ## Traînées de tir : couleur des projectiles de Jo. « alt » alterne les couleurs d'un tir à l'autre,
 ## « rainbow » fait le tour des teintes. Pas de rouge ni de magenta : ce sont les tirs ennemis.
@@ -267,10 +279,14 @@ static func skin_palette(id: String) -> Dictionary:
 	if id == DEFAULT_SKIN:
 		return {}
 	var s := skin(id)
-	var pal := {"id": id, "suit": s["suit"], "accent": s["accent"], "light": s["light"], "rainbow": bool(s.get("rainbow", false)), "outfit": String(s.get("outfit", "")), "hides": s.get("hides", [])}
+	if s.has("model"):
+		return {"id": id, "model": String(s["model"])}
+	var suit: Color = s["suit"]
+	var acc: Color = s["accent"]
+	var cols := {JO_WHITE: suit, JO_RIB: suit.darkened(0.16), JO_POCKET: suit.darkened(0.06), JO_RED: acc, JO_GLOW: s["light"]}
 	if s.has("hair"):
-		pal["hair"] = s["hair"]
-	return pal
+		cols[JO_HAIR] = s["hair"]
+	return {"id": id, "colors": cols}
 
 ## Apparence équipée du profil, appliquée à tous les modèles de Jo (Relais, partie).
 static func apply_skin(p: Dictionary) -> void:
