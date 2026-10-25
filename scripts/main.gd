@@ -1380,6 +1380,18 @@ func _show_dev() -> void:
 		Dev.set_value("jo_twos", not bool(Dev.v["jo_twos"]))
 		_show_dev())
 	box.add_child(tw)
+	# style BD des ennemis (rig3d.gd comic_mat, nouveaux ennemis) et effets BD des impacts (view3d.gd)
+	var bd_row := UI.hbox(10)
+	box.add_child(bd_row)
+	for kv in [["comic", "STYLE BD"], ["bd_fx", "EFFETS BD"]]:
+		var key: String = kv[0]
+		var on := bool(Dev.v[key])
+		var bb := UI.button(String(kv[1]) + " : " + ("OUI" if on else "NON"), 20, UI.ACCENT if on else UI.MUTED, 205)
+		bb.custom_minimum_size = Vector2(205, 64)
+		bb.pressed.connect(func():
+			Dev.set_value(key, not bool(Dev.v[key]))
+			_show_dev())
+		bd_row.add_child(bb)
 	box.add_child(summary)
 	var end_row := UI.hbox(10)
 	box.add_child(end_row)

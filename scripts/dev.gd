@@ -7,7 +7,7 @@ const CFG := "user://dev.cfg"
 const VERSION := 4  # 2 : Jo à 1,15 ; 3 : Jo à 0,95 ; 4 : nouvelle Jo (1,26 de haut) à 0,65 (~57 px en 1280x720)
 ## Valeurs par défaut (et bornes des curseurs du mode développeur). all_worlds : version de démo, le monde 2
 ## est ouvert sans finir le monde 1 (le mode développeur le referme).
-const DEFAULTS := {"cam_dist": 11.5, "cam_pitch": 56.0, "cam_fov": 38.0, "hero_scale": 0.65, "mob_scale": 1.0, "fps": 60, "show_fps": false, "dev": false, "all_worlds": true, "quality": 1, "sticks_free": true, "jo_twos": true}
+const DEFAULTS := {"cam_dist": 11.5, "cam_pitch": 56.0, "cam_fov": 38.0, "hero_scale": 0.65, "mob_scale": 1.0, "fps": 60, "show_fps": false, "dev": false, "all_worlds": true, "quality": 1, "sticks_free": true, "jo_twos": true, "comic": true, "bd_fx": true}
 const RANGES := {"cam_dist": [6.0, 24.0], "cam_pitch": [30.0, 85.0], "cam_fov": [24.0, 70.0], "hero_scale": [0.6, 2.2], "mob_scale": [0.6, 1.4]}
 ## Préréglages du menu pause (boutons VUE et ANGLE).
 const ZOOMS := [["PROCHE", 9.0], ["NORMALE", 11.5], ["LARGE", 14.0], ["TRÈS LARGE", 16.5]]
@@ -31,6 +31,13 @@ func _ready() -> void:
 		# réglages enregistrés avant un changement de valeur par défaut : la nouvelle valeur l'emporte
 		if int(cf.get_value("dev", "version", 1)) < VERSION:
 			v["hero_scale"] = DEFAULTS["hero_scale"]
+	# « --devset=clé:valeur » (planches, mesures) : réglage pour ce lancement, non enregistré
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--devset=") and ":" in a:
+			var kv := a.trim_prefix("--devset=").split(":")
+			if DEFAULTS.has(kv[0]):
+				v[kv[0]] = str_to_var(kv[1])
+				_no_save = true
 	_layer = CanvasLayer.new()
 	_layer.layer = 100
 	add_child(_layer)
@@ -60,7 +67,10 @@ func reset() -> void:
 	_apply()
 	save()
 
+var _no_save := false
 func save() -> void:
+	if _no_save:
+		return
 	var cf := ConfigFile.new()
 	cf.set_value("dev", "version", VERSION)
 	for k in v.keys():
@@ -107,5 +117,34 @@ func _process(dt: float) -> void:
 		_poll = 0.5
 		if _playing() != _in_run:
 			_apply()
+	if _perf_stats:
+		_perf_tick(dt)
 	if _label.visible:
 		_label.text = "%d i/s · %d appels · %dk tri" % [Engine.get_frames_per_second(), Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000.0)]
+
+## « --perfstats » : en partie (ou dans une scène d'outil, sans état), toutes les 2 s, moyenne du temps par image, appels de dessin, objets et
+## primitives (dans la sortie standard), cadence libre. Pour comparer deux versions sur la même machine.
+var _perf_stats := "--perfstats" in OS.get_cmdline_user_args()
+var _ps_t := 0.0
+var _ps_n := 0
+var _ps_dc := 0.0
+var _ps_pr := 0.0
+var _ps_ob := 0.0
+func _perf_tick(dt: float) -> void:
+	var sc := get_tree().current_scene
+	if get_tree().paused or sc == null or not (_in_run or sc.get("state") == null):
+		return
+	Engine.max_fps = 0
+	_ps_t += dt
+	_ps_n += 1
+	_ps_dc += Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
+	_ps_ob += Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)
+	_ps_pr += Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
+	if _ps_t < 2.0:
+		return
+	print("PERFSTATS %.2f ms/image · %d appels · %d objets · %dk tri" % [_ps_t * 1000.0 / _ps_n, int(_ps_dc / _ps_n), int(_ps_ob / _ps_n), int(_ps_pr / _ps_n / 1000.0)])
+	_ps_t = 0.0
+	_ps_n = 0
+	_ps_dc = 0.0
+	_ps_ob = 0.0
+	_ps_pr = 0.0

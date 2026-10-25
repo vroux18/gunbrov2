@@ -53,6 +53,46 @@ static func body_mat(tint: Color) -> ShaderMaterial:
 	_body_mats[key] = m
 	return m
 
+# ---------------------------------------------------------------- style BD (tous les personnages)
+## Réglage Dev « comic » (bouton STYLE BD du mode développeur) : ennemis, élites, boss et robots du Relais
+## prennent le rendu de Jo (shaders/jo_comic.gdshader : deux paliers nets, trame de points dans l'ombre, bords
+## décalés ; encre noire jo_ink.gdshader), réglé plus sobre (COMIC_MOB). Les élites restent dorées (couleurs
+## par sommet de <genre>_elite.glb), les pièces « _glow », l'éclat de coup (hit_flash : material_overlay), la
+## chaleur du Pétard (« heat ») et la teinte (« tint ») marchent pareil. Un matériau par teinte, partagé ;
+## une seule encre en next_pass. Désactivé : l'ancien rendu doux (body_mat).
+const COMIC_MOB := {"saturation": 1.3, "step_at": 0.2, "shade_col": Color(0.4, 0.37, 0.76), "dot_col": Color(0.2, 0.16, 0.48), "chroma": 0.4, "chroma_width": 0.26, "spec_amt": 0.28, "omni_gain": 0.45,
+	"rim_amt": 0.32, "rim_width": 0.22, "dot_size": 0.4}
+## Encre des ennemis : plus épaisse que celle de Jo en jeu (ils sont vus de plus loin, en plus gros).
+const COMIC_INK := {"uv_normal": false, "world": 0.02, "min_px": 1.6, "max_px": 3.6}
+static var _comic_mats := {}
+static var _comic_ink: ShaderMaterial = null
+
+static func comic_on() -> bool:
+	return bool(Dev.v.get("comic", true))
+
+## Matériau des personnages autres que Jo : style BD si le réglage est actif, sinon l'ancien rendu.
+static func char_mat(tint: Color) -> ShaderMaterial:
+	return comic_mat(tint) if comic_on() else body_mat(tint)
+
+static func comic_mat(tint: Color) -> ShaderMaterial:
+	var key := tint.to_html()
+	if _comic_mats.has(key):
+		return _comic_mats[key]
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/jo_comic.gdshader")
+	m.set_shader_parameter("tint", tint)
+	for k in COMIC_MOB:
+		m.set_shader_parameter(k, COMIC_MOB[k])
+	if outline_enabled:
+		if _comic_ink == null:
+			_comic_ink = ShaderMaterial.new()
+			_comic_ink.shader = load("res://shaders/jo_ink.gdshader")
+			for k in COMIC_INK:
+				_comic_ink.set_shader_parameter(k, COMIC_INK[k])
+		m.next_pass = _comic_ink
+	_comic_mats[key] = m
+	return m
+
 static func glow_mat(energy: float) -> StandardMaterial3D:
 	var key := "%.2f" % energy
 	if _glow_mats.has(key):
@@ -99,7 +139,7 @@ func _load_model(path: String) -> void:
 	for mi in Models.meshes(model):
 		var m: MeshInstance3D = mi
 		var nm := String(m.name) + String(m.get_parent().name)
-		m.material_override = glow_mat(_glow_energy) if "_glow" in nm else body_mat(_tint)
+		m.material_override = glow_mat(_glow_energy) if "_glow" in nm else char_mat(_tint)
 	meshes = Models.meshes(model)
 	_flow_scan()
 

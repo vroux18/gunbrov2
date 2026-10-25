@@ -23,7 +23,7 @@ var _seed := -1.0
 var _glow_base := 1.35
 var _eye_mat: StandardMaterial3D
 var _lamp_mat: StandardMaterial3D
-var _skin: ShaderMaterial  # matériau propre (shaders/character.gdshader) : rougit pendant la préparation
+var _skin: ShaderMaterial  # matériau propre (rig3d.gd char_mat : style BD ou ancien rendu) : rougit pendant la préparation
 var _stop := 0.0  # temps depuis l'arrêt net (inertie de la tête)
 var _sway := 0.0
 var _sway_v := 0.0
@@ -35,7 +35,7 @@ func setup(path: String, tint: Color = Color(1, 1, 1), glow_energy: float = 3.0)
 	_glow_base = glow_energy * GLOW_SCALE
 	_eye_mat = _new_glow()
 	_lamp_mat = _new_glow()
-	_skin = body_mat(tint).duplicate() as ShaderMaterial
+	_skin = char_mat(tint).duplicate() as ShaderMaterial
 	_skin_heat(Color(1, 1, 1), RED_HOT, 0.0)
 	for mi in meshes:
 		var m: MeshInstance3D = mi
@@ -57,7 +57,7 @@ func _new_glow() -> StandardMaterial3D:
 	return m
 
 
-## Teinte multipliée et lueur ajoutée de la coque (paramètres de shaders/character.gdshader).
+## Teinte multipliée et lueur ajoutée de la coque (« tint », « heat » : mêmes noms dans les deux shaders).
 func _skin_heat(tint: Color, col: Color, e: float) -> void:
 	_skin.set_shader_parameter("tint", tint)
 	_skin.set_shader_parameter("heat_col", col)

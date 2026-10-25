@@ -3,13 +3,16 @@
 // de couleurs façon impression mal calée (cyan d'un côté, magenta de l'autre). Le contour d'encre est une
 // deuxième passe (jo_ink.gdshader, next_pass). Tout est dans le matériau : pas de passe plein écran.
 // Un seul matériau partagé par tous les modèles de Jo (tenues comprises) : les tenues ne changent que les
-// couleurs par sommet.
+// couleurs par sommet. Le même shader rend les ennemis, élites et boss en style BD (réglage Dev « comic »,
+// scripts/rig3d.gd comic_mat) : un matériau par teinte, réglé plus sobre (décalage léger, liseré net).
 shader_type spatial;
 // Pas de lumière ambiante : l'aplat éclairé vaut la couleur du vêtement, l'ombre sa teinte froide tramée, quelle
 // que soit la scène (partie, Relais, vignettes). Le soleil (lumière directionnelle) donne les deux paliers ; les
 // lumières ponctuelles (lumière d'appoint HERO_LAYER, tirs, explosions) ajoutent un éclat par-dessus.
 render_mode cull_back, depth_draw_opaque, ambient_light_disabled;
 
+// teinte multipliée (ennemis : rig3d.gd « tint » ; le Pétard qui rougit)
+uniform vec4 tint : source_color = vec4(1.0);
 uniform float exposure = 1.0;
 uniform float saturation = 1.08;
 // palier de lumière (N·L) et largeur de la transition (petite : bord net)
@@ -33,6 +36,10 @@ uniform float chroma = 0.55;
 uniform float chroma_width = 0.32;
 uniform vec3 chroma_a : source_color = vec3(0.2, 0.85, 1.0);
 uniform vec3 chroma_b : source_color = vec3(1.0, 0.2, 0.62);
+// liseré net (ennemis) : bord tourné vers le haut, en aplat de couleur ; 0 pour Jo
+uniform vec3 rim_col : source_color = vec3(0.62, 0.72, 1.0);
+uniform float rim_amt = 0.0;
+uniform float rim_width = 0.3;
 // voile de coup (rouge) et lueur
 uniform vec3 heat_col : source_color = vec3(1.0, 0.1, 0.16);
 uniform float heat = 0.0;
@@ -80,7 +87,7 @@ void fragment() {
 		vec3 hsv = rgb2hsv(cs);
 		cs = mix(cs * vec3(0.93, 0.9, 1.0), hsv2rgb(vec3(fract(hsv.x + guest_shift), hsv.y, hsv.z)), smoothstep(0.18, 0.4, hsv.y));
 	}
-	vec3 base = OUTPUT_IS_SRGB ? cs : srgb_to_linear(cs);
+	vec3 base = (OUTPUT_IS_SRGB ? cs : srgb_to_linear(cs)) * tint.rgb;
 	float l0 = dot(base, vec3(0.299, 0.587, 0.114));
 	base = max(mix(vec3(l0), base, saturation), vec3(0.0)) * exposure;
 	base *= mix(1.0, white_cap, smoothstep(0.6, 0.95, dot(base, vec3(0.299, 0.587, 0.114))));
@@ -90,6 +97,11 @@ void fragment() {
 	float edge = smoothstep(1.0 - chroma_width, 1.0, fr);
 	vec3 ch = mix(chroma_a, chroma_b, step(0.0, v_normal_view.x));
 	EMISSION = ch * edge * chroma * (0.35 + 0.65 * l0) + heat_col * heat;
+	if (rim_amt > 0.0) {
+		// liseré : bande nette (pas de dégradé) sur le bord, plus marquée en haut de la silhouette à l'écran
+		float rb = step(1.0 - rim_width, fr) * smoothstep(-0.2, 0.5, v_normal_view.y);
+		EMISSION += rim_col * rb * rim_amt * (0.4 + 0.6 * l0);
+	}
 }
 
 void light() {
