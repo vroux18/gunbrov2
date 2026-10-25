@@ -144,7 +144,7 @@ const RARITY_COLORS := [Color("#9FB3C8"), Color("#3CF2D8"), Color("#C77DFF"), Co
 const RARITY_MULT := [1.0, 1.6, 2.4, 3.5]
 
 # stat : dmg, rate, speed, range, energy, pickup (multiplicateurs, en fraction) ; hp (points) ; crit (fraction).
-# Chaque objet a son modèle (tools/chars/gear.py -> assets/chars3d/gear_<id>.glb) et son icône
+# Chaque objet a son modèle (tools/blender/gear.py -> assets/chars3d/gear_<id>.glb) et son icône
 # (tools/item_icons.tscn -> assets/icons/items/<id>.png). « world » : monde dont l'objet a le style (indicatif).
 # Tous les tirages (coffres, fin de salle, élites, box) piochent uniformément dans cette liste (roll_item).
 const ITEMS := [

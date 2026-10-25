@@ -158,27 +158,17 @@ static func tint_glow_mat(col: Color, energy: float) -> StandardMaterial3D:
 
 # ---------------------------------------------------------------- équipement (Jo)
 const RARITY_GLOW := [Color("#9FB3C8"), Color("#3CF2D8"), Color("#C77DFF"), Color("#FFB347")]
-## Bout du canon dans le repère de la part « gun », selon l'arme portée.
-const MUZZLE := {"": Vector3(0, -0.225, 0.058), "blaster_garde": Vector3(0, -0.26, 0.06), "fusil_impulsion": Vector3(0, -0.3, 0.056),
-	"riveteuse": Vector3(0, -0.265, 0.061), "pistolet_neon": Vector3(0, -0.268, 0.058)}
+## Bout du canon dans le repère de la part « gun », selon l'arme portée (tools/blender/gear.py l'affiche : BOUT).
+const MUZZLE := {"": Vector3(0, -0.225, 0.058), "blaster_garde": Vector3(0, -0.25, 0.064), "fusil_impulsion": Vector3(0, -0.35, 0.062),
+	"riveteuse": Vector3(0, -0.265, 0.07), "pistolet_neon": Vector3(0, -0.26, 0.068)}
 var _gear: Array = []
 var _gun_id := ""
 var _gun_meshes := {}  # MeshInstance3D -> Mesh d'origine (blaster du modèle)
 var _items: Array = []  # équipement porté (reposé quand le modèle change avec l'apparence)
-## L'équipement est sculpté pour l'ancienne Jo (tools/chars/gear.py : coordonnées de l'ancien tools/chars/jo.py, tête ronde,
-## jambe d'une pièce) : sur la nouvelle Jo (genoux « shin_* »), chaque cible est ajustée : cible -> [part
-## d'accueil, Transform3D dans son repère]. L'arme garde son repère (MUZZLE inchangé).
-static var GEAR_FIT := {
-	"head": ["head", Transform3D(Basis.from_scale(Vector3(0.47, 0.47, 0.47)), Vector3(0, 0.037, 0.0))],
-	"torso": ["torso", Transform3D(Basis.from_scale(Vector3(0.94, 1.1, 0.74)), Vector3(0, 0.109, 0.0))],
-	"arm_r": ["arm_r", Transform3D(Basis.from_scale(Vector3(0.78, 1.3, 0.85)), Vector3(0, -0.015, 0))],
-	"arm_l": ["arm_l", Transform3D(Basis.from_scale(Vector3(0.78, 1.3, 0.85)), Vector3(0, -0.015, 0))],
-	"leg_r": ["shin_r", Transform3D(Basis.from_scale(Vector3(0.82, 0.98, 0.82)), Vector3.ZERO)],
-	"leg_l": ["shin_l", Transform3D(Basis.from_scale(Vector3(0.82, 0.98, 0.82)), Vector3.ZERO)],
-}
 
-## Équipe les objets {id, rarity} : chaque objet est un GLB sculpté (tools/chars/gear.py) dont les parts
-## « cible__id » se rangent dans la part cible de Jo (ajustées par GEAR_FIT). Une arme remplace le blaster.
+## Équipe les objets {id, rarity} : chaque objet est un GLB (tools/blender/gear.py) dont les parts « cible__id »
+## sont sculptées aux proportions de Jo, au pivot de la part cible : elles se rangent dedans telles quelles
+## (aucun ajustement). Une arme remplace le blaster.
 func apply_items(items: Array) -> void:
 	_items = items.duplicate()
 	for g in _gear:
@@ -187,7 +177,6 @@ func apply_items(items: Array) -> void:
 			(g as Node).queue_free()
 	_gear.clear()
 	var gun_id := ""
-	var fit := p("shin_r") != null
 	for it in items:
 		var id := String(it["id"])
 		var path := "res://assets/chars3d/gear_%s.glb" % id
@@ -197,18 +186,13 @@ func apply_items(items: Array) -> void:
 		var inst: Node3D = Models.scene(path).instantiate()
 		for n in inst.find_children("*__*", "Node3D", true, false):
 			var nd: Node3D = n
-			var tname := String(nd.name).get_slice("__", 0)
-			var xf := Transform3D.IDENTITY
-			if fit and GEAR_FIT.has(tname):
-				xf = GEAR_FIT[tname][1]
-				tname = GEAR_FIT[tname][0]
-			var target := p(tname)
+			var target := p(String(nd.name).get_slice("__", 0))
 			if target == null:
 				continue
 			nd.get_parent().remove_child(nd)
 			nd.owner = null
 			target.add_child(nd)
-			nd.transform = xf
+			nd.transform = Transform3D.IDENTITY
 			_gear.append(nd)
 			for mi in Models.meshes(nd):
 				if _hero_mat != null:
@@ -544,12 +528,12 @@ static func _recolored(src: ArrayMesh, cols: Dictionary) -> ArrayMesh:
 ## (tools/blender/jo.py) : « coiffe… », « visage… », « col… », « dos… », « epaule_r… », « epaule_l… »,
 ## « jambe_r… », « jambe_l… » (avec leurs « _glow » et leurs pans flottants « _f1 »…).
 ## Règle : l'objet porté l'emporte. Il masque les pièces de tenue de sa zone (_gear_zones, d'après la forme de
-## l'objet dans le repère de l'ancienne Jo, donc valable pour les objets à venir) :
+## l'objet dans le repère de sa part cible, donc valable pour les objets à venir) :
 ##   tête    couvre-chef (casque, serre-tête : monte au-dessus du crâne) -> coiffe et visage ; visière -> visage
 ##   bras    objet posé sur l'épaule (module, antenne, pince) -> épaulette de ce bras ; une manche ne masque rien
 ##   torse   devant ou autour du cou (plastron, veste, gilet, écharpe) -> col ; dans le dos (gadget) -> dos (cape,
 ##           sacoche)
-##   jambes  objet qui descend jusqu'au pied (bottes, patins) -> chaussures de cette jambe (jambe_*)
+##   jambes  objet qui descend jusqu'au sol (bottes, patins) -> chaussures de cette jambe (jambe_*)
 ## Le reste de la tenue (torse, manches, jambes, logo imprimé) ne bouge jamais : c'est la silhouette de l'apparence.
 const OUTFIT_ZONES := ["coiffe", "visage", "col", "dos", "epaule_r", "epaule_l", "jambe_r", "jambe_l"]
 
@@ -574,30 +558,33 @@ static func _gear_name(g: Node) -> String:
 	return String(g.name).trim_prefix("@").get_slice("@", 0)
 
 ## Zones de tenue occupées par l'équipement porté (voir la règle plus haut). Les boîtes sont celles du maillage
-## de l'objet, dans le repère de la part cible de l'ancienne Jo (origine au pivot : cou, épaule, hanches).
+## de l'objet (parts lumineuses exclues), dans le repère de sa part cible (origine au pivot : cou, hanches,
+## épaule, genou ; tools/blender/jo.py PIV).
 func _gear_zones() -> Dictionary:
 	var out := {}
 	for g in _gear:
 		if not is_instance_valid(g) or not (g is MeshInstance3D) or (g as MeshInstance3D).mesh == null:
 			continue
 		var nm := _gear_name(g)
+		if nm.ends_with("_glow"):
+			continue
 		var tgt := nm.get_slice("__", 0)
 		var box: AABB = (g as MeshInstance3D).get_aabb()
 		match tgt:
 			"head":
 				out["visage"] = true
-				if box.end.y > 0.38:  # couvre-chef
+				if box.end.y > 0.25:  # couvre-chef : monte au-dessus du crâne (sommet à 0,27 du cou)
 					out["coiffe"] = true
 			"torso":
-				if box.get_center().z < -0.2:  # gadget dans le dos
+				if box.position.z < -0.15:  # gadget : dépasse loin dans le dos (un vêtement s'arrête vers -0,13)
 					out["dos"] = true
 				else:
 					out["col"] = true
 			"arm_l", "arm_r":
-				if box.end.y > 0.07:  # sur l'épaule (une manche de veste reste plus bas)
+				if box.end.y > 0.085:  # sur l'épaule (une manche s'arrête au ras de l'épaule)
 					out["epaule_" + tgt.right(1)] = true
-			"leg_l", "leg_r":
-				if box.position.y < -0.27:  # descend jusqu'au pied
+			"shin_l", "shin_r":
+				if box.position.y < -0.3:  # descend jusqu'au sol (le genou est à 0,335)
 					out["jambe_" + tgt.right(1)] = true
 	return out
 

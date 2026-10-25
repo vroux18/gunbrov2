@@ -1,7 +1,8 @@
 extends Node
 ## Icônes des objets, rendues une fois pour toutes depuis leurs modèles 3D (assets/chars3d/gear_<id>.glb,
-## tools/chars/gear.py) : vue de trois quarts, éclairage de studio doux (clé, contre-jour froid, liseré),
-## contour encré, fond transparent. Le jeu les affiche telles quelles (scripts/item_icon.gd), sans rendu 3D.
+## tools/blender/gear.py) : vue de trois quarts, même rendu « bande dessinée » que Jo en partie
+## (shaders/jo_comic.gdshader : aplats, deux paliers de lumière, ombre froide tramée ; encre jo_ink.gdshader),
+## une seule lumière de clé, fond transparent. Le jeu les affiche telles quelles (scripts/item_icon.gd), sans rendu 3D.
 ## Pour chaque objet :
 ##   assets/icons/items/<id>.png       l'objet, ses parts lumineuses en blanc neutre ;
 ##   assets/icons/items/<id>_glow.png  les parts lumineuses seules (blanc + halo), que le jeu teinte à la
@@ -26,21 +27,24 @@ const SIZE := 256
 const RENDER := 1024
 const MARGIN := 0.07  # marge autour de l'objet, en fraction du côté
 const JO := "res://assets/chars3d/jo.glb"
+const COIN_LAYER := 1 << 1  # pièces des tickets : éclairées aussi par le débouchage et le contre-jour
 
 ## Arme : canon (−Y au repos) vers la droite, dessus (+Z) vers le haut.
 const GUN_BASIS := Basis(Vector3(0, 0, -1), Vector3(-1, 0, 0), Vector3(0, 1, 0))
 
 ## Cadrage de chaque objet : orbite de la caméra (yaw : 0 = de face, 180 = de dos ; pitch : vue d'en haut),
-## rotation du modèle (« gun » : arme posée de profil), parts de Jo montrées en mannequin (« ctx »).
+## rotation du modèle (« gun » : arme posée de profil, « roll » : penchée de tant de degrés pour remplir le carré),
+## parts de Jo montrées en mannequin (« ctx »). La selle des modules d'épaule (part « *_selle » : plaque et sangle
+## autour du bras) n'apparaît pas dans l'icône : sans le bras, la sangle ferait un anneau vide.
 const VIEWS := {
-	"blaster_garde": {"yaw": -28.0, "pitch": 16.0, "basis": "gun"},
-	"fusil_impulsion": {"yaw": -28.0, "pitch": 16.0, "basis": "gun"},
-	"riveteuse": {"yaw": -28.0, "pitch": 20.0, "basis": "gun"},
-	"pistolet_neon": {"yaw": -28.0, "pitch": 18.0, "basis": "gun"},
+	"blaster_garde": {"yaw": -28.0, "pitch": 16.0, "basis": "gun", "roll": 14.0},
+	"fusil_impulsion": {"yaw": -28.0, "pitch": 16.0, "basis": "gun", "roll": 34.0},
+	"riveteuse": {"yaw": -28.0, "pitch": 20.0, "basis": "gun", "roll": 14.0},
+	"pistolet_neon": {"yaw": -28.0, "pitch": 18.0, "basis": "gun", "roll": 14.0},
 	"module_canon": {"yaw": 38.0, "pitch": 22.0},
 	"cellule": {"yaw": 34.0, "pitch": 14.0},
 	"pince": {"yaw": 62.0, "pitch": 16.0},
-	"antenne": {"yaw": 100.0, "pitch": 22.0},
+	"antenne": {"yaw": 80.0, "pitch": 22.0},
 	"visiere": {"yaw": -30.0, "pitch": 8.0, "ctx": ["head"]},
 	"casque_garde": {"yaw": 30.0, "pitch": 16.0},
 	"casque_docker": {"yaw": 30.0, "pitch": 16.0},
@@ -48,10 +52,10 @@ const VIEWS := {
 	"plastron": {"yaw": 26.0, "pitch": 14.0},
 	"veste": {"yaw": 16.0, "pitch": 8.0},
 	"gilet_fret": {"yaw": 22.0, "pitch": 14.0, "ctx": ["arm_l", "arm_r"]},
-	"echarpe": {"yaw": 40.0, "pitch": 22.0},
-	"bottes": {"yaw": 34.0, "pitch": 16.0, "ctx": ["leg_l", "leg_r"]},
-	"jambieres": {"yaw": 48.0, "pitch": 12.0, "ctx": ["leg_l", "leg_r"]},
-	"amortisseurs": {"yaw": 50.0, "pitch": 14.0, "ctx": ["leg_l", "leg_r"]},
+	"echarpe": {"yaw": 28.0, "pitch": 12.0},
+	"bottes": {"yaw": 34.0, "pitch": 16.0},
+	"jambieres": {"yaw": 48.0, "pitch": 12.0, "ctx": ["shin_l", "shin_r"]},
+	"amortisseurs": {"yaw": 50.0, "pitch": 14.0, "ctx": ["shin_l", "shin_r"]},
 	"patins": {"yaw": 36.0, "pitch": 22.0},
 	"pile": {"yaw": 200.0, "pitch": 16.0},
 	"aimant": {"yaw": 196.0, "pitch": 14.0},
@@ -112,11 +116,13 @@ func _build() -> void:
 	var fill := DirectionalLight3D.new()
 	fill.light_color = Color(0.72, 0.82, 1.0)
 	fill.light_energy = 0.45
+	fill.light_cull_mask = COIN_LAYER  # le matériau BD des objets n'a qu'une lumière (la clé)
 	vp.add_child(fill)
 	fill.set_meta("dir", Vector3(-10, 60, 0))
 	var back := DirectionalLight3D.new()
 	back.light_color = Color(0.8, 0.9, 1.0)
 	back.light_energy = 0.9
+	back.light_cull_mask = COIN_LAYER
 	vp.add_child(back)
 	back.set_meta("dir", Vector3(-25, 165, 0))
 	cam = Camera3D.new()
@@ -127,31 +133,33 @@ func _build() -> void:
 	cam.make_current()
 	stage = Node3D.new()
 	vp.add_child(stage)
-	# matériaux : le shader des personnages (même rendu que Jo), réglé pour une vitrine neutre
-	var sh: Shader = load("res://shaders/character.gdshader")
+	# contour des pièces de monnaie (tickets, matériau standard)
 	outline_mat = ShaderMaterial.new()
 	outline_mat.shader = load("res://shaders/character_outline.gdshader")
 	outline_mat.set_shader_parameter("width", 7.0)  # en px d'un écran de 720 px : ~4 px dans l'icône de 256
 	outline_mat.set_shader_parameter("ink", Color(0.03, 0.035, 0.07))
+	# objets : le matériau de Jo (jo_comic + encre), trame plus grosse (l'image est réduite 4 fois)
+	var ink := ShaderMaterial.new()
+	ink.shader = load("res://shaders/jo_ink.gdshader")
+	ink.set_shader_parameter("world", 1.0)
+	ink.set_shader_parameter("min_px", 8.5)  # px d'un écran de 720 px : ~3 px dans l'icône de 256
+	ink.set_shader_parameter("max_px", 8.5)
 	body_mat = ShaderMaterial.new()
-	body_mat.shader = sh
-	body_mat.set_shader_parameter("rim_sky", Color(0.88, 0.94, 1.0))
-	body_mat.set_shader_parameter("rim_floor", Color(0.75, 0.8, 0.95))
-	body_mat.set_shader_parameter("rim_amt", 1.1)
-	body_mat.set_shader_parameter("shade_col", Color(0.42, 0.46, 0.66))
-	body_mat.set_shader_parameter("shade_amt", 0.4)
+	body_mat.shader = load("res://shaders/jo_comic.gdshader")
+	body_mat.set_shader_parameter("dot_cell", 9.0)
+	body_mat.set_shader_parameter("dot_size", 0.36)
+	body_mat.set_shader_parameter("chroma", 0.35)
 	body_mat.set_shader_parameter("saturation", 1.12)
-	body_mat.set_shader_parameter("exposure", 1.2)  # les pièces sombres (bottes, armes) restent lisibles
-	body_mat.set_shader_parameter("spec_amt", 0.55)
-	body_mat.next_pass = outline_mat
+	body_mat.set_shader_parameter("step_at", 0.0)
+	body_mat.next_pass = ink
 	# mannequin : Jo en ardoise mate, pour situer l'objet sans lui voler la vedette
 	ctx_mat = body_mat.duplicate()
 	ctx_mat.set_shader_parameter("saturation", 0.0)
 	ctx_mat.set_shader_parameter("tint", Color(0.62, 0.66, 0.8))
-	ctx_mat.set_shader_parameter("exposure", 1.0)
-	ctx_mat.set_shader_parameter("rim_amt", 0.5)
+	ctx_mat.set_shader_parameter("exposure", 0.85)
+	ctx_mat.set_shader_parameter("chroma", 0.0)
 	ctx_mat.set_shader_parameter("spec_amt", 0.0)
-	ctx_mat.next_pass = outline_mat
+	ctx_mat.next_pass = ink
 	glow_mat = StandardMaterial3D.new()
 	glow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	glow_mat.albedo_color = Color(0.86, 0.92, 1.0)
@@ -225,8 +233,13 @@ func _render_item(id: String, path: String) -> void:
 	var inst: Node3D = Models.scene(path).instantiate()
 	stage.add_child(inst)
 	if String(view.get("basis", "")) == "gun":
-		stage.basis = GUN_BASIS
-	var item_meshes := Models.meshes(inst)
+		stage.basis = Basis(Vector3(0, 0, 1), deg_to_rad(float(view.get("roll", 0.0)))) * GUN_BASIS
+	var item_meshes := []
+	for mi in Models.meshes(inst):
+		if "_selle" in String((mi as Node).name) + String((mi as Node).get_parent().name):
+			(mi as MeshInstance3D).mesh = null
+		else:
+			item_meshes.append(mi)
 	var ctx_meshes := []
 	var want: Array = view.get("ctx", [])
 	if not want.is_empty():
@@ -356,6 +369,7 @@ func _coin(pos: Vector3, rot: Vector3, gold: Material, dark: Material, rim: Mate
 	cm.rings = 1
 	disc.mesh = cm
 	disc.material_override = gold
+	disc.layers = 1 | COIN_LAYER
 	n.add_child(disc)
 	for s in [-1.0, 1.0]:
 		var ring := MeshInstance3D.new()
@@ -368,6 +382,7 @@ func _coin(pos: Vector3, rot: Vector3, gold: Material, dark: Material, rim: Mate
 		ring.scale = Vector3(1, 0.5, 1)
 		ring.position.y = s * 0.065
 		ring.material_override = rim
+		ring.layers = 1 | COIN_LAYER
 		n.add_child(ring)
 	var hole := MeshInstance3D.new()
 	var hm := CylinderMesh.new()
@@ -378,6 +393,7 @@ func _coin(pos: Vector3, rot: Vector3, gold: Material, dark: Material, rim: Mate
 	hm.rings = 1
 	hole.mesh = hm
 	hole.material_override = dark
+	hole.layers = 1 | COIN_LAYER
 	n.add_child(hole)
 	stage.add_child(n)
 	return n

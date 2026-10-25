@@ -65,7 +65,21 @@ func _test_profile() -> void:
 				lv["aimant"] = 1
 				lv["chance"] = 1
 			main.profile["talents"] = lv
+		elif a.begins_with("--items="):
+			_give_items(a.trim_prefix("--items="))
 	main._apply_profile_to_hero()
+
+## --items=id,id:rareté,... (captures) : donne et équipe ces objets (rareté 2 par défaut ; un par emplacement, le
+## dernier l'emporte). Marche en partie comme sur les écrans (avec --stuff, --stuff passe après).
+func _give_items(spec: String) -> void:
+	var Save = load("res://scripts/save.gd")
+	for tok in spec.split(","):
+		var id := tok.get_slice(":", 0)
+		var r := int(tok.get_slice(":", 1)) if ":" in tok else 2
+		var it := {"id": id, "rarity": clampi(r, 0, 3), "uid": "cap_" + id}
+		if Save.find_item(main.profile, it["uid"]).is_empty():
+			main.profile["inventory"].append(it)
+		Save.equip(main.profile, it["uid"])
 
 ## Les événements injectés sont en coordonnées de fenêtre ; le moteur les ramène dans le viewport 1280×720.
 func _win(pos: Vector2) -> Vector2:
