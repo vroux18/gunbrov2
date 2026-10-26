@@ -3,7 +3,7 @@ extends RefCounted
 
 # ---------------------------------------------------------------- pouvoirs
 ## Arbre des pouvoirs d'une partie : cinq branches, trois paliers chacune. Le palier 2 d'une branche s'ouvre après
-## 2 choix dans cette branche, le palier 3 après 4. Chaque pouvoir se cumule jusqu'à « max » niveaux (I, II, III…).
+## 2 choix dans cette branche, le palier 3 après 4. Chaque pouvoir se cumule jusqu'à « max » niveaux (affichés 1, 2, 3…).
 ## « lv » : texte propre à chaque niveau, sinon « desc ». Quand deux pouvoirs précis sont au maximum, leur
 ## évolution (EVOLUTIONS) peut sortir : une carte légendaire qui transforme le jeu.
 const BRANCHES := {
@@ -67,7 +67,7 @@ const POWERS := [
 	{"id": "turbo", "b": "move", "tier": 1, "max": 3, "name": "Turbo", "desc": "Esquive : recharge 20 % plus rapide."},
 	{"id": "charges", "b": "move", "tier": 2, "max": 2, "name": "Double ruée", "desc": "Esquive : une charge de plus, à enchaîner."},
 	{"id": "trail", "b": "move", "tier": 2, "max": 2, "name": "Traînée ardente", "lv": ["La ruée laisse une traînée de feu.", "La course aussi laisse du feu."]},
-	{"id": "dashboom", "b": "move", "tier": 2, "max": 2, "name": "Ruée explosive", "desc": "La ruée finit par une explosion (plus forte au niveau II)."},
+	{"id": "dashboom", "b": "move", "tier": 2, "max": 2, "name": "Ruée explosive", "desc": "La ruée finit par une explosion (plus forte au niveau 2)."},
 	{"id": "phantom", "b": "move", "tier": 2, "max": 2, "name": "Fantôme", "desc": "La ruée va plus loin, traverse les ennemis et les blesse."},
 	{"id": "momentum", "b": "move", "tier": 3, "max": 2, "name": "Élan", "lv": ["Après une ruée : +60 % de cadence pendant 2 s.", "+100 % de cadence après une ruée."]},
 	{"id": "impulse", "b": "move", "tier": 3, "max": 2, "name": "Impulsion", "lv": ["Chaque ennemi tué recharge l'esquive de 0,25 s.", "0,4 s par ennemi tué."]},

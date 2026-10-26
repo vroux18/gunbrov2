@@ -49,7 +49,7 @@ func build(m: Node, fresh: bool = true) -> void:
 			_tab = a.trim_prefix("--branch=")
 	if _tab != "evo" and not Data.BRANCHES.has(_tab):
 		_tab = String(Data.BRANCH_ORDER[0])
-	bandeau(self, "POUVOIRS", "2 cartes d'une branche ouvrent son palier II, 4 son palier III.", UI.ORANGE, func(): main.show_base(), profile)
+	bandeau(self, "POUVOIRS", "Les cartes d'une branche débloquent de nouveaux pouvoirs.", UI.ORANGE, func(): main.show_base(), profile)
 	_build_tabs()
 	_body = Control.new()
 	_body.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -219,7 +219,7 @@ func _body_w() -> float:
 	return _vs().x - float(_ins["left"]) - float(_ins["right"])
 
 # ---------------------------------------------------------------- branche
-const TIER_TEXT := ["", "Disponible dès le début de la partie.", "S'ouvre après 2 cartes prises dans cette branche.", "S'ouvre après 4 cartes prises dans cette branche."]
+const TIER_TEXT := ["", "Dès le début de la partie.", "Débloqué après 2 cartes de cette branche.", "Débloqué après 4 cartes de cette branche."]
 
 func _fill_branch(bid: String, anim: bool) -> void:
 	var br := Data.branch(bid)
@@ -244,7 +244,7 @@ func _fill_branch(bid: String, anim: bool) -> void:
 		var head := UI.hbox(14)
 		head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		v.add_child(head)
-		var tg := UI.tag("PALIER %s" % Data.roman(tier), bc if tier == 1 else bc.darkened(0.15), UI.INK, 24)
+		var tg := UI.tag("PALIER %d" % tier, bc if tier == 1 else bc.darkened(0.15), UI.INK, 24)
 		tg.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		head.add_child(tg)
 		var tl := UI.label(TIER_TEXT[tier], 24, UI.TEXT)
@@ -399,13 +399,13 @@ func open_power(id: String) -> void:
 	var tags := UI.hbox(8)
 	hv.add_child(tags)
 	tags.add_child(UI.tag(String(br["name"]).to_upper(), bc, UI.INK, 22))
-	tags.add_child(UI.tag("PALIER %s" % Data.roman(int(p["tier"])), Color("#2A3F6E"), UI.TEXT, 22))
+	tags.add_child(UI.tag("PALIER %d" % int(p["tier"]), Color("#2A3F6E"), UI.TEXT, 22))
 	var close := UI.button("FERMER", 24, UI.MUTED)
 	close.custom_minimum_size = Vector2(150, 76)
 	close.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	close.pressed.connect(close_detail)
 	head.add_child(close)
-	var tl := UI.label("Palier %s : %s" % [Data.roman(int(p["tier"])), TIER_TEXT[int(p["tier"])].to_lower()], 24, SOFT)
+	var tl := UI.label("Palier %d : %s" % [int(p["tier"]), TIER_TEXT[int(p["tier"])].to_lower()], 24, SOFT)
 	tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(tl)
 	# effet par niveau
@@ -422,7 +422,7 @@ func open_power(id: String) -> void:
 	var mx := int(p["max"])
 	if p.has("lv"):
 		for i in range(mx):
-			ev.add_child(_level_row("NIV. %s" % Data.roman(i + 1), Data.power_text(p, i + 1), bc))
+			ev.add_child(_level_row("NIV. %d" % (i + 1), Data.power_text(p, i + 1), bc))
 	else:
 		ev.add_child(_level_row("CHAQUE NIV.", String(p["desc"]), bc))
 		var up := UI.label("Se prend jusqu'à %d fois%s." % [mx, " : l'effet se cumule" if mx > 1 else ""], 24, SOFT)
@@ -458,7 +458,7 @@ func _fill_evo(anim: bool) -> void:
 	var col := UI.vbox(12)
 	col.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_body.add_child(col)
-	var rule := UI.label("Quand deux pouvoirs précis sont au niveau maximum, leur évolution peut sortir en carte légendaire (une fois par partie).", 24, UI.TEXT)
+	var rule := UI.label("Deux pouvoirs précis au niveau maximum préparent une évolution : elle sort en carte dorée, une fois par partie.", 24, UI.TEXT)
 	rule.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(rule)
 	var sc := ScrollContainer.new()

@@ -1,9 +1,9 @@
 extends RefCounted
-## Lecture du build en cours, pour l'interface de partie : où en est chaque branche (paliers), ce qu'une carte
-## apporte en plus de son effet, évolutions en préparation. Ne change aucune règle : lit hero.powers, hero.evo,
-## hero.branch_count() et Data.TIER_NEED (palier II après 2 cartes prises dans la branche, III après 4).
-## Sert à l'écran de choix (barre des branches, ligne « ce que ça débloque » des cartes, scripts/main.gd et
-## scripts/ui/card.gd), aux bandeaux de déblocage (scripts/hud.gd) et au rappel du build dans la pause.
+## Lecture du build en cours, pour l'interface de partie. Principe : peu de choses, en gros, en images ; une
+## seule information par endroit. Ne change aucune règle : lit hero.powers, hero.evo, hero.branch_count() et
+## Data.TIER_NEED (nouveaux pouvoirs d'une branche après 2 puis 4 cartes prises dedans).
+## Sert à l'écran de choix (au plus une ligne dorée par carte, scripts/main.gd et scripts/ui/card.gd), aux
+## bandeaux de déblocage (scripts/hud.gd) et à la pause (grille TES POUVOIRS, évolution la plus proche).
 ## Marche pour l'hôte comme pour l'invité du duo : tout part du `hero` passé (main.hero, le Jo du joueur).
 
 const Data = preload("res://scripts/data.gd")
@@ -12,6 +12,10 @@ const Icon = preload("res://scripts/icon.gd")
 const TouchScroll = preload("res://scripts/ui/touch_scroll.gd")
 
 const SOFT := Color("#C4D2E4")
+const PANEL_BG := Color("#0A1328")  # fond opaque des panneaux de la pause
+const PAD := 20.0
+const TEXT_UNLOCK := "Débloque de nouveaux pouvoirs"
+const TEXT_EVO := "Prépare une évolution"
 
 # ---------------------------------------------------------------- calculs
 ## Palier ouvert (1, 2 ou 3) pour `count` cartes prises dans la branche.
@@ -21,15 +25,6 @@ static func open_tier(count: int) -> int:
 		if count >= int(Data.TIER_NEED[k]):
 			t = k
 	return t
-
-## Progression vers le prochain palier : {target (0 : tout est ouvert), have, need} en cartes depuis le palier
-## précédent (deux cartes par palier).
-static func next_step(count: int) -> Dictionary:
-	var t := open_tier(count)
-	if t >= 3:
-		return {"target": 0, "have": 0, "need": 0}
-	var base := int(Data.TIER_NEED[t])
-	return {"target": t + 1, "have": count - base, "need": int(Data.TIER_NEED[t + 1]) - base}
 
 static func _max(id: String) -> int:
 	return int(Data.power(id).get("max", 1))
@@ -43,41 +38,26 @@ static func evo_count(hero: Node, ev: Dictionary, plus: String = "") -> int:
 			k += 1
 	return k
 
-## Ce qu'une carte de pouvoir apporte en plus de son effet : lignes {text, col, strong}.
-##   « +1 vers le palier II de MOUVEMENT » ; « Débloque le palier III » (doré) ;
-##   « Vers ÉVOLUTION : Comète (1/2) » (pouvoirs de la recette au maximum après ce choix, dès que la recette
-##   est commencée) ; « Ouvre l'ÉVOLUTION Comète » (doré, la recette sera complète).
+## Ce qu'une carte de pouvoir apporte en plus de son effet, seulement si ça compte : au plus une ligne
+## {text, col, strong}, toujours dorée.
+##   « Débloque de nouveaux pouvoirs » : ce choix ouvre le palier suivant de la branche ;
+##   « Prépare une évolution » : l'autre pouvoir de la recette est déjà pris, et ce choix met celui-ci au
+##   maximum ou l'autre y est déjà (la recette avance pour de bon).
 static func card_gain(hero: Node, p: Dictionary, level: int) -> Array:
-	var out := []
 	var id := String(p["id"])
-	var bid := String(p["b"])
-	var br := Data.branch(bid)
-	var c: int = hero.branch_count(bid)
-	var t0 := open_tier(c)
-	var t1 := open_tier(c + 1)
-	if t1 > t0:
-		out.append({"text": "Débloque le palier %s" % Data.roman(t1), "col": UI.GOLD, "strong": true})
-	elif t0 < 3:
-		out.append({"text": "+1 vers le palier %s de %s" % [Data.roman(t0 + 1), String(br["name"]).to_upper()], "col": (br["col"] as Color).lightened(0.35), "strong": false})
+	var c: int = hero.branch_count(String(p["b"]))
+	if open_tier(c + 1) > open_tier(c):
+		return [{"text": TEXT_UNLOCK, "col": UI.GOLD, "strong": true}]
 	for ev in Data.EVOLUTIONS:
 		if not (ev["need"] as Array).has(id) or hero.has_evo(String(ev["id"])):
 			continue
-		var k := evo_count(hero, ev, id)
-		# pas de ligne pour un tout premier pouvoir dont la recette n'est pas commencée : moins de bruit au début
-		var engaged := k > 0 or level >= 2
 		for other in ev["need"]:
-			if String(other) != id and hero.lv(String(other)) > 0:
-				engaged = true
-		if not engaged:
-			break
-		if k >= 2:
-			out.append({"text": "Ouvre l'ÉVOLUTION %s" % String(ev["name"]), "col": UI.GOLD, "strong": true})
-		else:
-			out.append({"text": "Vers ÉVOLUTION : %s (%d/2)" % [String(ev["name"]), k], "col": Data.EVO_COL.lightened(0.2), "strong": false})
-		break
-	if out.is_empty() and level >= int(p["max"]):
-		out.append({"text": "Dernier niveau", "col": SOFT, "strong": false})
-	return out
+			var o := String(other)
+			if o == id or hero.lv(o) <= 0:
+				continue
+			if level >= _max(id) or hero.lv(o) >= _max(o):
+				return [{"text": TEXT_EVO, "col": UI.GOLD, "strong": true}]
+	return []
 
 ## État à comparer avant / après un choix : cartes par branche, évolutions prêtes.
 static func snapshot(hero: Node) -> Dictionary:
@@ -111,273 +91,280 @@ static func tier_icons(bid: String, tier: int, n: int = 3) -> Array:
 			out.append(String(p["id"]))
 	return out
 
-## Évolutions en préparation (un pouvoir de la recette au moins pris) ou prises : [{ev, k, taken}], les plus
-## avancées d'abord.
-static func evo_progress(hero: Node) -> Array:
-	var out := []
+## Évolution la plus proche, pas encore prise, dont un pouvoir de la recette au moins est pris : {ev, k}, ou
+## {} s'il n'y en a pas. La plus avancée : recettes au maximum d'abord, puis niveaux cumulés.
+static func next_evo(hero: Node) -> Dictionary:
+	var best := {}
+	var best_score := -1
 	for ev in Data.EVOLUTIONS:
-		var taken: bool = hero.has_evo(String(ev["id"]))
+		if hero.has_evo(String(ev["id"])):
+			continue
+		var lv := 0
 		var started := false
 		for id in ev["need"]:
-			if hero.lv(String(id)) > 0:
-				started = true
-		if taken or started:
-			var lv := 0
-			for id in ev["need"]:
-				lv += mini(hero.lv(String(id)), _max(String(id)))
-			out.append({"ev": ev, "k": evo_count(hero, ev), "taken": taken, "lv": lv})
-	out.sort_custom(func(a, b):
-		if a["taken"] != b["taken"]:
-			return not a["taken"]
-		if a["k"] != b["k"]:
-			return a["k"] > b["k"]
-		return a["lv"] > b["lv"])
-	return out
+			lv += mini(hero.lv(String(id)), _max(String(id)))
+			started = started or hero.lv(String(id)) > 0
+		if not started:
+			continue
+		var k := evo_count(hero, ev)
+		var score := k * 100 + lv
+		if score > best_score:
+			best_score = score
+			best = {"ev": ev, "k": k}
+	return best
 
 # ---------------------------------------------------------------- dessin
-## Pastilles de progression (rondes) : `have` pleines sur `need`.
-static func _draw_pips(ci: CanvasItem, pos: Vector2, have: int, need: int, col: Color, r: float = 7.0) -> void:
-	for i in range(need):
-		var c := pos + Vector2(i * (r * 2.0 + 6.0) + r, 0)
-		ci.draw_circle(c, r + 2.0, UI.INK)
-		if i < have:
-			ci.draw_circle(c, r, col)
-			ci.draw_circle(c + Vector2(-r * 0.3, -r * 0.3), r * 0.3, Color(1, 1, 1, 0.45))
-		else:
-			ci.draw_arc(c, r - 1.0, 0, TAU, 20, Color(col, 0.75), 2.5, true)
-
-## Coche dessinée (les polices n'ont pas le caractère).
-static func _draw_check(ci: CanvasItem, c: Vector2, s: float, col: Color) -> void:
-	ci.draw_polyline(PackedVector2Array([c + Vector2(-0.45, 0.0) * s, c + Vector2(-0.12, 0.35) * s, c + Vector2(0.5, -0.4) * s]), col, s * 0.22, true)
-
-## Barre compacte des cinq branches (écran de choix) : « PROCHAIN PALIER », puis par branche son pictogramme,
-## deux pastilles (cartes prises vers le prochain palier) et le palier visé ; tout ouvert : « III » et une coche.
-static func branch_bar(hero: Node) -> Control:
-	UI.load_fonts()
-	const CH := 46.0
-	const CW := 142.0
-	const GAP := 10.0
-	var cap := "PROCHAIN PALIER"
-	var cap_w := UI.BODY.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x + 14.0
-	var bar := Control.new()
-	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.size = Vector2(cap_w + (CW + GAP) * Data.BRANCH_ORDER.size() - GAP, CH)
-	bar.custom_minimum_size = bar.size
-	var draw := Control.new()
-	draw.size = bar.size
-	draw.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.add_child(draw)
-	var chips := []
-	for i in range(Data.BRANCH_ORDER.size()):
-		var bid := String(Data.BRANCH_ORDER[i])
-		var br := Data.branch(bid)
-		var x := cap_w + i * (CW + GAP)
-		chips.append({"x": x, "b": bid, "col": br["col"], "step": next_step(hero.branch_count(bid))})
-		var ic := Icon.new(String(br["icon"]), (br["col"] as Color).lightened(0.15), 28.0)
-		ic.position = Vector2(x + 10, (CH - 28.0) * 0.5)
-		bar.add_child(ic)
-	draw.draw.connect(func():
-		draw.draw_string(UI.BODY, Vector2(0, CH * 0.5 + 7), cap, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, SOFT)
-		for ch in chips:
-			var x: float = ch["x"]
-			var col: Color = ch["col"]
-			var st: Dictionary = ch["step"]
-			var r := Rect2(x, 0, CW, CH)
-			var sb := UI.flat(Color(UI.INK, 0.78), Color(col, 0.85), 23, 2)
-			draw.draw_style_box(sb, r)
-			var tgt: int = st["target"]
-			if tgt == 0:
-				_draw_pips(draw, Vector2(x + 46, CH * 0.5), 2, 2, col)
-				draw.draw_string(UI.TITLE, Vector2(x + 86, CH * 0.5 + 8), "III", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, UI.GOLD)
-				_draw_check(draw, Vector2(x + CW - 15, CH * 0.5 - 1), 13.0, UI.GOLD)
-			else:
-				_draw_pips(draw, Vector2(x + 46, CH * 0.5), int(st["have"]), int(st["need"]), col)
-				draw.draw_string(UI.TITLE, Vector2(x + 86, CH * 0.5 + 8), Data.roman(tgt), HORIZONTAL_ALIGNMENT_LEFT, -1, 22, UI.TEXT))
-	return bar
-
-## Rappel du build dans la pause, à gauche : un bloc par branche commencée (palier ouvert et pastilles vers le
-## suivant, pouvoirs pris avec leur niveau « II/III »). Largeur `w` ; au-delà de `max_h`, les niveaux se
-## raccourcissent (« II ») puis la liste défile.
-static func build_panel(hero: Node, w: float, max_h: float) -> PanelContainer:
-	UI.load_fonts()
-	var pan := _side_panel(Color("#5AA8FF"))
-	pan.custom_minimum_size = Vector2(w, 0)
-	var outer := UI.vbox(8)
-	pan.add_child(outer)
-	outer.add_child(UI.title("TON BUILD", 26, UI.TEXT, UI.ACCENT))
-	var groups := []
-	for bid in Data.BRANCH_ORDER:
-		var c: int = hero.branch_count(String(bid))
-		if c <= 0:
-			continue
-		var ids := []
-		for p in Data.POWERS:
-			if String(p["b"]) == String(bid) and hero.lv(String(p["id"])) > 0:
-				ids.append(String(p["id"]))
-		groups.append({"b": String(bid), "c": c, "ids": ids})
-	if groups.is_empty():
-		var e := UI.label("Aucun pouvoir pour l'instant. Remplis la barre d'énergie pour en choisir un.", 22, SOFT)
-		e.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		e.custom_minimum_size = Vector2(w - 36, 0)
-		outer.add_child(e)
-		return pan
-	var inner_w := w - 36.0
-	var avail := max_h - 30.0 - 42.0
-	var short := _groups_h(hero, groups, inner_w, false) > avail
-	var v := UI.vbox(8)
-	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	if _groups_h(hero, groups, inner_w, short) > avail:
-		var sc := ScrollContainer.new()
-		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		sc.custom_minimum_size = Vector2(inner_w, avail)
-		outer.add_child(sc)
-		sc.add_child(v)
-		TouchScroll.attach(sc)
-	else:
-		outer.add_child(v)
-	for g in groups:
-		var br := Data.branch(String(g["b"]))
-		var col: Color = br["col"]
-		var c: int = g["c"]
-		var head := UI.hbox(8)
-		v.add_child(head)
-		var bi := Icon.new(String(br["icon"]), col, 26.0)
-		bi.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		head.add_child(bi)
-		var hl := UI.label("%s · PALIER %s" % [String(br["name"]).to_upper(), Data.roman(open_tier(c))], 20, col.lightened(0.3))
-		hl.add_theme_font_override("font", UI.TITLE)
-		head.add_child(hl)
-		var st := next_step(c)
-		if int(st["target"]) > 0:
-			var pip := Control.new()
-			pip.custom_minimum_size = Vector2(40, 24)
-			pip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			pip.draw.connect(func(): _draw_pips(pip, Vector2(4, 12), int(st["have"]), int(st["need"]), col, 6.0))
-			head.add_child(pip)
-		var flow := HFlowContainer.new()
-		flow.add_theme_constant_override("h_separation", 10)
-		flow.add_theme_constant_override("v_separation", 6)
-		v.add_child(flow)
-		for id in g["ids"]:
-			flow.add_child(_power_chip(String(id), col, hero.lv(String(id)), int(Data.power(String(id))["max"]), false, short))
-	return pan
-
-## Hauteur estimée des blocs de branche (pour choisir niveaux courts / défilement).
-static func _groups_h(hero: Node, groups: Array, inner_w: float, short: bool) -> float:
-	var h := 0.0
-	for g in groups:
-		var rows := 1
-		var x := 0.0
-		for id in g["ids"]:
-			var cw := 42.0 + UI.BODY.get_string_size(_lv_text(hero.lv(String(id)), int(Data.power(String(id))["max"]), short), HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-			if x > 0.0 and x + cw > inner_w:
-				rows += 1
-				x = 0.0
-			x += cw + 10.0
-		h += 28.0 + 8.0 + rows * 38.0 + (rows - 1) * 6.0 + 8.0
-	return h
-
-static func _lv_text(l: int, mx: int, short: bool) -> String:
-	if short:
-		return Data.roman(l) if l > 0 else "0"
-	return ("%s/%s" % [Data.roman(l), Data.roman(mx)]) if l > 0 else "0/%s" % Data.roman(mx)
-
-## Évolutions en préparation, à droite de la pause : nom, avancement « 1/2 » (pouvoirs de la recette au
-## maximum), PRÊTE ou PRISE ; dessous la recette, pictogrammes et niveaux. Autant de lignes que `max_h` permet.
-static func evo_panel(hero: Node, w: float, max_h: float) -> PanelContainer:
-	UI.load_fonts()
-	var gold: Color = Data.EVO_COL
-	var pan := _side_panel(gold)
-	pan.custom_minimum_size = Vector2(w, 0)
-	var v := UI.vbox(10)
-	pan.add_child(v)
-	v.add_child(UI.title("ÉVOLUTIONS", 26, gold.lightened(0.15), UI.ORANGE))
-	var list := evo_progress(hero)
-	if list.is_empty():
-		var e := UI.label("Deux pouvoirs précis au maximum ouvrent une évolution : voir POUVOIRS au Relais.", 22, SOFT)
-		e.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		e.custom_minimum_size = Vector2(w - 36, 0)
-		v.add_child(e)
-		return pan
-	v.add_child(UI.label("1/2 : pouvoirs de la recette au maximum", 20, SOFT))
-	var used := 30.0 + 42.0 + 34.0
-	var shown := 0
-	for it in list:
-		var ev: Dictionary = it["ev"]
-		# hauteur de la ligne : nom, puis recette sur une ou deux lignes
-		var need: Array = ev["need"]
-		var rw := 0.0
-		for id in need:
-			rw += 42.0 + 14.0 + UI.BODY.get_string_size(String(Data.power(String(id))["name"]) + " " + _lv_text(hero.lv(String(id)), int(Data.power(String(id))["max"]), false), HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-		var rh := 28.0 + 4.0 + (38.0 if rw <= w - 36.0 else 80.0) + 10.0
-		if used + rh > max_h - 30.0 and shown > 0:
-			break
-		used += rh
-		shown += 1
-		var row := UI.vbox(4)
-		v.add_child(row)
-		var h1 := UI.hbox(8)
-		row.add_child(h1)
-		var nm := UI.label(String(ev["name"]).to_upper(), 20, gold.lightened(0.2))
-		nm.add_theme_font_override("font", UI.TITLE)
-		nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		h1.add_child(nm)
-		var state := "%d/2" % int(it["k"])
-		var scol := Color("#2A3F6E")
-		var fcol := UI.TEXT
-		if it["taken"]:
-			state = "PRISE"
-			scol = gold
-			fcol = UI.INK
-		elif int(it["k"]) >= 2:
-			state = "PRÊTE"
-			scol = gold
-			fcol = UI.INK
-		h1.add_child(UI.tag(state, scol, fcol, 20))
-		var h2 := HFlowContainer.new()
-		h2.add_theme_constant_override("h_separation", 14)
-		h2.add_theme_constant_override("v_separation", 4)
-		row.add_child(h2)
-		for id in need:
-			var p := Data.power(String(id))
-			h2.add_child(_power_chip(String(id), Data.branch(String(p["b"]))["col"], hero.lv(String(id)), int(p["max"]), true))
-	if list.size() > shown:
-		var more := list.size() - shown
-		v.add_child(UI.label("+ %d autre%s en préparation" % [more, "s" if more > 1 else ""], 20, SOFT))
-	return pan
-
+## Panneau de la pause : fond sombre opaque, liseré fin, un trait de couleur en haut.
 static func _side_panel(col: Color) -> PanelContainer:
 	var pan := PanelContainer.new()
-	var st := UI.flat(Color("#0D1830", 0.94), Color(col, 0.45), 18, 2)
-	st.border_width_top = 5
-	st.border_color = col
-	st.content_margin_left = 18
-	st.content_margin_right = 18
+	var st := UI.flat(PANEL_BG, Color(col, 0.35), 20, 2)
+	st.border_width_top = 4
+	st.content_margin_left = PAD
+	st.content_margin_right = PAD
 	st.content_margin_top = 14
-	st.content_margin_bottom = 16
+	st.content_margin_bottom = PAD
+	st.shadow_color = Color(0, 0, 0, 0.5)
+	st.shadow_size = 14
 	pan.add_theme_stylebox_override("panel", st)
 	pan.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return pan
 
-## Pouvoir pris : pictogramme dans un anneau, niveau « II/III » à côté (doré au maximum). `wide` : nom
-## complet en plus (recettes d'évolution).
-static func _power_chip(id: String, col: Color, l: int, mx: int, wide: bool = false, short: bool = false) -> HBoxContainer:
-	var h := UI.hbox(4)
-	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var ring := Panel.new()
-	ring.custom_minimum_size = Vector2(38, 38)
-	ring.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	ring.add_theme_stylebox_override("panel", UI.flat(Color(col, 0.16 if l > 0 else 0.05), Color(col, 0.9 if l > 0 else 0.35), 19, 2))
-	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	h.add_child(ring)
-	var ic := Icon.new(id, col.lightened(0.15) if l > 0 else Color(col, 0.45), 26.0)
-	ic.position = Vector2(6, 6)
-	ring.add_child(ic)
-	var full := l >= mx
-	var txt := _lv_text(l, mx, short)
-	if wide:
-		txt = String(Data.power(id)["name"]) + " " + txt
-	var lb := UI.label(txt, 20, UI.GOLD if full else UI.TEXT)
-	lb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	h.add_child(lb)
-	return h
+## Petit titre discret en haut d'un panneau.
+static func _caption(text: String, col: Color) -> Label:
+	var l := UI.label(text, 20, col)
+	l.add_theme_font_override("font", UI.TITLE)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+## Pictogramme dans un disque sombre cerclé de `col` (taille `s`).
+static func _disc(icon: String, col: Color, s: float, ring: float = 3.0) -> Panel:
+	var d := Panel.new()
+	d.custom_minimum_size = Vector2(s, s)
+	d.size = Vector2(s, s)
+	d.add_theme_stylebox_override("panel", UI.flat(col.darkened(0.66), col, int(s * 0.5), int(ring)))
+	d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ic := Icon.new(icon, col.lightened(0.2), s * 0.6)
+	ic.position = Vector2.ONE * s * 0.2
+	d.add_child(ic)
+	return d
+
+## Pastilles de niveau : `l` pleines sur `mx` (au plus 5), centrées sur `cx`.
+static func _draw_pips(ci: CanvasItem, cx: float, y: float, l: int, mx: int, col: Color, r: float) -> void:
+	var n := mini(mx, 5)
+	var step := r * 2.0 + 5.0
+	var x0 := cx - (n - 1) * step * 0.5
+	for i in range(n):
+		var c := Vector2(x0 + i * step, y)
+		if i < l:
+			ci.draw_circle(c, r, col.lightened(0.2))
+		else:
+			ci.draw_arc(c, r - 1.0, 0, TAU, 16, Color(col, 0.55), 2.0, true)
+
+## Coche dessinée (les polices n'ont pas le caractère), dans une pastille dorée.
+static func _draw_check_badge(ci: CanvasItem, c: Vector2, r: float) -> void:
+	ci.draw_circle(c, r + 2.0, UI.INK)
+	ci.draw_circle(c, r, UI.GOLD)
+	ci.draw_polyline(PackedVector2Array([c + Vector2(-0.45, 0.02) * r, c + Vector2(-0.1, 0.38) * r, c + Vector2(0.5, -0.36) * r]), UI.INK, r * 0.3, true)
+
+## Pause, à gauche : TES POUVOIRS, une grille de pictogrammes (évolutions prises d'abord, en doré, puis les
+## pouvoirs par branche), pastilles de niveau dessous ; aucun nom, aucun chiffre. Toucher un pictogramme montre
+## son nom et son effet dans une bulle. Les pictogrammes prennent la plus grande taille (76 à 56 px) qui tient
+## dans `max_h` ; au-delà, la grille défile.
+static func powers_panel(hero: Node, w: float, max_h: float) -> PanelContainer:
+	UI.load_fonts()
+	var pan := _side_panel(Color("#8FA6C8"))
+	pan.custom_minimum_size = Vector2(w, 0)
+	var v := UI.vbox(14)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pan.add_child(v)
+	v.add_child(_caption("TES POUVOIRS", SOFT))
+	var items := []
+	for ev in Data.EVOLUTIONS:
+		if hero.has_evo(String(ev["id"])):
+			items.append({"icon": String(ev["icon"]), "col": Data.EVO_COL, "l": 0, "mx": 0, "name": String(ev["name"]), "text": String(ev["desc"])})
+	for bid in Data.BRANCH_ORDER:
+		for p in Data.POWERS:
+			var id := String(p["id"])
+			if String(p["b"]) == String(bid) and hero.lv(id) > 0:
+				items.append({"icon": id, "col": Data.branch(String(bid))["col"], "l": hero.lv(id), "mx": int(p["max"]), "name": String(p["name"]), "text": Data.power_text(p, hero.lv(id))})
+	if items.is_empty():
+		v.add_child(UI.label("Aucun pour l'instant", 22, SOFT))
+		return pan
+	var inner := w - PAD * 2.0
+	var avail := max_h - 14.0 - PAD - 28.0 - 14.0
+	var gap := 12.0
+	var t := 56.0
+	var cols := 1
+	var fits := false
+	for s in [76.0, 68.0, 62.0, 56.0]:
+		var g := 14.0 if s > 62.0 else 10.0
+		var c := maxi(1, int((inner + g) / (s + g)))
+		var rows := ceili(float(items.size()) / c)
+		t = s
+		gap = g
+		cols = c
+		if rows * (s + 18.0) + (rows - 1) * g <= avail:
+			fits = true
+			break
+	var grid := GridContainer.new()
+	grid.columns = cols
+	grid.add_theme_constant_override("h_separation", int(gap))
+	grid.add_theme_constant_override("v_separation", int(gap))
+	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if fits:
+		v.add_child(grid)
+	else:
+		var sc := ScrollContainer.new()
+		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		sc.custom_minimum_size = Vector2(inner, avail)
+		sc.mouse_filter = Control.MOUSE_FILTER_PASS
+		v.add_child(sc)
+		sc.add_child(grid)
+		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		TouchScroll.attach(sc)
+	for it in items:
+		grid.add_child(_power_tile(pan, it, t))
+	return pan
+
+## Un pouvoir pris : grand pictogramme cerclé de sa couleur de branche, pastilles de niveau dessous.
+static func _power_tile(pan: Control, it: Dictionary, t: float) -> Control:
+	var col: Color = it["col"]
+	var is_evo := int(it["mx"]) == 0
+	var tile := Control.new()
+	tile.custom_minimum_size = Vector2(t, t + 18.0)
+	tile.mouse_filter = Control.MOUSE_FILTER_STOP
+	var d := _disc(String(it["icon"]), col, t, 4.0 if is_evo else 3.0)
+	tile.add_child(d)
+	if not is_evo:
+		var r := clampf(t * 0.075, 4.0, 5.5)
+		tile.draw.connect(func(): _draw_pips(tile, t * 0.5, t + 10.0, int(it["l"]), int(it["mx"]), col, r))
+	tile.gui_input.connect(func(e: InputEvent):
+		var tap: bool = (e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT) or (e is InputEventScreenTouch and e.pressed)
+		if tap:
+			_bubble(pan, tile, it))
+	return tile
+
+## Bulle d'un pictogramme touché : nom et effet, 2,5 s, une seule à la fois.
+static func _bubble(pan: Control, tile: Control, it: Dictionary) -> void:
+	var old = pan.get_meta("bubble") if pan.has_meta("bubble") else null
+	if old != null and is_instance_valid(old):
+		if old.get_meta("for") == tile:
+			return
+		old.queue_free()
+	var col: Color = it["col"]
+	var b := PanelContainer.new()
+	var st := UI.flat(Color("#060C1C"), col, 14, 3)
+	st.content_margin_left = 16
+	st.content_margin_right = 16
+	st.content_margin_top = 10
+	st.content_margin_bottom = 12
+	st.shadow_color = Color(0, 0, 0, 0.6)
+	st.shadow_size = 12
+	b.add_theme_stylebox_override("panel", st)
+	b.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.top_level = true
+	b.set_meta("for", tile)
+	var v := UI.vbox(2)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(v)
+	var n := UI.title(String(it["name"]), 24, UI.TEXT, col)
+	n.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(n)
+	var tx := UI.label(String(it["text"]), 20, SOFT)
+	tx.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tx.custom_minimum_size = Vector2(260, 0)
+	tx.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(tx)
+	pan.add_child(b)
+	pan.set_meta("bubble", b)
+	b.reset_size()
+	var vs := pan.get_viewport().get_visible_rect().size
+	var p := tile.global_position + Vector2(tile.size.x + 10.0, -6.0)
+	b.position = Vector2(clampf(p.x, 8.0, vs.x - b.size.x - 8.0), clampf(p.y, 8.0, vs.y - b.size.y - 8.0))
+	b.modulate.a = 0.0
+	var tw := b.create_tween()
+	tw.tween_property(b, "modulate:a", 1.0, 0.12)
+	tw.tween_interval(2.5)
+	tw.tween_property(b, "modulate:a", 0.0, 0.25)
+	tw.tween_callback(b.queue_free)
+
+## Pause, à droite : l'évolution la plus proche seulement (null si aucune n'est commencée). Grand pictogramme,
+## son nom, ses deux ingrédients (coche au maximum, sinon pastilles de niveau) et une phrase courte.
+static func evo_panel(hero: Node, w: float) -> PanelContainer:
+	var it := next_evo(hero)
+	if it.is_empty():
+		return null
+	UI.load_fonts()
+	var gold: Color = Data.EVO_COL
+	var ev: Dictionary = it["ev"]
+	var ready := int(it["k"]) >= 2
+	var pan := _side_panel(gold)
+	pan.custom_minimum_size = Vector2(w, 0)
+	var v := UI.vbox(10)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pan.add_child(v)
+	var cap := _caption("ÉVOLUTION PRÊTE" if ready else "PROCHAINE ÉVOLUTION", gold.lightened(0.1) if ready else SOFT)
+	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(cap)
+	var big := _disc(String(ev["icon"]), gold, 112.0, 5.0)
+	big.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(big)
+	var nm := UI.title(String(ev["name"]).to_upper(), 28, UI.TEXT, UI.ORANGE, HORIZONTAL_ALIGNMENT_CENTER)
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	nm.custom_minimum_size = Vector2(w - PAD * 2.0, 0)
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(nm)
+	# recette : deux ingrédients et un « + »
+	var row := UI.hbox(14)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(row)
+	var missing := []
+	var need: Array = ev["need"]
+	for j in range(2):
+		var id := String(need[j])
+		var p := Data.power(id)
+		var col: Color = Data.branch(String(p["b"]))["col"]
+		var l: int = hero.lv(id)
+		var mx := int(p["max"])
+		if l < mx:
+			missing.append(String(p["name"]))
+		const S := 68.0
+		var cell := Control.new()
+		cell.custom_minimum_size = Vector2(S, S + 20.0)
+		cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var d := _disc(id, col if l > 0 else col.darkened(0.35), S)
+		if l <= 0:
+			d.modulate = Color(1, 1, 1, 0.55)
+		cell.add_child(d)
+		var deco := Control.new()
+		deco.size = cell.custom_minimum_size
+		deco.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		deco.draw.connect(func():
+			if l >= mx:
+				_draw_check_badge(deco, Vector2(S - 8.0, S - 8.0), 13.0)
+			else:
+				_draw_pips(deco, S * 0.5, S + 11.0, l, mx, col, 5.0))
+		cell.add_child(deco)
+		row.add_child(cell)
+		if j == 0:
+			var plus := UI.title("+", 34, UI.TEXT, UI.INK)
+			plus.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+			plus.custom_minimum_size = Vector2(0, S)
+			plus.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			plus.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			row.add_child(plus)
+	# une phrase de 5 mots au plus
+	var say := "Elle sortira au prochain choix"
+	if missing.size() == 1:
+		say = "Monte %s au max" % String(missing[0])
+	elif missing.size() == 2:
+		say = "Monte les deux au max"
+	var sl := UI.label(say, 22, gold.lightened(0.25) if ready else SOFT, HORIZONTAL_ALIGNMENT_CENTER)
+	sl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sl.custom_minimum_size = Vector2(w - PAD * 2.0, 0)
+	sl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(sl)
+	return pan

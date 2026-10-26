@@ -1053,16 +1053,11 @@ func _power_cards(deal: Array, bonus: bool, n: int) -> void:
 	if has_evo:
 		sub = "Une évolution est prête !"
 	var head := _deal_overlay(title, sub, UI.GOLD if (bonus or has_evo) else UI.ACCENT)
-	# où en est chaque branche : pastilles vers le prochain palier (scripts/ui/build_view.gd)
-	var bar := BuildView.branch_bar(hero)
-	bar.position = Vector2((vs.x - bar.size.x) * 0.5, head + 2.0)
-	overlay.add_child(bar)
-	Fx.rise_in(bar, 0.25)
-	var top := head + 60.0
-	var gap := 30.0 if deal.size() <= 3 else 18.0
-	# cartes hautes : l'effet, puis ce que le choix apporte (palier, évolution) en bas de la carte
+	var top := head + 22.0
+	var gap := 34.0 if deal.size() <= 3 else 18.0
+	# cartes hautes : l'effet, et au plus une ligne dorée en bas (scripts/ui/build_view.gd card_gain)
 	var avail := vs.y - top - (82.0 if _rerolls > 0 else 14.0) - 18.0
-	var cs := Vector2(264, clampf(avail, 330.0, 410.0))
+	var cs := Vector2(272, clampf(avail, 330.0, 420.0))
 	var room_w := (vs.x - 70.0 - gap * (deal.size() - 1)) / deal.size()
 	if room_w < cs.x:
 		cs.x = room_w
@@ -1074,7 +1069,7 @@ func _power_cards(deal: Array, bonus: bool, n: int) -> void:
 		var is_evo: bool = entry["evo"]
 		var id := String(p["id"])
 		var level: int = 1 if is_evo else hero.lv(id) + 1
-		var sz := cs * (Vector2(1.07, 1.04) if is_evo else Vector2.ONE)
+		var sz := cs * (Vector2(1.12, 1.07) if is_evo else Vector2.ONE)
 		var b: Button = CardScript.new()
 		b.setup_power(p, level, is_evo, sz, [] if is_evo else BuildView.card_gain(hero, p, level))
 		overlay.add_child(b)
@@ -1108,8 +1103,8 @@ func _power_cards(deal: Array, bonus: bool, n: int) -> void:
 			tw.tween_callback(func():
 				if overlay == ov:
 					var label := String(p["name"]).to_upper()
-					if not is_evo and int(p["max"]) > 1:
-						label += " " + Data.roman(level)
+					if not is_evo and level > 1:
+						label += "  NIV. %d" % level
 					hud.flash(label, 1.6 if is_evo else 1.4, Data.EVO_COL if is_evo else Data.branch(String(p["b"]))["col"])
 					_announce_unlocks(opened)
 					_resume()
@@ -1127,20 +1122,26 @@ func _power_cards(deal: Array, bonus: bool, n: int) -> void:
 		overlay.add_child(rr)
 		Fx.rise_in(rr, 0.9, 0.3, 0.6)
 
-## Après un choix : bandeau court pour chaque palier qui vient de s'ouvrir (avec les pictogrammes des nouveaux
-## pouvoirs possibles) et chaque évolution devenue prête (doré). Chez l'invité du duo aussi : `hero` est son Jo.
+## Après un choix : un bandeau court par déblocage, l'un après l'autre (2 s chacun) : « NOUVEAUX POUVOIRS ·
+## MOUVEMENT » et trois pictogrammes, ou « ÉVOLUTION PRÊTE ! » et le sien. Évolution d'abord. Chez l'invité du
+## duo aussi : `hero` est son Jo.
 func _announce_unlocks(opened: Array) -> void:
-	var i := 0
+	var order := []
+	for u in opened:
+		if String(u["kind"]) == "evo":
+			order.append(u)
 	for u in opened:
 		if String(u["kind"]) == "tier":
+			order.append(u)
+	for i in range(order.size()):
+		var u: Dictionary = order[i]
+		if String(u["kind"]) == "tier":
 			var br := Data.branch(String(u["b"]))
-			hud.unlock_banner("PALIER %s OUVERT · %s" % [Data.roman(int(u["tier"])), String(br["name"]).to_upper()],
-				br["col"], BuildView.tier_icons(String(u["b"]), int(u["tier"])), "Nouveaux pouvoirs possibles :", false, i)
+			hud.unlock_banner("NOUVEAUX POUVOIRS · %s" % String(br["name"]).to_upper(), br["col"],
+				BuildView.tier_icons(String(u["b"]), int(u["tier"])), false, i)
 		else:
 			var ev := Data.evolution(String(u["id"]))
-			hud.unlock_banner("ÉVOLUTION PRÊTE : %s" % String(ev["name"]).to_upper(), Data.EVO_COL, [String(ev["icon"])],
-				"Elle peut sortir dès le prochain choix", true, i)
-		i += 1
+			hud.unlock_banner("ÉVOLUTION PRÊTE !", Data.EVO_COL, [String(ev["icon"])], true, i)
 
 ## Fond des overlays à cartes : voile, halo coloré au centre, titre tamponné, sous-titre. Renvoie le bas du titre.
 func _deal_overlay(title: String, subtitle: String, col: Color) -> float:
@@ -1332,9 +1333,9 @@ func _show_pause() -> void:
 	Fx.rise_in(q, 0.12)
 	_pause_build()
 
-## Pause : rappel du build de part et d'autre du menu (scripts/ui/build_view.gd) ; à gauche les pouvoirs pris,
-## groupés par branche avec leur niveau et le palier ouvert ; à droite les évolutions en préparation (« 1/2 »).
-## Rien de cliquable : le robot et le doigt ne touchent que les boutons du menu.
+## Pause : rappel du build de part et d'autre du menu (scripts/ui/build_view.gd) ; à gauche TES POUVOIRS, une
+## grille de pictogrammes avec pastilles de niveau (toucher : nom et effet en bulle, aucun bouton pour le
+## robot) ; à droite seulement l'évolution la plus proche, rien si aucune n'est commencée.
 func _pause_build() -> void:
 	var vs := get_viewport().get_visible_rect().size
 	var ins := UI.safe_insets(get_viewport())
@@ -1344,15 +1345,16 @@ func _pause_build() -> void:
 		return
 	var top := 112.0
 	var max_h := vs.y - top - float(ins["bottom"]) - 8.0
-	var bp := BuildView.build_panel(hero, w, max_h)
+	var bp := BuildView.powers_panel(hero, w, max_h)
 	bp.position = Vector2(float(ins["left"]), top)
 	overlay.add_child(bp)
-	var ep := BuildView.evo_panel(hero, w, max_h)
-	overlay.add_child(ep)
-	ep.reset_size()
-	ep.position = Vector2(vs.x - float(ins["right"]) - ep.size.x, top)
 	Fx.slide_in(bp, Vector2(-60, 0), 0.08, 0.3)
-	Fx.slide_in(ep, Vector2(60, 0), 0.12, 0.3)
+	var ep := BuildView.evo_panel(hero, minf(w, 330.0))
+	if ep != null:
+		overlay.add_child(ep)
+		ep.reset_size()
+		ep.position = Vector2(vs.x - float(ins["right"]) - ep.size.x, top)
+		Fx.slide_in(ep, Vector2(60, 0), 0.12, 0.3)
 
 ## Mode développeur : panneau à droite, sans voile, la partie reste visible derrière (en pause) pour régler
 ## la caméra et les tailles à l'œil ; cadence 60 / 120 i/s et compteur. Les valeurs s'affichent pour être notées.

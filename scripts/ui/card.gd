@@ -2,7 +2,8 @@ extends Button
 ## Carte à jouer (pouvoir, objet trouvé) : distribuée en éventail face cachée, se retourne, rebondit.
 ## La rareté se lit à la couleur (bordure, bandeau, halo), à la lueur qui pulse et aux étincelles qui montent.
 ## Carte de pouvoir (`setup_power`) : couleur et pictogramme de sa branche, palier (éclat qui monte avec lui),
-## niveau en chiffres romains ; carte d'évolution : légendaire dorée, ruban ÉVOLUTION, recette, liseré qui court.
+## niveau en chiffres (NIV. 2) ; carte d'évolution : légendaire dorée, ruban ÉVOLUTION, recette en deux
+## pictogrammes, liseré qui court.
 ## Tout est dessiné en code (styleboxes, polygones, quelques labels) ; aucune particule 2D, aucun nœud par frame.
 
 const UI = preload("res://scripts/ui.gd")
@@ -15,7 +16,7 @@ const TIER_COLORS := [Color("#9FB3C8"), Color("#3CF2D8"), Color("#C77DFF"), Colo
 const POWER_TIER_NAMES := ["COMMUN", "RARE", "ÉPIQUE", "LÉGENDAIRE"]
 const Data = preload("res://scripts/data.gd")
 const SPARKS := [0, 7, 12, 18]
-const GAIN_FS := 22  # cartouche « ce que ça débloque » des cartes du choix
+const GAIN_FS := 21  # ruban doré « Débloque de nouveaux pouvoirs » des cartes du choix
 
 var tier := 0
 var accent := Color.WHITE
@@ -34,27 +35,25 @@ var evo := false  # carte d'évolution : liseré doré qui court autour
 var item := {}
 
 ## Carte de pouvoir : `p` est une entrée de Data.POWERS (ou Data.EVOLUTIONS si `is_evo`), `level` le niveau
-## qu'elle donne. `gain` (écran de choix, scripts/ui/build_view.gd card_gain) : lignes {text, col, strong} de ce
-## que la carte apporte en plus de son effet (palier, évolution), dans un cartouche en bas de la carte ; le coin
-## haut droit dit alors NOUVEAU ou NIV. I > II. Sans `gain` (planche du robot) : l'ancienne mise en page.
+## qu'elle donne. `gain` (écran de choix, scripts/ui/build_view.gd card_gain) : au plus une ligne {text} dite en
+## ruban doré en bas de la carte (« Débloque de nouveaux pouvoirs », « Prépare une évolution ») ; le coin haut
+## droit dit NOUVEAU ou NIV. 2 ; ni pastille de branche ni palier. Sans `gain` (planche du robot) : l'ancienne
+## mise en page.
 func setup_power(p: Dictionary, level: int, is_evo: bool, card_size: Vector2, gain = null) -> void:
 	if is_evo:
 		evo = true
-		var need: Array = p["need"]
-		var recipe := "%s + %s" % [Data.power(String(need[0]))["name"], Data.power(String(need[1]))["name"]]
-		setup(String(p["icon"]), String(p["name"]), String(p["desc"]), 3, "LÉGENDAIRE", "", card_size, Data.EVO_COL, {"recipe": recipe, "branch_icon": "star"})
+		setup(String(p["icon"]), String(p["name"]), String(p["desc"]), 3, "", "", card_size, Data.EVO_COL, {"recipe_ids": p["need"]})
 		return
 	var br := Data.branch(String(p["b"]))
 	var palier := int(p["tier"])
-	var info := {"branch_icon": String(br["icon"]), "pips": palier}
-	var badge := "NIV. " + Data.roman(level)
 	if gain is Array:
-		info["gain"] = gain
-		info["level"] = level
-		badge = ""
+		# écran de choix : NOUVEAU / NIV. 2 en haut, au plus une ligne dorée en bas, rien d'autre
+		setup(String(p["id"]), String(p["name"]), Data.power_text(p, level), palier - 1, "", "", card_size, br["col"],
+			{"gain": gain, "level": level})
+		return
 	setup(String(p["id"]), String(p["name"]), Data.power_text(p, level), palier - 1,
-		"%s · PALIER %s" % [String(br["name"]).to_upper(), Data.roman(palier)],
-		badge, card_size, br["col"], info)
+		"%s · PALIER %d" % [String(br["name"]).to_upper(), palier],
+		"NIV. %d" % level, card_size, br["col"], {"branch_icon": String(br["icon"]), "pips": palier})
 
 func setup(icon_kind: String, title_text: String, body_text: String, tier_i: int, tier_name: String, badge: String = "", card_size: Vector2 = Vector2(264, 356), col: Color = Color(0, 0, 0, 0), info: Dictionary = {}) -> void:
 	UI.load_fonts()
@@ -156,21 +155,26 @@ func _build_face(sz: Vector2, icon_kind: String, title_text: String, body_text: 
 	# cartouche « ce que ça débloque » (écran de choix) : calé en bas ; le texte et l'illustration se tassent
 	var gain: Array = info.get("gain", [])
 	var plate_h := 0.0
-	var gain_h := []
+	var reserve := 0.0  # place du ruban doré, gardée même vide : les cartes d'un même choix se ressemblent
 	var text_w := sz.x - 40.0
 	var fs := 21 if body_text.length() < 64 else 18
 	if info.has("gain"):
-		fs = 21 if body_text.length() < 64 else 20
+		# au plus une ligne (scripts/ui/build_view.gd card_gain), dans un ruban doré plein en bas de la carte
+		gain = gain.slice(0, 1)
+		fs = 22 if body_text.length() < 64 else 20
 		for g in gain:
-			var gh := UI.BODY.get_multiline_string_size(String(g["text"]), HORIZONTAL_ALIGNMENT_CENTER, text_w, GAIN_FS).y
-			gain_h.append(gh)
-			plate_h += gh
-		if not gain.is_empty():
-			plate_h += 18.0 + 4.0 * (gain.size() - 1)
+			var gh := UI.TITLE.get_multiline_string_size(String(g["text"]), HORIZONTAL_ALIGNMENT_CENTER, text_w, GAIN_FS).y
+			plate_h += gh + 16.0
 		var desc_h := UI.BODY.get_multiline_string_size(body_text, HORIZONTAL_ALIGNMENT_CENTER, sz.x - 36.0, fs).y * 0.92
-		var bottom := sz.y - 13.0 - (plate_h + 8.0 if plate_h > 0.0 else 44.0)
-		art_h = clampf(bottom - desc_h - 50.0, sz.y * 0.3, sz.y * 0.42)
-		mr = clampf(art_h * 0.4, 44.0, 64.0)
+		reserve = maxf(plate_h, 46.0) + 8.0
+		var bottom := sz.y - 15.0 - reserve
+		art_h = clampf(bottom - desc_h - 52.0, sz.y * 0.36, sz.y * 0.48)
+		mr = clampf(art_h * 0.42, 48.0, 76.0)
+	elif info.has("recipe_ids"):
+		# évolution : la recette en deux pictogrammes en bas, à la place du texte
+		fs = 21 if body_text.length() < 64 else 19
+		art_h = sz.y * 0.45
+		mr = 76.0
 	var art := Control.new()
 	art.size = sz
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -248,7 +252,10 @@ func _build_face(sz: Vector2, icon_kind: String, title_text: String, body_text: 
 		c.add_child(rib)
 		rib.reset_size()
 		rib.position = Vector2((sz.x - rib.size.x) * 0.5, -14)
-	var name_l := UI.title(title_text, 27 if title_text.length() < 15 else 21, UI.TEXT, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	var name_fs := 27 if title_text.length() < 15 else 21
+	if evo:
+		name_fs = 31 if title_text.length() < 15 else 25
+	var name_l := UI.title(title_text, name_fs, UI.TEXT, accent, HORIZONTAL_ALIGNMENT_CENTER)
 	name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	name_l.custom_minimum_size = Vector2(sz.x - 24, 0)
 	name_l.position = Vector2(12, art_h + 6)
@@ -258,16 +265,6 @@ func _build_face(sz: Vector2, icon_kind: String, title_text: String, body_text: 
 	_name_label = name_l
 	if tier >= 2:
 		Fx.shine(name_l, sz.x, 2.2 if tier == 3 else 3.2, 0.7)
-	if info.has("recipe"):
-		# recette de l'évolution, juste au-dessus du bandeau
-		var rl := UI.label(String(info["recipe"]), 20, accent.lightened(0.2), HORIZONTAL_ALIGNMENT_CENTER)
-		rl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		rl.position = Vector2(10, sz.y - 104)
-		rl.size = Vector2(sz.x - 20, 52)
-		rl.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-		rl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		c.add_child(rl)
-		fs = 20 if body_text.length() < 64 else 18
 	var d := UI.label(body_text, fs, Color("#C4D2E4"), HORIZONTAL_ALIGNMENT_CENTER)
 	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	d.custom_minimum_size = Vector2(sz.x - 36, 0)
@@ -276,72 +273,69 @@ func _build_face(sz: Vector2, icon_kind: String, title_text: String, body_text: 
 	d.add_theme_constant_override("line_spacing", -3)
 	d.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	c.add_child(d)
-	if plate_h > 0.0:
-		# cartouche : ce que la carte apporte en plus de son effet (palier, évolution)
-		var py := sz.y - 13.0 - plate_h
-		d.position.y = art_h + 46.0
-		d.size.y = py - 4.0 - d.position.y
+	if info.has("recipe_ids"):
+		# recette de l'évolution : deux pictogrammes cerclés de la couleur de leur branche, « + » entre les deux
+		var need: Array = info["recipe_ids"]
+		var ds := 58.0
+		var ry := sz.y - 22.0 - ds
+		d.position.y = art_h + 48.0
+		d.size.y = ry - 8.0 - d.position.y
 		d.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		var strong := false
-		for g in gain:
-			strong = strong or bool(g["strong"])
-		var pl := Panel.new()
-		pl.position = Vector2(10, py)
-		pl.size = Vector2(sz.x - 20, plate_h)
-		pl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		pl.add_theme_stylebox_override("panel", UI.flat(Color(UI.INK, 0.72), Color(UI.GOLD if strong else accent, 0.8 if strong else 0.4), 12, 2))
-		c.add_child(pl)
-		var y := 8.0
-		for i in range(gain.size()):
-			var g: Dictionary = gain[i]
-			var gl := UI.label(String(g["text"]), GAIN_FS, g["col"], HORIZONTAL_ALIGNMENT_CENTER)
+		for j in range(2):
+			var pp := Data.power(String(need[j]))
+			var pc: Color = Data.branch(String(pp["b"]))["col"]
+			var disc := Panel.new()
+			disc.size = Vector2(ds, ds)
+			disc.position = Vector2(sz.x * 0.5 + (j * 2 - 1) * (ds * 0.5 + 22.0) - ds * 0.5, ry)
+			disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			disc.add_theme_stylebox_override("panel", UI.flat(pc.darkened(0.62), pc, int(ds * 0.5), 3))
+			c.add_child(disc)
+			var di := Icon.new(String(need[j]), pc.lightened(0.2), ds * 0.62)
+			di.position = Vector2.ONE * ds * 0.19
+			disc.add_child(di)
+		var plus := UI.title("+", 34, UI.TEXT, UI.INK, HORIZONTAL_ALIGNMENT_CENTER)
+		plus.position = Vector2(sz.x * 0.5 - 20.0, ry + ds * 0.5 - 24.0)
+		plus.size = Vector2(40, 44)
+		plus.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		c.add_child(plus)
+	elif info.has("gain"):
+		d.position.y = art_h + 48.0
+		d.size.y = sz.y - 15.0 - reserve - d.position.y
+		d.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		if plate_h > 0.0:
+			# ruban doré plein : « Débloque de nouveaux pouvoirs » ou « Prépare une évolution »
+			var py := sz.y - 15.0 - plate_h
+			var pl := Panel.new()
+			pl.position = Vector2(12, py)
+			pl.size = Vector2(sz.x - 24, plate_h)
+			pl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var ps := UI.flat(UI.GOLD, UI.GOLD.lightened(0.35), 14, 2)
+			ps.shadow_color = Color(UI.GOLD, 0.35)
+			ps.shadow_size = 8
+			pl.add_theme_stylebox_override("panel", ps)
+			c.add_child(pl)
+			var gl := UI.label(String(gain[0]["text"]), GAIN_FS, UI.INK, HORIZONTAL_ALIGNMENT_CENTER)
+			gl.add_theme_font_override("font", UI.TITLE)
 			gl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			gl.position = Vector2(10, y)
-			gl.size = Vector2(text_w, float(gain_h[i]))
-			gl.add_theme_constant_override("line_spacing", -2)
+			gl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			gl.position = Vector2(4, 0)
+			gl.size = Vector2(pl.size.x - 8, plate_h)
+			gl.add_theme_constant_override("line_spacing", -3)
 			gl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			pl.add_child(gl)
-			y += float(gain_h[i]) + 4.0
 	elif tier_name != "":
-		var rt := UI.tag(tier_name, accent, UI.INK, 20 if info.has("gain") else 17)
+		var rt := UI.tag(tier_name, accent, UI.INK, 17)
 		c.add_child(rt)
 		rt.reset_size()
 		rt.position = Vector2((sz.x - rt.size.x) * 0.5, sz.y - 46)
 		c.set_meta("tier_tag", rt)
 	return c
 
-## Coin haut droit d'une carte du choix : NOUVEAU (pouvoir pas encore pris) ou NIV. I > II (flèche dessinée :
-## les polices n'ont pas le caractère).
+## Coin haut droit d'une carte du choix : NOUVEAU (pouvoir pas encore pris) ou NIV. 2, en gros.
 func _level_badge(level: int) -> PanelContainer:
 	if level <= 1:
-		return UI.tag("NOUVEAU", UI.GOLD, UI.INK, 20)
-	var p := PanelContainer.new()
-	var s := UI.flat(accent.lightened(0.1), accent, 10, 0)
-	s.content_margin_left = 10
-	s.content_margin_right = 10
-	s.content_margin_top = 1
-	s.content_margin_bottom = 3
-	p.add_theme_stylebox_override("panel", s)
-	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var h := UI.hbox(5)
-	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	p.add_child(h)
-	for part in ["NIV. " + Data.roman(level - 1), ">", Data.roman(level)]:
-		if part == ">":
-			var ar := Control.new()
-			ar.custom_minimum_size = Vector2(12, 20)
-			ar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			ar.draw.connect(func():
-				var m := ar.size * 0.5 + Vector2(0, 1)
-				ar.draw_colored_polygon(PackedVector2Array([m + Vector2(-5, -7), m + Vector2(6, 0), m + Vector2(-5, 7)]), UI.INK))
-			h.add_child(ar)
-			continue
-		var l := UI.title(part, 20, UI.INK, accent)
-		l.add_theme_constant_override("outline_size", 0)
-		l.add_theme_constant_override("shadow_offset_y", 0)
-		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		h.add_child(l)
-	return p
+		return UI.tag("NOUVEAU", UI.GOLD, UI.INK, 22)
+	return UI.tag("NIV. %d" % level, accent.lightened(0.1), UI.INK, 24)
 
 # ---------------------------------------------------------------- animations
 ## Arrivée : part de `from` (bas de l'écran), file vers `to` en tournant jusqu'à `rot` (éventail).

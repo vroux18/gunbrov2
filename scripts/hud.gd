@@ -117,59 +117,52 @@ func flash(text: String, t: float = 2.2, col: Color = Color.WHITE) -> void:
 	_message_t = t
 	_message_life = t
 
-## Bandeau de déblocage, sous l'annonce du pouvoir pris : « PALIER II OUVERT · MOUVEMENT » et les pictogrammes
-## des nouveaux pouvoirs possibles, ou « ÉVOLUTION PRÊTE : … » en doré. Quelques nœuds créés une fois, effacés
-## au bout de 2,8 s ; `slot` : rang quand plusieurs s'ouvrent d'un coup (empilés). Appelé par main.gd.
-func unlock_banner(text: String, col: Color, icons: Array, sub: String = "", gold: bool = false, slot: int = 0) -> void:
+## Bandeau de déblocage, sous l'annonce du pouvoir pris : « NOUVEAUX POUVOIRS · MOUVEMENT » et les grands
+## pictogrammes des nouveaux pouvoirs, ou « ÉVOLUTION PRÊTE ! » et le sien, en doré. Pas de phrase. Un seul à la
+## fois : `slot` (rang quand plusieurs s'ouvrent d'un coup) le fait attendre la fin du précédent ; chacun reste
+## 2 s. Quelques nœuds créés une fois, effacés ensuite. Appelé par main.gd.
+const BANNER_LIFE := 2.0
+func unlock_banner(text: String, col: Color, icons: Array, gold: bool = false, slot: int = 0) -> void:
 	var pan := PanelContainer.new()
-	var st := UI.flat(Color("#2A1B06", 0.92) if gold else Color(UI.INK, 0.88), col, 16, 3)
-	st.content_margin_left = 22
-	st.content_margin_right = 18
-	st.content_margin_top = 8
-	st.content_margin_bottom = 10
-	st.shadow_color = Color(col, 0.35) if gold else Color(0, 0, 0, 0.4)
-	st.shadow_size = 14 if gold else 8
+	var st := UI.flat(Color("#1E1405") if gold else Color("#0A1328"), col, 20, 3)
+	st.content_margin_left = 24
+	st.content_margin_right = 20
+	st.content_margin_top = 10
+	st.content_margin_bottom = 12
+	st.shadow_color = Color(col, 0.4) if gold else Color(0, 0, 0, 0.5)
+	st.shadow_size = 16 if gold else 10
 	pan.add_theme_stylebox_override("panel", st)
 	pan.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var h := UI.hbox(12)
+	var h := UI.hbox(14)
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pan.add_child(h)
-	var tv := UI.vbox(0)
-	tv.alignment = BoxContainer.ALIGNMENT_CENTER
-	tv.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	h.add_child(tv)
-	var t := UI.title(text, 28, UI.GOLD.lightened(0.2) if gold else col.lightened(0.3), Color(col, 0.6) if not gold else UI.ORANGE)
+	var t := UI.title(text, 30, UI.GOLD.lightened(0.2) if gold else UI.TEXT, UI.ORANGE if gold else Color(col, 0.7))
+	t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tv.add_child(t)
-	if sub != "":
-		var sl := UI.label(sub, 21, UI.TEXT)
-		sl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tv.add_child(sl)
+	h.add_child(t)
 	for id in icons:
 		var ring := Panel.new()
-		ring.custom_minimum_size = Vector2(54, 54)
+		ring.custom_minimum_size = Vector2(64, 64)
 		ring.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		ring.add_theme_stylebox_override("panel", UI.flat(Color(col, 0.2), col, 27, 3))
+		ring.add_theme_stylebox_override("panel", UI.flat(col.darkened(0.66), col, 32, 3))
 		ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var ic := Icon.new(String(id), col.lightened(0.25), 36.0)
-		ic.position = Vector2(9, 9)
+		var ic := Icon.new(String(id), col.lightened(0.2), 40.0)
+		ic.position = Vector2(12, 12)
 		ring.add_child(ic)
 		h.add_child(ring)
 	add_child(pan)
 	pan.reset_size()
 	var vs := _c.size
-	pan.position = Vector2((vs.x - pan.size.x) * 0.5, vs.y * 0.3 + 46.0 + slot * (pan.size.y + 10.0))
+	pan.position = Vector2((vs.x - pan.size.x) * 0.5, vs.y * 0.3 + 46.0)
 	pan.pivot_offset = pan.size * 0.5
 	pan.modulate.a = 0.0
 	pan.scale = Vector2.ONE * 0.7
 	var tw := pan.create_tween()
-	tw.tween_interval(0.2 + 0.3 * slot)
-	tw.set_parallel(true)
+	tw.tween_interval(0.2 + (BANNER_LIFE + 0.3) * slot)  # attend la fin du bandeau précédent
 	tw.tween_property(pan, "modulate:a", 1.0, 0.15)
-	tw.tween_property(pan, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.set_parallel(false)
-	tw.tween_interval(2.6)
-	tw.tween_property(pan, "modulate:a", 0.0, 0.3)
+	tw.parallel().tween_property(pan, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(BANNER_LIFE - 0.3)
+	tw.tween_property(pan, "modulate:a", 0.0, 0.25)
 	tw.tween_callback(pan.queue_free)
 
 func _process(dt: float) -> void:
